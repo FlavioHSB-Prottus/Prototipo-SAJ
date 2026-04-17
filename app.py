@@ -498,6 +498,22 @@ _RELATORIO_COLUMNS = [
 
 def _build_relatorio_query(tipo, data_inicial, data_final):
     """Retorna (sql, params) para o relatorio solicitado."""
+    params = [data_inicial, data_final]
+
+    if tipo == 'abertos':
+        sql = (
+            "SELECT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
+            "       p.nome_completo AS nome_devedor, MAX(o.data_arquivo) AS data_arquivo "
+            "FROM contrato c "
+            "INNER JOIN ocorrencia o ON c.id = o.id_contrato "
+            "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
+            "WHERE c.status = 'aberto' "
+            "  AND o.data_arquivo >= %s AND o.data_arquivo <= %s "
+            "GROUP BY c.id, c.grupo, c.cota, c.numero_contrato, c.status, p.nome_completo "
+            "ORDER BY data_arquivo, c.grupo, c.cota"
+        )
+        return sql, params
+
     base = (
         "SELECT DISTINCT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
         "       p.nome_completo AS nome_devedor, o.data_arquivo "
@@ -506,9 +522,7 @@ def _build_relatorio_query(tipo, data_inicial, data_final):
         "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
     )
 
-    if tipo == 'abertos':
-        where = "WHERE c.status = 'aberto' AND o.status = 'aberto'"
-    elif tipo == 'novos':
+    if tipo == 'novos':
         where = "WHERE o.status = 'aberto' AND o.descricao LIKE '%%novo%%'"
     elif tipo == 'pagos':
         where = "WHERE c.status = 'fechado' AND o.status = 'fechado'"
@@ -518,8 +532,6 @@ def _build_relatorio_query(tipo, data_inicial, data_final):
         where = "WHERE 1=1"
 
     where += " AND o.data_arquivo >= %s AND o.data_arquivo <= %s"
-    params = [data_inicial, data_final]
-
     sql = base + where + " ORDER BY o.data_arquivo, c.grupo, c.cota"
     return sql, params
 
