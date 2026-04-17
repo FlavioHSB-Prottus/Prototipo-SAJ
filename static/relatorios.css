@@ -1,0 +1,85 @@
+/* Specific spacings for Relatórios Form */
+.relatorio-form {
+    grid-template-columns: 2fr 1fr 1fr; /* 3 colunas já que removemos o quarto Select de status */
+    margin-bottom: 0;
+}
+
+@media (max-width: 1024px) {
+    .relatorio-form {
+        grid-template-columns: 1fr 1fr;
+    }
+    .rel-tipo {
+        grid-column: span 2;
+    }
+}
+
+/* Actions Footer for Reports */
+.export-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 24px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border-color);
+}
+
+.export-group {
+    display: flex;
+    gap: 12px;
+}
+
+@media (max-width: 768px) {
+    .export-actions {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 16px;
+    }
+    .export-group {
+        flex-direction: column;
+    }
+}
+
+/* Export Buttons Styling */
+.btn-export {
+    padding: 11px 20px;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.btn-export-excel {
+    background-color: #f0fdf4;
+    color: #166534; /* Darker green */
+    border: 1px solid #bbf7d0;
+}
+
+.btn-export-excel:hover {
+    background-color: #dcfce7;
+    box-shadow: 0 2px 4px rgba(22, 101, 52, 0.1);
+}
+
+.btn-export-pdf {
+    background-color: #fef2f2;
+    color: #991b1b; /* Darker red */
+    border: 1px solid #fecaca;
+}
+
+.btn-export-pdf:hover {
+    background-color: #fee2e2;
+    box-shadow: 0 2px 4px rgba(153, 27, 27, 0.1);
+}
+
+/* Text Utility Colors for the table */
+.text-danger {
+    color: #ef4444;
+}
+
+.text-success {
+    color: #10b981;
+}

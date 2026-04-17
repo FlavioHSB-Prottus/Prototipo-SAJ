@@ -1,0 +1,291 @@
+/* Agenda Layout Base */
+.agenda-wrapper {
+    padding: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+/* ================================= */
+/* 1. Calendário Grid                */
+/* ================================= */
+
+.calendar-card {
+    background-color: var(--card-bg);
+    border-radius: var(--border-radius);
+    padding: 32px;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-color);
+}
+
+.calendar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.month-title {
+    font-size: 1.4rem;
+    color: var(--primary-color);
+    font-weight: 700;
+    margin: 0;
+}
+
+.nav-btn {
+    background: #f1f5f9;
+    border: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    color: var(--primary-color);
+    cursor: pointer;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.nav-btn:hover {
+    background: #e2e8f0;
+    color: #3b82f6;
+}
+
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 12px;
+}
+
+.calendar-grid.headers {
+    margin-bottom: 12px;
+}
+
+.day-name {
+    text-align: center;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.calendar-day {
+    aspect-ratio: 1; /* Força quadrados simétricos */
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    font-size: 1.1rem;
+    font-weight: 500;
+    color: var(--text-main);
+    cursor: pointer;
+    transition: var(--transition);
+    position: relative;
+    padding-top: 10px; /* Acerta visual devido aos dots */
+}
+
+.calendar-day:hover:not(.empty) {
+    border-color: #3b82f6;
+    background-color: #eff6ff;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px rgba(59, 130, 246, 0.1);
+}
+
+.calendar-day.empty {
+    background-color: transparent;
+    border-color: transparent;
+    cursor: default;
+}
+
+.calendar-day.today {
+    background-color: #3b82f6; /* Azul JB */
+    color: #ffffff;
+    border-color: #3b82f6;
+    box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3);
+}
+
+/* Event Dots Container */
+.event-dots {
+    display: flex;
+    gap: 4px;
+    margin-top: 8px;
+    height: 6px; /* espaço fixo */
+}
+
+.dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+}
+
+.dot.red { background-color: #ef4444; }
+.dot.blue { background-color: #3b82f6; }
+.dot.yellow { background-color: #f59e0b; }
+.dot.white { background-color: #ffffff; /* para destacar no dia TODAY */ }
+
+/* ================================= */
+/* 2. Tasks / To-Do List             */
+/* ================================= */
+
+.tasks-card {
+    background-color: var(--card-bg);
+    border-radius: var(--border-radius);
+    padding: 32px;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-color);
+}
+
+.tasks-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    border-bottom: 2px solid #f1f5f9;
+    padding-bottom: 16px;
+}
+
+.tasks-header h3 {
+    margin: 0;
+    font-size: 1.15rem;
+    color: var(--primary-color);
+}
+
+.btn-new-task {
+    background-color: #3b82f6;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.btn-new-task:hover {
+    background-color: #2563eb;
+}
+
+.tasks-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.task-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 0;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.task-item:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.task-left {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    flex: 1; /* ocupa espaço disponível */
+}
+
+.task-checkbox {
+    width: 22px;
+    height: 22px;
+    cursor: pointer;
+    accent-color: #10b981; /* Cor do check verde clásssico */
+}
+
+.task-time {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #475569;
+    width: 80px; /* fix width for alignment */
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.task-info {
+    flex: 1;
+}
+
+.task-desc {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--text-main);
+    font-weight: 500;
+}
+
+.task-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+/* Badges Prioridade */
+.priority-badge {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+.p-alta { background-color: #fee2e2; color: #dc2626; }
+.p-media { background-color: #fef3c7; color: #d97706; }
+
+/* Botão Acessar Lateral */
+.btn-acessar {
+    background-color: transparent;
+    color: #3b82f6;
+    border: 1px solid #bfdbfe;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.btn-acessar:hover {
+    background-color: #eff6ff;
+    border-color: #3b82f6;
+}
+
+.btn-acessar.disabled {
+    color: #10b981;
+    border-color: #10b981;
+    background-color: #d1fae5;
+    cursor: default;
+}
+
+/* Estado de Completado */
+.completed-text {
+    text-decoration: line-through;
+    color: #94a3b8;
+}
+
+/* Responsividade Básica Agenda */
+@media (max-width: 1024px) {
+    .calendar-grid {
+        gap: 8px;
+    }
+    .calendar-day {
+        font-size: 0.95rem;
+    }
+    .task-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 16px;
+    }
+    .task-left {
+        width: 100%;
+    }
+    .task-right {
+        margin-left: 46px; /* Alinha com o texto ignorando checkbox */
+    }
+}

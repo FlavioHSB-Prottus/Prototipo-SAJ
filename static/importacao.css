@@ -1,0 +1,259 @@
+/* Estrutura Base */
+.import-wrapper {
+    padding: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.upload-card {
+    background-color: var(--card-bg);
+    border-radius: var(--border-radius);
+    padding: 32px;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-color);
+}
+
+.upload-card h3 {
+    margin: 0;
+    color: var(--primary-color);
+    font-size: 1.25rem;
+}
+
+.subtitle {
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    margin-bottom: 24px;
+    margin-top: 6px;
+}
+
+/* ================================ */
+/* DRAG AND DROP ZONE               */
+/* ================================ */
+.drop-zone {
+    border: 2px dashed #cbd5e1;
+    border-radius: 12px;
+    background-color: #f8fafc;
+    min-height: 220px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    transition: var(--transition);
+    text-align: center;
+}
+
+.drop-zone:hover, .drop-zone.dragover {
+    background-color: #eff6ff;
+    border-color: #3b82f6;
+}
+
+.drop-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 32px;
+}
+
+.cloud-icon {
+    font-size: 3rem;
+    color: #94a3b8;
+    transition: var(--transition);
+}
+
+.drop-zone:hover .cloud-icon {
+    color: #3b82f6;
+}
+
+.drop-content p {
+    font-size: 1.1rem;
+    font-weight: 500;
+    color: var(--primary-color);
+    margin: 0;
+}
+
+.file-format-hint {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+/* Estado de Arquivo Carregado */
+.file-loaded-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.file-icon {
+    font-size: 2.5rem;
+    color: #10b981; /* sucesso verde */
+}
+
+.file-loaded-state .filename {
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--primary-color);
+    margin: 0;
+}
+
+.filesize {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+/* Action Buttons */
+.upload-actions {
+    margin-top: 24px;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.btn-process {
+    background-color: #3b82f6;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.btn-process:hover:not(.disabled) {
+    background-color: #2563eb;
+    box-shadow: 0 4px 6px rgba(59, 130, 246, 0.2);
+}
+
+.btn-process.disabled {
+    background-color: #e2e8f0;
+    color: #94a3b8;
+    cursor: not-allowed;
+}
+
+/* ================================ */
+/* PROGRESS & TERMINAL PANEL        */
+/* ================================ */
+.processing-panel {
+    background-color: var(--card-bg);
+    border-radius: var(--border-radius);
+    padding: 32px;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-color);
+    animation: fadeIn 0.4s ease forwards;
+}
+
+.progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 12px;
+}
+
+.progress-header h4 {
+    margin: 0;
+    font-size: 1.05rem;
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+#progressPercentage {
+    font-weight: 700;
+    color: #3b82f6;
+    font-size: 1.2rem;
+}
+
+.progress-bar-container {
+    width: 100%;
+    height: 16px;
+    background-color: #e2e8f0;
+    border-radius: 20px;
+    overflow: hidden;
+    margin-bottom: 24px;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #3b82f6, #60a5fa);
+    border-radius: 20px;
+    transition: width 0.3s ease;
+    /* CSS Stripe Animation para progresso */
+    background-size: 1rem 1rem;
+    background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent);
+    animation: progress-stripes 1s linear infinite;
+}
+
+@keyframes progress-stripes {
+    from { background-position: 1rem 0; }
+    to { background-position: 0 0; }
+}
+
+/* Terminal System Log */
+.terminal-container {
+    background-color: #0f172a; /* Slate 900 escuro */
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #1e293b;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.terminal-header {
+    background-color: #1e293b;
+    padding: 8px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #0f172a;
+}
+
+.terminal-header span {
+    font-family: inherit;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.terminal-dots {
+    display: flex;
+    gap: 6px;
+}
+
+.terminal-dots span {
+    width: 10px; height: 10px; border-radius: 50%;
+}
+.terminal-dots span:nth-child(1) { background-color: #ef4444; }
+.terminal-dots span:nth-child(2) { background-color: #f59e0b; }
+.terminal-dots span:nth-child(3) { background-color: #10b981; }
+
+.terminal-body {
+    padding: 16px;
+    font-family: 'Courier New', Courier, monospace; /* Fonte tipo hacker */
+    font-size: 0.9rem;
+    line-height: 1.6;
+    height: 250px;
+    overflow-y: auto;
+    color: #a3e635; /* Verde terminal clássico claro */
+}
+
+/* Esconde Elementos Auxiliar CSS */
+.d-none { display: none !important; }
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Customização dos Logs baseados em Tags */
+.log-line { margin: 0; padding: 2px 0; }
+.log-info { color: #cbd5e1; } /* Cinza */
+.log-update { color: #60a5fa; } /* Azul texto */
+.log-alert { color: #facc15; } /* Amarelo */
+.log-success { color: #4ade80; font-weight: bold; } /* Verde forte */

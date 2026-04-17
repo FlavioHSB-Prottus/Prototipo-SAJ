@@ -1,0 +1,215 @@
+{% extends 'layout.html' %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='tramitacao.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="kanban-wrapper">
+    
+    <!-- Cabeçalho Kanban -->
+    <div class="kanban-top">
+        <div class="kanban-header">
+            <h3><i class="fa-solid fa-scale-balanced"></i> Quadro de Tramitação (Cobrança)</h3>
+            <div class="kanban-search">
+                <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                <input type="text" class="form-control" placeholder="Filtrar contrato ou avalista no quadro...">
+            </div>
+        </div>
+    </div>
+
+    <!-- Prancheta Kanban -->
+    <div class="kanban-board">
+        
+        <!-- COLUNA 1: Contato Inicial (<30d) -->
+        <div class="kanban-column col-initial">
+            <div class="column-header">
+                <span>1. Contato Inicial <span class="days-hint">(Até 30 dias)</span></span>
+                <span class="badge count-badge">3</span>
+            </div>
+            <div class="column-body">
+                
+                <!-- Card -->
+                <div class="kanban-card border-initial">
+                    <div class="card-top">
+                        <span class="fw-bold">Contrato: 20193-X</span>
+                        <span class="status-badge bg-safra">Safra 4</span>
+                    </div>
+                    <div class="card-middle">
+                        <p class="avalista-name">José Ribamar Ltda</p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="delay-time"><i class="fa-regular fa-clock"></i> 8 dias de atraso</span>
+                    </div>
+                </div>
+
+                <!-- Card -->
+                <div class="kanban-card border-initial">
+                    <div class="card-top">
+                        <span class="fw-bold">Contrato: 11045-2</span>
+                        <span class="status-badge bg-safra">Safra 4</span>
+                    </div>
+                    <div class="card-middle">
+                        <p class="avalista-name">Marta Oliveira Gonçalves</p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="delay-time"><i class="fa-regular fa-clock"></i> 14 dias de atraso</span>
+                    </div>
+                </div>
+
+                <!-- Card -->
+                <div class="kanban-card border-initial">
+                    <div class="card-top">
+                        <span class="fw-bold">Contrato: 08833-1</span>
+                        <span class="status-badge bg-safra">Safra 3</span>
+                    </div>
+                    <div class="card-middle">
+                        <p class="avalista-name">Claudio Silva Engenharia</p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="delay-time"><i class="fa-regular fa-clock"></i> 27 dias de atraso</span>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- COLUNA 2: Em Negociação (<60d) -->
+        <div class="kanban-column col-nego">
+            <div class="column-header">
+                <span>2. Em Negociação <span class="days-hint">(Até 60 dias)</span></span>
+                <span class="badge count-badge">2</span>
+            </div>
+            <div class="column-body">
+                
+                <!-- Card -->
+                <div class="kanban-card border-nego">
+                    <div class="card-top">
+                        <span class="fw-bold">Contrato: 14892-5</span>
+                        <span class="status-badge bg-safra">Safra 2</span>
+                    </div>
+                    <div class="card-middle">
+                        <p class="avalista-name">Roberto Almeida Silveira</p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="delay-time nego-text"><i class="fa-regular fa-clock"></i> 45 dias de atraso</span>
+                    </div>
+                </div>
+
+                <!-- Card -->
+                <div class="kanban-card border-nego">
+                    <div class="card-top">
+                        <span class="fw-bold">Contrato: 90211-0</span>
+                        <span class="status-badge bg-safra">Safra 2</span>
+                    </div>
+                    <div class="card-middle">
+                        <p class="avalista-name">Clínica Vida Bem</p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="delay-time nego-text"><i class="fa-regular fa-clock"></i> 58 dias de atraso</span>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- COLUNA 3: Risco Crítico (<90d) -->
+        <div class="kanban-column col-critical">
+            <div class="column-header">
+                <span>3. Risco Crítico <span class="days-hint">(Até 90 dias)</span></span>
+                <span class="badge count-badge">3</span>
+            </div>
+            <div class="column-body">
+                
+                <!-- Card -->
+                <div class="kanban-card border-critical">
+                    <div class="card-top">
+                        <span class="fw-bold">Contrato: 00412-8</span>
+                        <span class="status-badge bg-safra">Safra 1</span>
+                    </div>
+                    <div class="card-middle">
+                        <p class="avalista-name">Pedro Fernandes</p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="delay-time crit-text"><i class="fa-regular fa-clock"></i> 82 dias de atraso</span>
+                    </div>
+                </div>
+
+                <!-- Card -->
+                <div class="kanban-card border-critical">
+                    <div class="card-top">
+                        <span class="fw-bold">Contrato: 55909-3</span>
+                        <span class="status-badge bg-safra">Safra 1</span>
+                    </div>
+                    <div class="card-middle">
+                        <p class="avalista-name">Via Rápida Logística</p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="delay-time crit-text"><i class="fa-regular fa-clock"></i> 88 dias de atraso</span>
+                    </div>
+                </div>
+                
+                <!-- Card -->
+                <div class="kanban-card border-critical">
+                    <div class="card-top">
+                        <span class="fw-bold">Contrato: 41200-9</span>
+                        <span class="status-badge bg-safra">Safra 1</span>
+                    </div>
+                    <div class="card-middle">
+                        <p class="avalista-name">Fazenda Santa Fé</p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="delay-time crit-text"><i class="fa-regular fa-clock"></i> 89 dias de atraso</span>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- COLUNA 4: Acordo Formalizado -->
+        <div class="kanban-column col-success">
+            <div class="column-header">
+                <span>4. Acordo Formalizado</span>
+                <span class="badge count-badge">2</span>
+            </div>
+            <div class="column-body">
+                
+                <!-- Card -->
+                <div class="kanban-card border-success">
+                    <div class="card-top">
+                        <span class="fw-bold">Contrato: 10344-X</span>
+                        <span class="status-badge bg-safra">Safra 3</span>
+                    </div>
+                    <div class="card-middle">
+                        <p class="avalista-name">Viação Cometa SA</p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="delay-time success-text"><i class="fa-solid fa-check"></i> Acordo em andamento</span>
+                    </div>
+                </div>
+                
+                <!-- Card -->
+                <div class="kanban-card border-success">
+                    <div class="card-top">
+                        <span class="fw-bold">Contrato: 21990-2</span>
+                        <span class="status-badge bg-safra">Safra 2</span>
+                    </div>
+                    <div class="card-middle">
+                        <p class="avalista-name">Borges & Cia</p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="delay-time success-text"><i class="fa-solid fa-check"></i> 1ª Parcela Paga</span>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    document.querySelector('.module-title').textContent = 'Tramitação';
+</script>
+{% endblock %}

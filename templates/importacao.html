@@ -1,0 +1,81 @@
+{% extends 'layout.html' %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='importacao.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="import-wrapper">
+    
+    <!-- Painel de Upload (Drag & Drop) -->
+    <div class="upload-card">
+        <h3><i class="fa-solid fa-file-import"></i> Central de Importação e Processamento (TXT)</h3>
+        <p class="subtitle">Faixa de processamento em lote para arquivos de retorno.</p>
+
+        <!-- Área de Drag & Drop -->
+        <div class="drop-zone" id="dropZone">
+            <div class="drop-content" id="dropContent">
+                <i class="fa-solid fa-cloud-arrow-up cloud-icon"></i>
+                <p>Arraste os arquivos TXT diários aqui ou clique para selecionar</p>
+                <span class="file-format-hint">Suporta formatos (.txt, .csv) de exportação bancária</span>
+            </div>
+            
+            <!-- Estado quando arquivo for "carregado" via mock JS -->
+            <div class="file-loaded-state d-none" id="fileLoadedState">
+                <i class="fa-solid fa-file-lines file-icon"></i>
+                <p class="filename">safra_dia_16.txt</p>
+                <span class="filesize">845 KB • 100% carregado</span>
+            </div>
+            
+            <input type="file" id="fileInput" class="d-none">
+        </div>
+
+        <!-- Botões de Ação do Upload -->
+        <div class="upload-actions">
+            <button class="btn-process disabled" id="btnProcessar" disabled>
+                <i class="fa-solid fa-gears"></i> Iniciar Processamento e Classificação
+            </button>
+        </div>
+    </div>
+
+
+    <!-- Painel de Progresso e Console (Oculto inicialmente) -->
+    <div class="processing-panel d-none" id="processingPanel">
+        
+        <!-- Barra de Progresso Animada -->
+        <div class="progress-section">
+            <div class="progress-header">
+                <h4 id="progressStatusText">Analisando e Comparando Contratos...</h4>
+                <span id="progressPercentage">0%</span>
+            </div>
+            <div class="progress-bar-container">
+                <div class="progress-bar-fill" id="progressBarFill"></div>
+            </div>
+        </div>
+
+        <!-- Terminal Integrado -->
+        <div class="terminal-container">
+            <div class="terminal-header">
+                <span>Terminal System Log</span>
+                <div class="terminal-dots">
+                    <span></span><span></span><span></span>
+                </div>
+            </div>
+            <div class="terminal-body" id="terminalBody">
+                <!-- Logs injetáveis pelo JS aqui -->
+            </div>
+        </div>
+
+    </div>
+
+</div>
+
+<script>
+    document.querySelector('.module-title').textContent = 'Importação TXT';
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='importacao.js') }}"></script>
+{% endblock %}

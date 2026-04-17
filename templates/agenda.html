@@ -1,0 +1,158 @@
+{% extends 'layout.html' %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='agenda.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="agenda-wrapper">
+
+    <!-- Card do CALENDÁRIO -->
+    <div class="calendar-card">
+        
+        <div class="calendar-header">
+            <button class="nav-btn"><i class="fa-solid fa-chevron-left"></i></button>
+            <h2 class="month-title">Abril 2026</h2>
+            <button class="nav-btn"><i class="fa-solid fa-chevron-right"></i></button>
+        </div>
+
+        <div class="calendar-body">
+            <!-- Cabeçalho (Dias da semana) -->
+            <div class="calendar-grid headers">
+                <div class="day-name">Dom</div>
+                <div class="day-name">Seg</div>
+                <div class="day-name">Ter</div>
+                <div class="day-name">Qua</div>
+                <div class="day-name">Qui</div>
+                <div class="day-name">Sex</div>
+                <div class="day-name">Sáb</div>
+            </div>
+
+            <!-- Dias do Mês -->
+            <div class="calendar-grid days">
+                <!-- Espaços em branco antes do dia 1 (exemplo: quarta=dia 1) -->
+                <div class="calendar-day empty"></div>
+                <div class="calendar-day empty"></div>
+                <div class="calendar-day empty"></div>
+                
+                <!-- Dias preenchidos estáticos para design -->
+                <div class="calendar-day">1</div>
+                <div class="calendar-day">2</div>
+                <div class="calendar-day">3</div>
+                <div class="calendar-day">4</div>
+                
+                <div class="calendar-day">5</div>
+                <div class="calendar-day">6 <div class="event-dots"><span class="dot yellow"></span></div></div>
+                <div class="calendar-day">7</div>
+                <div class="calendar-day">8</div>
+                <div class="calendar-day">9</div>
+                <div class="calendar-day">10</div>
+                <div class="calendar-day">11</div>
+                
+                <div class="calendar-day">12</div>
+                <div class="calendar-day">13</div>
+                <div class="calendar-day">14 <div class="event-dots"><span class="dot red"></span><span class="dot blue"></span></div></div>
+                <div class="calendar-day">15</div>
+                <div class="calendar-day today">16 <div class="event-dots"><span class="dot white"></span><span class="dot white"></span></div></div>
+                <div class="calendar-day">17</div>
+                <div class="calendar-day">18</div>
+                
+                <div class="calendar-day">19</div>
+                <div class="calendar-day">20 <div class="event-dots"><span class="dot red"></span></div></div>
+                <div class="calendar-day">21</div>
+                <div class="calendar-day">22</div>
+                <div class="calendar-day">23 <div class="event-dots"><span class="dot yellow"></span></div></div>
+                <div class="calendar-day">24</div>
+                <div class="calendar-day">25</div>
+                
+                <div class="calendar-day">26</div>
+                <div class="calendar-day">27</div>
+                <div class="calendar-day">28</div>
+                <div class="calendar-day">29</div>
+                <div class="calendar-day">30</div>
+                <div class="calendar-day empty"></div>
+                <div class="calendar-day empty"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TAREFAS DO DIA -->
+    <div class="tasks-card">
+        <div class="tasks-header">
+            <h3><i class="fa-solid fa-list-check"></i> Tarefas de Hoje (16/04/2026)</h3>
+            <button class="btn-new-task"><i class="fa-solid fa-plus"></i> Nova Tarefa</button>
+        </div>
+
+        <div class="tasks-list">
+            
+            <!-- Tarefa 1 -->
+            <div class="task-item">
+                <div class="task-left">
+                    <input type="checkbox" class="task-checkbox">
+                    <span class="task-time"><i class="fa-regular fa-clock"></i> 09:00</span>
+                    <div class="task-info">
+                        <p class="task-desc">Retornar ligação de negociação para Roberto Almeida Silveira (Contrato 148922-5).</p>
+                    </div>
+                </div>
+                <div class="task-right">
+                    <span class="priority-badge p-alta">Prioridade Alta</span>
+                    <button class="btn-acessar"><i class="fa-solid fa-arrow-up-right-from-square"></i> Acessar Contrato</button>
+                </div>
+            </div>
+
+            <!-- Tarefa 2 -->
+            <div class="task-item">
+                <div class="task-left">
+                    <input type="checkbox" class="task-checkbox" checked>
+                    <span class="task-time completed-text"><i class="fa-regular fa-clock"></i> 11:30</span>
+                    <div class="task-info">
+                        <p class="task-desc completed-text">Reunião de alinhamento com equipe de triagem TXT.</p>
+                    </div>
+                </div>
+                <div class="task-right">
+                    <span class="priority-badge p-media">Média</span>
+                    <!-- Botao oculto/desabilitado se já feito -->
+                    <button class="btn-acessar disabled"><i class="fa-solid fa-check"></i> Concluído</button>
+                </div>
+            </div>
+
+            <!-- Tarefa 3 -->
+            <div class="task-item">
+                <div class="task-left">
+                    <input type="checkbox" class="task-checkbox">
+                    <span class="task-time"><i class="fa-regular fa-clock"></i> 14:30</span>
+                    <div class="task-info">
+                        <p class="task-desc">Verificar status da importação da Safra 3 (Emissão de Boletos).</p>
+                    </div>
+                </div>
+                <div class="task-right">
+                    <span class="priority-badge p-alta">Prioridade Alta</span>
+                    <button class="btn-acessar"><i class="fa-solid fa-arrow-up-right-from-square"></i> Acessar Contrato</button>
+                </div>
+            </div>
+
+            <!-- Tarefa 4 -->
+            <div class="task-item">
+                <div class="task-left">
+                    <input type="checkbox" class="task-checkbox">
+                    <span class="task-time"><i class="fa-regular fa-clock"></i> 16:00</span>
+                    <div class="task-info">
+                        <p class="task-desc">Enviar notificação de quebra de acordo para Viação Cometa SA (Contrato 103445-X).</p>
+                    </div>
+                </div>
+                <div class="task-right">
+                    <span class="priority-badge p-media">Média</span>
+                    <button class="btn-acessar"><i class="fa-solid fa-arrow-up-right-from-square"></i> Acessar Contrato</button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+</div>
+
+<script>
+    document.querySelector('.module-title').textContent = 'Agenda Diária';
+</script>
+{% endblock %}

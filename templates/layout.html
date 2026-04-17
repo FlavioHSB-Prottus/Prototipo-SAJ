@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>João Barbosa - Home</title>
+    <!-- Importando o Google Fonts e icones -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='home.css') }}">
+    {% block head %}{% endblock %}
+</head>
+
+<body>
+    <div class="layout-wrapper">
+        <!-- Barra Lateral (Sidebar) -->
+        <aside class="sidebar" id="sidebarArea">
+            <div class="sidebar-header">
+                <img src="{{ url_for('static', filename='imagens/logo_horizontal.png') }}" alt="Logo João Barbosa"
+                    class="sidebar-logo">
+            </div>
+            <nav class="sidebar-nav">
+                <ul>
+                    <li><a href="/home"><i class="fa-solid fa-house"></i> <span class="nav-text">Home</span></a></li>
+                    <li><a href="/dashboard"><i class="fa-solid fa-chart-pie"></i> <span
+                                class="nav-text">Dashboard</span></a></li>
+                    <li><a href="/busca"><i class="fa-solid fa-magnifying-glass"></i> <span class="nav-text">Busca por
+                                Contratos</span></a></li>
+                    <li><a href="/relatorios"><i class="fa-solid fa-file-invoice"></i> <span
+                                class="nav-text">Relatórios</span></a></li>
+                    <li><a href="/performance"><i class="fa-solid fa-chart-line"></i> <span class="nav-text">Performance
+                                JB</span></a></li>
+                    <li><a href="/tramitacao"><i class="fa-solid fa-scale-balanced"></i> <span
+                                class="nav-text">Tramitação</span></a></li>
+                    <li><a href="/agenda"><i class="fa-regular fa-calendar-days"></i> <span class="nav-text">Agenda</span></a>
+                    </li>
+                    <li><a href="/cadastro"><i class="fa-solid fa-users-gear"></i> <span class="nav-text">Cadastro</span></a>
+                    </li>
+                    <li><a href="/importacao"><i class="fa-solid fa-file-import"></i> <span class="nav-text">Importação
+                                TXT</span></a></li>
+                </ul>
+            </nav>
+        </aside>
+
+        <!-- Conteúdo Principal -->
+        <div class="main-content">
+            <!-- Header (Barra Superior) -->
+            <header class="top-header">
+                <div class="header-left">
+                    <button id="toggleSidebarBtn" class="hamburger-btn">
+                        <i class="fa-solid fa-bars"></i>
+                    </button>
+                    <h2 class="module-title">Início</h2>
+                </div>
+
+                <div class="header-right">
+                    <!-- Componente de Hora e Data -->
+                    <div class="datetime-display" id="datetimeDisplay">
+                        <i class="fa-regular fa-clock"></i>
+                        <span id="currentTime">--:--:--</span>
+                        <span class="date-separator">|</span>
+                        <span id="currentDate">--/--/----</span>
+                    </div>
+
+                    <!-- Notificações -->
+                    <div class="notification-area" id="notificationBtn">
+                        <div class="icon-wrapper">
+                            <i class="fa-regular fa-bell"></i>
+                            <span class="notification-badge" id="notificationBadge">3</span>
+                        </div>
+
+                        <!-- Dropdown Notificações -->
+                        <div class="notification-dropdown" id="notificationDropdown">
+                            <div class="dropdown-header">
+                                <h4>Avisos Recentes</h4>
+                            </div>
+                            <div class="dropdown-body">
+                                <ul class="bulletin-board mini">
+                                    <li class="bulletin-item new">
+                                        <div class="bulletin-content">
+                                            <h4>Nova Política de Juros</h4>
+                                            <p>Atualização nas planilhas...</p>
+                                        </div>
+                                    </li>
+                                    <li class="bulletin-item">
+                                        <div class="bulletin-content">
+                                            <h4>Manutenção no Servidor</h4>
+                                            <p>Pausa agendada às 02h.</p>
+                                        </div>
+                                    </li>
+                                    <li class="bulletin-item">
+                                        <div class="bulletin-content">
+                                            <h4>Fechamento Mensal</h4>
+                                            <p>Consolidar até dia 15.</p>
+                                        </div>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Perfil do Usuário -->
+                    <div class="user-profile" id="userProfileBtn">
+                        <div class="user-info">
+                            <span class="user-name">João Barbosa</span>
+                            <span class="user-role">Administrador</span>
+                        </div>
+                        <div class="avatar">
+                            <img src="{{ url_for('static', filename='imagens/logo.png') }}" alt="Avatar">
+                        </div>
+                        <i class="fa-solid fa-chevron-down"></i>
+
+                        <!-- Dropdown Menu -->
+                        <div class="dropdown-menu" id="profileDropdown">
+                            <a href="#"><i class="fa-regular fa-user"></i> Meu Perfil</a>
+                            <a href="#"><i class="fa-solid fa-gear"></i> Configurações</a>
+                            <div class="dropdown-divider"></div>
+                            <a href="/" class="text-danger"><i class="fa-solid fa-arrow-right-from-bracket"></i>
+                                Sair</a>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Área do Módulo Atual -->
+            <main class="home-area">
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+
+    <!-- Script para lógica de UI global -->
+    <script src="{{ url_for('static', filename='home.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+
+</html>

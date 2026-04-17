@@ -1,0 +1,57 @@
+{% extends 'layout.html' %}
+
+{% block content %}
+<div class="cards-container">
+    
+    <!-- Card: Boas-vindas -->
+    <div class="dashboard-card welcome-card">
+        <div class="card-header">
+            <div class="card-icon"><i class="fa-solid fa-handshake"></i></div>
+            <h3>Bem-vindo ao Novo SAJ</h3>
+        </div>
+        <div class="card-body">
+            <p class="lead-text">O sistema centralizado para gestão e cobrança de consórcios.</p>
+            <p>Esta plataforma foi projetada para otimizar fluxos de trabalho, facilitar o acompanhamento de carteiras e garantir alta produtividade na recuperação de ativos. Utilize o menu lateral para acessar os módulos de Importação, Relatórios e Cadastro.</p>
+            <button class="primary-btn mt-3">Ver Tutoriais <i class="fa-solid fa-arrow-right"></i></button>
+        </div>
+    </div>
+
+    <!-- Card: Avisos da Empresa -->
+    <div class="dashboard-card alerts-card">
+        <div class="card-header">
+            <div class="card-icon"><i class="fa-solid fa-bullhorn"></i></div>
+            <h3>Mural de Avisos</h3>
+        </div>
+        <div class="card-body">
+            <ul class="bulletin-board">
+                <li class="bulletin-item new">
+                    <span class="bulletin-date">Hoje</span>
+                    <div class="bulletin-content">
+                        <h4>Nova Política de Juros</h4>
+                        <p>Atualização nas planilhas de cálculo exigidas para grupos GM.</p>
+                    </div>
+                </li>
+                <li class="bulletin-item">
+                    <span class="bulletin-date">Ontem</span>
+                    <div class="bulletin-content">
+                        <h4>Manutenção no Servidor</h4>
+                        <p>Agendada uma breve pausa no servidor neste domingo, às 02h.</p>
+                    </div>
+                </li>
+                <li class="bulletin-item">
+                    <span class="bulletin-date">10/Abr</span>
+                    <div class="bulletin-content">
+                        <h4>Fechamento Mensal</h4>
+                        <p>Lembrete: Os arquivos de repasse devem ser consolidados até o dia 15.</p>
+                    </div>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+</div>
+<script>
+    // Atualiza o título do módulo no header via JS para não precisar duplicar a estrutura
+    document.querySelector('.module-title').textContent = 'Início';
+</script>
+{% endblock %}

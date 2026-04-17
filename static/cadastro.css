@@ -1,0 +1,167 @@
+/* Layout Base do Cadastro */
+.cadastro-wrapper {
+    padding: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+/* Card Filtro Topo */
+.filter-card {
+    background-color: var(--card-bg);
+    border-radius: var(--border-radius);
+    padding: 24px;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-color);
+}
+
+.card-header-flex {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.card-header-flex h3 {
+    margin: 0;
+    color: var(--primary-color);
+    font-size: 1.15rem;
+}
+
+.btn-primary {
+    background-color: #3b82f6;
+    color: white;
+    border: none;
+    padding: 8px 18px;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.btn-primary:hover { background-color: #2563eb; }
+
+/* Barra de Pesquisa Enxuta */
+.search-bar-wrapper {
+    display: flex;
+    align-items: center;
+    position: relative;
+    gap: 16px;
+}
+
+.search-icon {
+    position: absolute;
+    left: 14px;
+    color: #94a3b8;
+    pointer-events: none;
+}
+
+.big-input {
+    width: 60%;
+    padding: 12px 14px 12px 40px; /* espaco pra icone */
+    font-size: 1rem;
+}
+
+.btn-search {
+    background-color: #f1f5f9;
+    color: #475569;
+    border: 1px solid #cbd5e1;
+    padding: 12px 24px;
+    border-radius: 6px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.btn-search:hover {
+    background-color: #e2e8f0;
+    color: #0f172a;
+}
+
+/* Tipos F/J */
+.badge-tipo {
+    font-size: 0.8rem;
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+.tf { background-color: #e0e7ff; color: #4338ca; } /* Pessoa Fisica */
+.tj { background-color: #fce7f3; color: #be185d; } /* Pessoa Juridica */
+
+
+/* =========================== */
+/* MASTER-DETAIL ESTRUTURA CS  */
+/* =========================== */
+
+/* Remove bottom border of master row when expanded so it connects visually to detail */
+.master-row { transition: background-color 0.2s; }
+.master-row:hover { background-color: #f8fafc; }
+
+.detail-row {
+    display: none; 
+}
+
+.detail-row.expanded {
+    display: table-row;
+}
+
+.detail-container {
+    padding: 0 !important; /* Resets standard table padding */
+    border-top: none !important;
+}
+
+.detail-card {
+    background-color: #f8fafc; /* fundo levemente mais escuro */
+    margin: 0;
+    padding: 24px 32px;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.detail-card h4 {
+    margin: 0 0 16px 0;
+    color: var(--primary-color);
+    font-size: 0.95rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Sub Tabela */
+.sub-table {
+    width: 100%;
+    border-collapse: collapse;
+    background-color: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.sub-table th {
+    background-color: #f1f5f9;
+    padding: 10px 16px;
+    text-align: left;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.sub-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid #e2e8f0;
+    font-size: 0.9rem;
+    color: var(--text-main);
+}
+
+.sub-table tr:last-child td {
+    border-bottom: none;
+}
+
+/* Utilities copiados do layout global por garantia */
+.fw-bold { font-weight: 600; }
+.text-danger { color: #ef4444; }
+.text-warning { color: #f59e0b; }
+.text-success { color: #10b981; }

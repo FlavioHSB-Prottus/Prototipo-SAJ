@@ -1,0 +1,329 @@
+/* Layout Base de Busca */
+.busca-wrapper {
+    padding: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+}
+
+/* Card de Filtros */
+.filter-card {
+    background-color: var(--card-bg);
+    border-radius: var(--border-radius);
+    padding: 24px;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-color);
+}
+
+.filter-card h3 {
+    font-size: 1.15rem;
+    color: var(--primary-color);
+    margin-bottom: 24px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.filter-card h3 i {
+    color: #3b82f6; /* Destaque para o ícone azul */
+}
+
+/* Formulário de Busca Alinhado */
+.filter-form {
+    display: grid;
+    grid-template-columns: 200px 1fr 200px auto auto;
+    gap: 16px;
+    align-items: flex-end; /* Alinha todos os inputs e botões pela linha de base inferior */
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.form-group label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+.form-control {
+    padding: 10px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.95rem;
+    color: var(--text-main);
+    transition: var(--transition);
+    outline: none;
+    font-family: inherit;
+    background-color: #fff;
+    height: 42px; /* Força altura igual para inputs e selects */
+}
+
+.form-control:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+/* Redefinindo estilo nativo select */
+select.form-control {
+    appearance: auto; 
+    cursor: pointer;
+}
+
+/* Botões do Formulário */
+.btn-search {
+    background-color: #3b82f6; /* accent color */
+    color: white;
+    border: none;
+    padding: 0 20px;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 42px; /* Sincronizado com os inputs */
+}
+
+.btn-search:hover {
+    background-color: #2563eb;
+    box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.2);
+}
+
+.btn-secondary {
+    background-color: #f1f5f9;
+    color: var(--text-main);
+    border: 1px solid var(--border-color);
+    padding: 0 20px;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition);
+    height: 42px; /* Sincronizado com os inputs */
+}
+
+.btn-secondary:hover {
+    background-color: #e2e8f0;
+}
+
+/* Badges Complementares (O restante vem do dashboard.css) */
+.status-success {
+    background-color: #d1fae5;
+    color: #059669; /* Verde para pago */
+}
+
+/* Responsividade Básica */
+@media (max-width: 1200px) {
+    .filter-form {
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+    }
+    
+    .filter-form .form-group:nth-child(2) {
+        grid-column: span 2; /* Campo de texto ocupa linha inteira */
+    }
+}
+
+/* =========================================
+   ESTILOS DO QUADRO DE DETALHES (MODAL)
+   ========================================= */
+
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(15, 23, 42, 0.6); /* slate-900 com transparência */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
+    backdrop-filter: blur(4px);
+}
+
+.modal-overlay.active {
+    opacity: 1;
+    visibility: visible;
+}
+
+.modal-container {
+    background-color: var(--card-bg);
+    width: 90%;
+    max-width: 900px;
+    max-height: 90vh;
+    border-radius: 12px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    display: flex;
+    flex-direction: column;
+    transform: scale(0.95) translateY(20px);
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    overflow: hidden;
+}
+
+.modal-overlay.active .modal-container {
+    transform: scale(1) translateY(0);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 24px 32px;
+    background-color: #f8fafc;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.modal-header h2 {
+    font-size: 1.35rem;
+    color: var(--primary-color);
+    margin: 0;
+}
+
+.text-accent {
+    color: #3b82f6;
+}
+
+.close-modal-btn {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: var(--transition);
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+}
+
+.close-modal-btn:hover {
+    background-color: #e2e8f0;
+    color: #ef4444;
+}
+
+.modal-body {
+    padding: 32px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+}
+
+/* Modal Inner Sections */
+.detail-section {
+    background-color: #ffffff;
+}
+
+.detail-section h3 {
+    font-size: 1.05rem;
+    color: var(--primary-color);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 8px;
+}
+
+.detail-section h3 i {
+    color: #64748b;
+}
+
+.detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    background-color: #f8fafc;
+    padding: 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.data-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.data-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+}
+
+.data-value {
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--primary-color);
+}
+
+/* Modal Table adjust */
+.modal-table th, .modal-table td {
+    padding: 12px 16px;
+}
+
+/* Timeline / Logs Stylings */
+.timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    position: relative;
+    padding-left: 20px;
+}
+
+.timeline::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    width: 2px;
+    background-color: var(--border-color);
+}
+
+.timeline-item {
+    position: relative;
+    background-color: #f8fafc;
+    border: 1px solid var(--border-color);
+    padding: 12px 16px;
+    border-radius: 8px;
+}
+
+.timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -25px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: #3b82f6;
+    border: 2px solid #ffffff;
+}
+
+.timeline-date {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+.timeline-event {
+    font-size: 0.9rem;
+    color: var(--text-main);
+}

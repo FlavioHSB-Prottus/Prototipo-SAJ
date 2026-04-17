@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>João Barbosa - Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='login.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="logo-container">
+                <img src="{{ url_for('static', filename='imagens/logo.png') }}" alt="Logo João Barbosa" class="logo">
+            </div>
+
+            <h1 class="login-title">SAJ</h1>
+            <p class="login-subtitle">Gestão e Cobrança de Consórcios</p>
+
+            <form action="#" method="POST" class="login-form">
+                <div class="input-group">
+                    <label for="username">Usuário/E-mail</label>
+                    <input type="text" id="username" name="username" placeholder="Digite seu usuário ou e-mail" required
+                        autofocus>
+                </div>
+
+                <div class="input-group">
+                    <label for="password">Senha</label>
+                    <input type="password" id="password" name="password" placeholder="Digite sua senha" required>
+                </div>
+
+                <div class="forgot-password">
+                    <a href="{{ url_for('recuperar_senha') }}">Esqueceu a senha?</a>
+                </div>
+
+                <button type="submit" class="login-button">Entrar</button>
+            </form>
+        </div>
+    </div>
+</body>
+
+</html>

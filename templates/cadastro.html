@@ -1,0 +1,137 @@
+{% extends 'layout.html' %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}"> <!-- Reuso de badges -->
+<link rel="stylesheet" href="{{ url_for('static', filename='cadastro.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="cadastro-wrapper">
+
+    <!-- Área de Busca e Filtro -->
+    <div class="filter-card">
+        <div class="card-header-flex">
+            <h3><i class="fa-solid fa-users"></i> Gestão de Cadastros (Avalistas / Empresas)</h3>
+            <button class="btn-primary"><i class="fa-solid fa-user-plus"></i> Novo Cadastro</button>
+        </div>
+        
+        <form action="#" method="GET" class="filter-form single-linha">
+            <div class="search-bar-wrapper">
+                <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                <input type="text" class="form-control big-input" placeholder="Buscar por Nome, CPF ou CNPJ...">
+                <button type="button" class="btn-search">Pesquisar</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Tabela Principal Expansível (Master-Detail) -->
+    <div class="results-card table-section">
+        <div class="table-responsive">
+            <table class="styled-table col-fixed">
+                <thead>
+                    <tr>
+                        <th width="35%">Nome / Razão Social</th>
+                        <th width="25%">CPF / CNPJ</th>
+                        <th width="20%">Tipo</th>
+                        <th width="20%" class="text-right">Ação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    
+                    <!-- ================= CADASTRO 1 (Expandido por Padrão) ================= -->
+                    <tr class="master-row">
+                        <td class="fw-bold">Construtora Alfa ME</td>
+                        <td>12.345.678/0001-90</td>
+                        <td><span class="badge-tipo tj">Pessoa Jurídica</span></td>
+                        <td class="text-right">
+                            <button class="action-btn toggle-btn" data-target="detail-alfa">
+                                Mais Detalhes <i class="fa-solid fa-chevron-up toggle-icon"></i>
+                            </button>
+                        </td>
+                    </tr>
+                    <!-- Sub-tabela Cadastro 1 -->
+                    <tr class="detail-row expanded" id="detail-alfa">
+                        <td colspan="4" class="detail-container">
+                            <div class="detail-card">
+                                <h4><i class="fa-solid fa-link"></i> Contratos Associados a Construtora Alfa ME</h4>
+                                <table class="sub-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Nº Contrato</th>
+                                            <th>Grupo / Cota</th>
+                                            <th>Status Atual</th>
+                                            <th>Dias em Atraso</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td class="fw-bold">098331-2</td>
+                                            <td>0200 / 012</td>
+                                            <td><span class="status-badge status-warning">Indenizado</span></td>
+                                            <td class="text-danger fw-bold">142 dias</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold">141200-9</td>
+                                            <td>0200 / 055</td>
+                                            <td><span class="status-badge status-active">Aberto</span></td>
+                                            <td class="text-warning fw-bold">45 dias</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </td>
+                    </tr>
+
+                    <!-- ================= CADASTRO 2 (Recolhido) ================= -->
+                    <tr class="master-row">
+                        <td class="fw-bold">Roberto Almeida Silveira</td>
+                        <td>123.456.789-00</td>
+                        <td><span class="badge-tipo tf">Pessoa Física</span></td>
+                        <td class="text-right">
+                            <button class="action-btn toggle-btn" data-target="detail-roberto">
+                                Mais Detalhes <i class="fa-solid fa-chevron-down toggle-icon"></i>
+                            </button>
+                        </td>
+                    </tr>
+                    <!-- Sub-tabela Cadastro 2 -->
+                    <tr class="detail-row" id="detail-roberto">
+                        <td colspan="4" class="detail-container">
+                            <div class="detail-card">
+                                <h4><i class="fa-solid fa-link"></i> Contratos Associados a Roberto Almeida</h4>
+                                <table class="sub-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Nº Contrato</th>
+                                            <th>Grupo / Cota</th>
+                                            <th>Status Atual</th>
+                                            <th>Dias em Atraso</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td class="fw-bold">148922-5</td>
+                                            <td>0084 / 125</td>
+                                            <td><span class="status-badge status-active">Aberto</span></td>
+                                            <td class="text-success">Em dia</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </td>
+                    </tr>
+
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    document.querySelector('.module-title').textContent = 'Cadastro Geral';
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='cadastro.js') }}"></script>
+{% endblock %}
