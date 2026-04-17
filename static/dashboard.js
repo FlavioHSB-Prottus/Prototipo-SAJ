@@ -1,25 +1,55 @@
-document.addEventListener('DOMContentLoaded', function() {
-    
-    // Configurações comuns do Chart.js para ficar elegante
-    Chart.defaults.font.family = "'Inter', system-ui, -apple-system, sans-serif";
-    Chart.defaults.color = "#64748b"; // slate-500
-    Chart.defaults.scale.grid.color = "rgba(226, 232, 240, 0.5)"; // slate-200 translúcido
+document.addEventListener('DOMContentLoaded', async function () {
 
-    // 1. Gráfico de Linhas: Evolução Pagos vs Indenizados
-    const lineCtx = document.getElementById('lineChart');
+    Chart.defaults.font.family = "'Inter', system-ui, -apple-system, sans-serif";
+    Chart.defaults.color = '#64748b';
+    Chart.defaults.scale.grid.color = 'rgba(226, 232, 240, 0.5)';
+
+    var kpiAbertos = document.getElementById('kpiAbertos');
+    var kpiPagos = document.getElementById('kpiPagos');
+    var kpiIndenizados = document.getElementById('kpiIndenizados');
+    var kpiRetomados = document.getElementById('kpiRetomados');
+    var prioridadeBody = document.getElementById('prioridadeBody');
+    var detalhesModal = document.getElementById('detalhesModal');
+    var closeModalBtn = document.getElementById('closeModalBtn');
+    var modalTitle = document.getElementById('modalTitle');
+    var modalContent = document.getElementById('modalContent');
+
+    var data;
+    try {
+        var resp = await fetch('/api/dashboard');
+        data = await resp.json();
+    } catch (err) {
+        kpiAbertos.textContent = 'Erro';
+        return;
+    }
+
+    // --- KPIs ---
+    kpiAbertos.textContent = formatNumber(data.kpis.abertos);
+    kpiPagos.textContent = formatNumber(data.kpis.pagos);
+    kpiIndenizados.textContent = formatNumber(data.kpis.indenizados);
+    kpiRetomados.textContent = formatNumber(data.kpis.retomados);
+
+    // --- Grafico de Linhas ---
+    var lineCtx = document.getElementById('lineChart');
     if (lineCtx) {
+        var monthLabels = (data.line_chart.labels || []).map(function (m) {
+            var parts = m.split('-');
+            var names = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+            return names[parseInt(parts[1], 10) - 1] + '/' + parts[0].slice(2);
+        });
+
         new Chart(lineCtx, {
             type: 'line',
             data: {
-                labels: ['Novembro', 'Dezembro', 'Janeiro', 'Fevereiro', 'Março', 'Abril'],
+                labels: monthLabels,
                 datasets: [
                     {
                         label: 'Contratos Pagos',
-                        data: [150, 180, 210, 205, 250, 284],
-                        borderColor: '#10b981', // Verde
+                        data: data.line_chart.pagos,
+                        borderColor: '#10b981',
                         backgroundColor: 'rgba(16, 185, 129, 0.1)',
                         borderWidth: 2,
-                        tension: 0.4, // Linha suave
+                        tension: 0.4,
                         fill: true,
                         pointBackgroundColor: '#ffffff',
                         pointBorderColor: '#10b981',
@@ -27,9 +57,9 @@ document.addEventListener('DOMContentLoaded', function() {
                         pointRadius: 4
                     },
                     {
-                        label: 'Ind Repassadas',
-                        data: [80, 95, 85, 70, 65, 56],
-                        borderColor: '#f59e0b', // Laranja/Amarelo
+                        label: 'Indenizados',
+                        data: data.line_chart.indenizados,
+                        borderColor: '#f59e0b',
                         backgroundColor: 'rgba(245, 158, 11, 0.0)',
                         borderWidth: 2,
                         tension: 0.4,
@@ -45,115 +75,320 @@ document.addEventListener('DOMContentLoaded', function() {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: {
-                        position: 'top',
-                        align: 'end',
-                        labels: {
-                            usePointStyle: true,
-                            boxWidth: 8
-                        }
-                    },
-                    tooltip: {
-                        backgroundColor: 'rgba(30, 41, 59, 0.9)',
-                        padding: 12,
-                        titleFont: { size: 13 },
-                        bodyFont: { size: 13 },
-                        cornerRadius: 8
-                    }
+                    legend: { position: 'top', align: 'end', labels: { usePointStyle: true, boxWidth: 8 } },
+                    tooltip: { backgroundColor: 'rgba(30, 41, 59, 0.9)', padding: 12, titleFont: { size: 13 }, bodyFont: { size: 13 }, cornerRadius: 8 }
                 },
                 scales: {
-                    y: {
-                        beginAtZero: true,
-                        border: { display: false }
-                    },
-                    x: {
-                        grid: { display: false },
-                        border: { display: false }
-                    }
+                    y: { beginAtZero: true, border: { display: false } },
+                    x: { grid: { display: false }, border: { display: false } }
                 }
             }
         });
     }
 
-    // 2. Gráfico de Pizza (Doughnut na verdade fica mais moderno): Distribuição
-    const pieCtx = document.getElementById('pieChart');
+    // --- Grafico Doughnut ---
+    var pieCtx = document.getElementById('pieChart');
     if (pieCtx) {
+        var pie = data.pie_chart || {};
+        var pieLabels = [];
+        var pieData = [];
+        var pieColors = [];
+
+        var colorMap = { 'aberto': '#3b82f6', 'fechado': '#10b981', 'indenizado': '#f59e0b' };
+        var labelMap = { 'aberto': 'Em Cobrança', 'fechado': 'Pagos', 'indenizado': 'Indenizados' };
+        var fallbackColors = ['#64748b', '#8b5cf6', '#ec4899', '#06b6d4'];
+        var ci = 0;
+
+        Object.keys(pie).forEach(function (key) {
+            pieLabels.push(labelMap[key] || key);
+            pieData.push(pie[key]);
+            pieColors.push(colorMap[key] || fallbackColors[ci++ % fallbackColors.length]);
+        });
+
         new Chart(pieCtx, {
             type: 'doughnut',
             data: {
-                labels: ['Em Cobrança', 'Pagos', 'Indenizados', 'Retomados'],
-                datasets: [{
-                    data: [1452, 284, 56, 12],
-                    backgroundColor: [
-                        '#3b82f6', // azul
-                        '#10b981', // verde
-                        '#f59e0b', // laranja
-                        '#64748b'  // cinza
-                    ],
-                    borderWidth: 0,
-                    hoverOffset: 4
-                }]
+                labels: pieLabels,
+                datasets: [{ data: pieData, backgroundColor: pieColors, borderWidth: 0, hoverOffset: 4 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                cutout: '70%', // Faz o buraco no meio
+                cutout: '70%',
                 plugins: {
-                    legend: {
-                        position: 'bottom',
-                        labels: {
-                            usePointStyle: true,
-                            padding: 20
-                        }
-                    }
+                    legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20 } }
                 }
             }
         });
     }
 
-    // Toggle dropdown do filtro e lógica da tabela
-    const btnFilter = document.getElementById('btn-filter');
-    const filterDropdown = document.getElementById('filter-dropdown');
-    
+    // --- Tabela de Prioridade ---
+    renderPrioridade(data.prioridade || []);
+
+    // --- Filtro dropdown ---
+    var btnFilter = document.getElementById('btn-filter');
+    var filterDropdown = document.getElementById('filter-dropdown');
+
     if (btnFilter && filterDropdown) {
-        btnFilter.addEventListener('click', function(e) {
+        btnFilter.addEventListener('click', function (e) {
             e.stopPropagation();
-            if (filterDropdown.style.display === 'none') {
-                filterDropdown.style.display = 'flex';
-            } else {
-                filterDropdown.style.display = 'none';
-            }
+            filterDropdown.style.display = filterDropdown.style.display === 'none' ? 'flex' : 'none';
         });
 
-        // Fechar se clicar fora
-        document.addEventListener('click', function(e) {
+        document.addEventListener('click', function (e) {
             if (!filterDropdown.contains(e.target) && e.target !== btnFilter) {
                 filterDropdown.style.display = 'none';
             }
         });
 
-        // Lógica de filtro na tabela
-        const checkboxes = filterDropdown.querySelectorAll('input[type="checkbox"]');
-        checkboxes.forEach(cb => {
-            cb.addEventListener('change', function() {
-                const checkedValues = Array.from(checkboxes)
-                    .filter(i => i.checked)
-                    .map(i => i.value);
-                
-                const tableRows = document.querySelectorAll('.styled-table tbody tr');
-                tableRows.forEach(row => {
-                    const statusCell = row.querySelector('td:nth-child(5)');
-                    if (statusCell) {
-                        const statusText = statusCell.textContent.trim();
-                        if (checkedValues.includes(statusText)) {
-                            row.style.display = '';
-                        } else {
-                            row.style.display = 'none';
-                        }
+        var checkboxes = filterDropdown.querySelectorAll('input[type="checkbox"]');
+        checkboxes.forEach(function (cb) {
+            cb.addEventListener('change', function () {
+                var checked = Array.from(checkboxes).filter(function (i) { return i.checked; }).map(function (i) { return i.value; });
+                var rows = prioridadeBody.querySelectorAll('tr');
+                rows.forEach(function (row) {
+                    var cell = row.querySelector('td:nth-child(5)');
+                    if (cell) {
+                        row.style.display = checked.includes(cell.textContent.trim()) ? '' : 'none';
                     }
                 });
             });
         });
+    }
+
+    // --- Renderizar tabela ---
+    function renderPrioridade(rows) {
+        prioridadeBody.innerHTML = '';
+        if (!rows.length) {
+            prioridadeBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text-muted)">Nenhum contrato com parcelas abertas.</td></tr>';
+            return;
+        }
+
+        var today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        rows.forEach(function (r) {
+            var venc = r.vencimento_mais_antigo ? new Date(r.vencimento_mais_antigo + 'T00:00:00') : null;
+            var diffDias = venc ? Math.floor((today - venc) / 86400000) : 0;
+
+            var prioLabel, prioClass;
+            if (diffDias >= 60) {
+                prioLabel = 'Crítico';
+                prioClass = 'status-danger';
+            } else if (diffDias >= 30) {
+                prioLabel = 'Atenção';
+                prioClass = 'status-warning';
+            } else {
+                prioLabel = 'Recente';
+                prioClass = 'status-active';
+            }
+
+            var tr = document.createElement('tr');
+            tr.innerHTML =
+                '<td class="fw-bold">' + esc(r.grupo) + ' / ' + esc(r.cota) + '</td>' +
+                '<td>' + esc(r.nome_devedor || '-') + '</td>' +
+                '<td>' + esc(r.parcelas_abertas) + '</td>' +
+                '<td>' + formatDate(r.vencimento_mais_antigo) + '</td>' +
+                '<td><span class="status-badge ' + prioClass + '">' + prioLabel + '</span></td>' +
+                '<td class="text-right"><button class="action-btn" data-id="' + r.id + '">Acessar <i class="fa-solid fa-arrow-right"></i></button></td>';
+            prioridadeBody.appendChild(tr);
+        });
+
+        bindDetailButtons();
+    }
+
+    function bindDetailButtons() {
+        prioridadeBody.querySelectorAll('.action-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                openDetails(this.getAttribute('data-id'));
+            });
+        });
+    }
+
+    // --- Modal ---
+    async function openDetails(id) {
+        modalContent.innerHTML = '<div style="text-align:center;padding:48px;color:var(--text-muted)"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem"></i><p style="margin-top:12px">Carregando detalhes...</p></div>';
+        modalTitle.textContent = 'Carregando...';
+        detalhesModal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+
+        try {
+            var resp = await fetch('/api/contrato/' + id);
+            var d = await resp.json();
+            if (d.error) {
+                modalContent.innerHTML = '<p style="padding:24px;color:#ef4444">' + esc(d.error) + '</p>';
+                return;
+            }
+            renderContratoModal(d);
+        } catch (err) {
+            modalContent.innerHTML = '<p style="padding:24px;color:#ef4444">Erro: ' + esc(err.message) + '</p>';
+        }
+    }
+
+    function renderContratoModal(data) {
+        var c = data.contrato;
+        modalTitle.innerHTML = 'Detalhes do Contrato: <span class="text-accent">' + esc(c.grupo) + '/' + esc(c.cota) + '</span>';
+
+        var html = '';
+
+        html += '<div class="detail-section"><h3><i class="fa-solid fa-file-contract"></i> Dados do Contrato</h3>';
+        html += '<div class="detail-grid">';
+        html += dataItem('Grupo / Cota', c.grupo + ' / ' + c.cota);
+        html += dataItem('Nro Contrato', c.numero_contrato);
+        html += dataItem('Versao', c.versao);
+        html += dataItem('Status', c.status || c.status_txt, true, c.status);
+        html += dataItem('Valor do Credito', formatCurrency(c.valor_credito));
+        html += dataItem('Prazo (meses)', c.prazo_meses);
+        html += dataItem('Data de Adesao', formatDate(c.data_adesao));
+        html += dataItem('Encerramento Grupo', formatDate(c.encerramento_grupo));
+        html += dataItem('Taxa Administracao', c.taxa_administracao);
+        html += dataItem('Fundo Reserva', c.fundo_reserva);
+        html += dataItem('Percentual Lance', c.percentual_lance);
+        html += '</div></div>';
+
+        if (data.devedor) {
+            html += renderPessoaSection('Devedor', data.devedor, data.devedor_enderecos, data.devedor_telefones, data.devedor_emails);
+        }
+        if (data.avalista) {
+            html += renderPessoaSection('Avalista', data.avalista, data.avalista_enderecos, data.avalista_telefones, data.avalista_emails);
+        }
+
+        if (data.parcelas && data.parcelas.length > 0) {
+            html += '<div class="detail-section"><h3><i class="fa-solid fa-list-ol"></i> Parcelas (' + data.parcelas.length + ')</h3>';
+            html += '<div class="table-responsive"><table class="styled-table modal-table"><thead><tr>';
+            html += '<th>Nro</th><th>Vencimento</th><th>Valor Nominal</th><th>Multa/Juros</th><th>Valor Total</th><th>Status</th>';
+            html += '</tr></thead><tbody>';
+            data.parcelas.forEach(function (p) {
+                html += '<tr>';
+                html += '<td>' + esc(p.numero_parcela) + '</td>';
+                html += '<td>' + formatDate(p.vencimento) + '</td>';
+                html += '<td>' + formatCurrency(p.valor_nominal) + '</td>';
+                html += '<td>' + formatCurrency(p.multa_juros) + '</td>';
+                html += '<td class="fw-bold">' + formatCurrency(p.valor_total) + '</td>';
+                html += '<td><span class="status-badge ' + getStatusClass(p.status) + '">' + esc(p.status || '-') + '</span></td>';
+                html += '</tr>';
+            });
+            html += '</tbody></table></div></div>';
+        }
+
+        if (data.ocorrencias && data.ocorrencias.length > 0) {
+            html += '<div class="detail-section"><h3><i class="fa-solid fa-timeline"></i> Historico de Ocorrencias (' + data.ocorrencias.length + ')</h3>';
+            html += '<div class="timeline">';
+            data.ocorrencias.forEach(function (o) {
+                html += '<div class="timeline-item">';
+                html += '<div class="timeline-date">' + formatDate(o.data_arquivo) + '</div>';
+                html += '<div class="timeline-event"><strong><span class="status-badge ' + getStatusClass(o.status) + '">' + esc(o.status || '') + '</span></strong> ' + esc(o.descricao || '') + '</div>';
+                html += '</div>';
+            });
+            html += '</div></div>';
+        }
+
+        modalContent.innerHTML = html;
+    }
+
+    function renderPessoaSection(titulo, pessoa, enderecos, telefones, emails) {
+        var icon = titulo === 'Avalista' ? 'fa-user-shield' : 'fa-user-tie';
+        var html = '<div class="detail-section"><h3><i class="fa-solid ' + icon + '"></i> ' + esc(titulo) + '</h3>';
+        html += '<div class="detail-grid">';
+        html += dataItem('Nome', pessoa.nome_completo);
+        html += dataItem('CPF / CNPJ', pessoa.cpf_cnpj);
+        html += dataItem('Data de Nascimento', formatDate(pessoa.data_nascimento));
+        html += dataItem('Profissao', pessoa.profissao);
+        html += dataItem('Conjuge', pessoa.conjuge_nome);
+        html += '</div>';
+
+        if (enderecos && enderecos.length > 0) {
+            enderecos.forEach(function (e) {
+                html += '<div class="detail-grid" style="margin-top:12px">';
+                html += dataItem('Endereco (' + (e.tipo || '') + ')', [e.logradouro, e.complemento, e.bairro, e.cidade, e.estado, e.cep].filter(Boolean).join(', '));
+                html += '</div>';
+            });
+        }
+
+        if ((telefones && telefones.length) || (emails && emails.length)) {
+            html += '<div class="contact-grid" style="margin-top:12px">';
+            if (telefones && telefones.length) {
+                html += '<div><ul class="contact-list">';
+                telefones.forEach(function (t) {
+                    html += '<li><i class="fa-solid fa-phone"></i> ' + esc(t.numero || '-');
+                    if (t.ramal) html += ' (ramal ' + esc(t.ramal) + ')';
+                    html += '<span class="contact-tipo">' + esc(t.tipo) + '</span></li>';
+                });
+                html += '</ul></div>';
+            }
+            if (emails && emails.length) {
+                html += '<div><ul class="contact-list">';
+                emails.forEach(function (em) {
+                    html += '<li><i class="fa-solid fa-envelope"></i> ' + esc(em.email || '-');
+                    html += '<span class="contact-tipo">' + esc(em.tipo) + '</span></li>';
+                });
+                html += '</ul></div>';
+            }
+            html += '</div>';
+        }
+
+        html += '</div>';
+        return html;
+    }
+
+    // --- Modal open/close ---
+    function closeModal() {
+        detalhesModal.classList.remove('active');
+        document.body.style.overflow = '';
+    }
+
+    closeModalBtn.addEventListener('click', closeModal);
+    detalhesModal.addEventListener('click', function (e) {
+        if (e.target === detalhesModal) closeModal();
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && detalhesModal.classList.contains('active')) closeModal();
+    });
+
+    // --- Helpers ---
+    function esc(val) {
+        if (val === null || val === undefined) return '-';
+        var div = document.createElement('div');
+        div.textContent = String(val);
+        return div.innerHTML;
+    }
+
+    function dataItem(label, value, isBadge, badgeStatus) {
+        var display = (value !== null && value !== undefined && value !== '') ? esc(value) : '-';
+        if (isBadge && badgeStatus) {
+            display = '<span class="status-badge ' + getStatusClass(badgeStatus) + '">' + esc(value) + '</span>';
+        }
+        return '<div class="data-item"><span class="data-label">' + esc(label) + '</span><span class="data-value">' + display + '</span></div>';
+    }
+
+    function formatDate(val) {
+        if (!val) return '-';
+        var parts = String(val).split('T')[0].split('-');
+        if (parts.length === 3) return parts[2] + '/' + parts[1] + '/' + parts[0];
+        return val;
+    }
+
+    function formatCurrency(val) {
+        if (val === null || val === undefined || val === '') return '-';
+        var num = parseFloat(val);
+        if (isNaN(num)) return esc(val);
+        return 'R$ ' + num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function formatNumber(val) {
+        if (val === null || val === undefined) return '--';
+        return Number(val).toLocaleString('pt-BR');
+    }
+
+    function getStatusClass(status) {
+        if (!status) return '';
+        var s = String(status).toLowerCase();
+        if (s === 'aberto' || s === 'em cobranca' || s === 'em cobrança') return 'status-active';
+        if (s === 'fechado' || s === 'pago') return 'status-success';
+        if (s === 'indenizado') return 'status-warning';
+        if (s === 'parcela paga') return 'status-success';
+        if (s === 'parcela vencida') return 'status-danger';
+        return 'status-active';
     }
 
 });
