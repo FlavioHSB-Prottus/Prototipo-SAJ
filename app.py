@@ -208,30 +208,33 @@ def api_processar():
         yield _sse_event({'type': 'status', 'text': 'Fase 2/2 - Processando Contratos e Rastreando Deltas...'})
         yield _sse_event({'type': 'progress', 'value': 50})
 
-        try:
-            conn = pymysql.connect(**DB_CONFIG)
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT MIN(data_arquivo) AS dt_min, MAX(data_arquivo) AS dt_max "
-                "FROM arquivos_gm WHERE data_processamento IS NULL"
-            )
-            row = cursor.fetchone()
-            cursor.close()
-            conn.close()
+        all_dates = []
+        for root, _dirs, files in os.walk(temp_dir):
+            for fname in files:
+                if not fname.lower().endswith('.txt'):
+                    continue
+                fpath = os.path.join(root, fname)
+                try:
+                    with open(fpath, 'r', encoding='latin1') as fh:
+                        header = fh.readline().replace('\r', '').replace('\n', '')
+                    if not header.startswith('H') or len(header) < 73:
+                        continue
+                    ts = header[65:73]
+                    if not ts.isdigit() or len(ts) != 8:
+                        continue
+                    all_dates.append(f"{ts[0:4]}-{ts[4:6]}-{ts[6:8]}")
+                except Exception:
+                    continue
 
-            if row and row[0] and row[1]:
-                start_date = str(row[0])
-                end_date = str(row[1])
-            else:
-                yield _sse_event({'type': 'log', 'level': 'alert', 'text': 'Nenhum arquivo pendente encontrado no banco para processar.'})
-                yield _sse_event({'type': 'progress', 'value': 100})
-                yield _sse_event({'type': 'done', 'summary': f'{imported_count} arquivos importados. Nenhum pendente para tracker.'})
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                return
-        except Exception as e:
-            yield _sse_event({'type': 'error', 'text': f'Erro ao consultar banco: {e}'})
+        if not all_dates:
+            yield _sse_event({'type': 'log', 'level': 'alert', 'text': 'Nenhuma data valida encontrada nos arquivos importados.'})
+            yield _sse_event({'type': 'progress', 'value': 100})
+            yield _sse_event({'type': 'done', 'summary': f'{imported_count} arquivos importados. Nenhuma data para tracker.'})
             shutil.rmtree(temp_dir, ignore_errors=True)
             return
+
+        start_date = min(all_dates)
+        end_date = max(all_dates)
 
         yield _sse_event({'type': 'log', 'level': 'info', 'text': f'Range de datas detectado: {start_date} ate {end_date}'})
 
