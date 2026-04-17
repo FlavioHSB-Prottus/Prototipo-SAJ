@@ -21,14 +21,14 @@
                 <span class="file-format-hint">Suporta formatos (.txt, .csv) de exportação bancária</span>
             </div>
             
-            <!-- Estado quando arquivo for "carregado" via mock JS -->
+            <!-- Estado quando arquivos forem selecionados -->
             <div class="file-loaded-state d-none" id="fileLoadedState">
                 <i class="fa-solid fa-file-lines file-icon"></i>
-                <p class="filename">safra_dia_16.txt</p>
-                <span class="filesize">845 KB • 100% carregado</span>
+                <p class="filename" id="fileNameDisplay"></p>
+                <span class="filesize" id="fileSizeDisplay"></span>
             </div>
             
-            <input type="file" id="fileInput" class="d-none">
+            <input type="file" id="fileInput" class="d-none" multiple accept=".txt">
         </div>
 
         <!-- Botões de Ação do Upload -->

@@ -1,0 +1,2000 @@
+{
+  "HEADER": [
+    {
+      "Unnamed: 0": "id",
+      "Registro tipo H": "Campo",
+      "1 registro por Arquivo": "Posicao",
+      "Unnamed: 3": "",
+      "Unnamed: 4": "Tamanho",
+      "Unnamed: 5": "Formato",
+      "Unnamed: 6": "Descricao"
+    },
+    {
+      "Unnamed: 0": "H01",
+      "Registro tipo H": "TIPO_REG",
+      "1 registro por Arquivo": "1",
+      "Unnamed: 3": "1.0",
+      "Unnamed: 4": "1",
+      "Unnamed: 5": "H",
+      "Unnamed: 6": "Header - fixo H"
+    },
+    {
+      "Unnamed: 0": "H02",
+      "Registro tipo H": "CNPJ",
+      "1 registro por Arquivo": "2",
+      "Unnamed: 3": "15.0",
+      "Unnamed: 4": "14",
+      "Unnamed: 5": "numerico",
+      "Unnamed: 6": "00.000.000/0000-00 => 00000000000000"
+    },
+    {
+      "Unnamed: 0": "H03",
+      "Registro tipo H": "Empresa",
+      "1 registro por Arquivo": "16",
+      "Unnamed: 3": "65.0",
+      "Unnamed: 4": "50",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "NOME EMPRESA"
+    },
+    {
+      "Unnamed: 0": "H04",
+      "Registro tipo H": "data",
+      "1 registro por Arquivo": "66",
+      "Unnamed: 3": "73.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "AAAAMMDD",
+      "Unnamed: 6": "data de geração"
+    },
+    {
+      "Unnamed: 0": "H05",
+      "Registro tipo H": "NUMERO DO LOTE",
+      "1 registro por Arquivo": "74",
+      "Unnamed: 3": "79.0",
+      "Unnamed: 4": "6",
+      "Unnamed: 5": "numerico",
+      "Unnamed: 6": "NUMERO DO LOTE SEQUENCIAL EXPECTATIVA"
+    }
+  ],
+  "registro 1": [
+    {
+      "Unnamed: 0": "id",
+      "Registro tipo 1": "Campo",
+      "1 regisro por consorciado": "Posicao",
+      "Unnamed: 3": "",
+      "Unnamed: 4": "Tamanho",
+      "Unnamed: 5": "Formato",
+      "Unnamed: 6": "Descricao",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "101",
+      "Registro tipo 1": "TIPO       ",
+      "1 regisro por consorciado": "1",
+      "Unnamed: 3": "1.0",
+      "Unnamed: 4": "1",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "fixo = 1",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "102",
+      "Registro tipo 1": "Grupo",
+      "1 regisro por consorciado": "2",
+      "Unnamed: 3": "7.0",
+      "Unnamed: 4": "6",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "codigo do Grupo",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "103",
+      "Registro tipo 1": "Cota",
+      "1 regisro por consorciado": "8",
+      "Unnamed: 3": "11.0",
+      "Unnamed: 4": "4",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "codigo da Cota",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "104",
+      "Registro tipo 1": "Versao",
+      "1 regisro por consorciado": "12",
+      "Unnamed: 3": "13.0",
+      "Unnamed: 4": "2",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "codigo da versao",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "105",
+      "Registro tipo 1": "cgc/cpf",
+      "1 regisro por consorciado": "14",
+      "Unnamed: 3": "27.0",
+      "Unnamed: 4": "14",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "CPF/CGC Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "106",
+      "Registro tipo 1": "Nome",
+      "1 regisro por consorciado": "28",
+      "Unnamed: 3": "67.0",
+      "Unnamed: 4": "40",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Nome do Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "107",
+      "Registro tipo 1": "Status",
+      "1 regisro por consorciado": "68",
+      "Unnamed: 3": "82.0",
+      "Unnamed: 4": "15",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Juridico/Cobranca",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "108",
+      "Registro tipo 1": "Amort",
+      "1 regisro por consorciado": "83",
+      "Unnamed: 3": "91.0",
+      "Unnamed: 4": "9",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Perc. Amortizacao",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "109",
+      "Registro tipo 1": "Atras",
+      "1 regisro por consorciado": "92",
+      "Unnamed: 3": "100.0",
+      "Unnamed: 4": "9",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Perc. Atraso",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "110",
+      "Registro tipo 1": "Mensal",
+      "1 regisro por consorciado": "101",
+      "Unnamed: 3": "109.0",
+      "Unnamed: 4": "9",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Perc. Mensal",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "111",
+      "Registro tipo 1": "Mensal c/ taxas",
+      "1 regisro por consorciado": "110",
+      "Unnamed: 3": "118.0",
+      "Unnamed: 4": "9",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Perc. Do mês com taxas",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "112",
+      "Registro tipo 1": "SEGURO MENSAL C/ TAXAS",
+      "1 regisro por consorciado": "119",
+      "Unnamed: 3": "127.0",
+      "Unnamed: 4": "9",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Perc. De seguro da cota por parcela com taxas",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "113",
+      "Registro tipo 1": "TAXA ADM DO GRUPO",
+      "1 regisro por consorciado": "128",
+      "Unnamed: 3": "136.0",
+      "Unnamed: 4": "9",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Perc. Total de taxa administrativa do grupo",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "114",
+      "Registro tipo 1": "FUNDO DE RESERVA DO GRUPO",
+      "1 regisro por consorciado": "137",
+      "Unnamed: 3": "145.0",
+      "Unnamed: 4": "9",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Perc. Total de fundo de reserva do grupo",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "115",
+      "Registro tipo 1": "Prazo",
+      "1 regisro por consorciado": "146",
+      "Unnamed: 3": "148.0",
+      "Unnamed: 4": "3",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Ultima parcela a ser Cobrada",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "116",
+      "Registro tipo 1": "Plano_Basico",
+      "1 regisro por consorciado": "149",
+      "Unnamed: 3": "151.0",
+      "Unnamed: 4": "3",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Numero Ultima Assembl. do Grupo",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "117",
+      "Registro tipo 1": "Dt_Ult_Ass_Gr",
+      "1 regisro por consorciado": "152",
+      "Unnamed: 3": "159.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Data da Assembl ultima do Grupo",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "118",
+      "Registro tipo 1": "Cat_C_Seg",
+      "1 regisro por consorciado": "160",
+      "Unnamed: 3": "170.0",
+      "Unnamed: 4": "11",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Categoria",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "119",
+      "Registro tipo 1": "Valor do Bem sem Taxas",
+      "1 regisro por consorciado": "171",
+      "Unnamed: 3": "181.0",
+      "Unnamed: 4": "11",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Valor do bem",
+      "Unnamed: 7": "*"
+    },
+    {
+      "Unnamed: 0": "120",
+      "Registro tipo 1": "Dif. Parc. acumulado",
+      "1 regisro por consorciado": "182",
+      "Unnamed: 3": "192.0",
+      "Unnamed: 4": "11",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Valor Acumulado de Diferença de Parcelas",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "121",
+      "Registro tipo 1": "Vl_Parc",
+      "1 regisro por consorciado": "193",
+      "Unnamed: 3": "203.0",
+      "Unnamed: 4": "11",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Valor da Parcela",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "122",
+      "Registro tipo 1": "Modelo",
+      "1 regisro por consorciado": "204",
+      "Unnamed: 3": "215.0",
+      "Unnamed: 4": "12",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Modelo do Bem",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "123",
+      "Registro tipo 1": "Endereco",
+      "1 regisro por consorciado": "216",
+      "Unnamed: 3": "255.0",
+      "Unnamed: 4": "40",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Endereco do Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "124",
+      "Registro tipo 1": "Bairro",
+      "1 regisro por consorciado": "256",
+      "Unnamed: 3": "280.0",
+      "Unnamed: 4": "25",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Bairro do Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "125",
+      "Registro tipo 1": "Compl",
+      "1 regisro por consorciado": "281",
+      "Unnamed: 3": "290.0",
+      "Unnamed: 4": "10",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Complemento do Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "126",
+      "Registro tipo 1": "Cep",
+      "1 regisro por consorciado": "291",
+      "Unnamed: 3": "298.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "CEP do Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "127",
+      "Registro tipo 1": "Cidade",
+      "1 regisro por consorciado": "299",
+      "Unnamed: 3": "328.0",
+      "Unnamed: 4": "30",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Cidade do Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "128",
+      "Registro tipo 1": "Estado",
+      "1 regisro por consorciado": "329",
+      "Unnamed: 3": "330.0",
+      "Unnamed: 4": "2",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Estado do Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "129",
+      "Registro tipo 1": "Ddd_Telefone",
+      "1 regisro por consorciado": "331",
+      "Unnamed: 3": "333.0",
+      "Unnamed: 4": "3",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "DDD Telefone do Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "130",
+      "Registro tipo 1": "Telefone",
+      "1 regisro por consorciado": "334",
+      "Unnamed: 3": "348.0",
+      "Unnamed: 4": "15",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Telefone do Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "131",
+      "Registro tipo 1": "Ddd_Celular",
+      "1 regisro por consorciado": "349",
+      "Unnamed: 3": "351.0",
+      "Unnamed: 4": "3",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "DDD Celular do Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "132",
+      "Registro tipo 1": "Celular",
+      "1 regisro por consorciado": "352",
+      "Unnamed: 3": "366.0",
+      "Unnamed: 4": "15",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Celular do Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "133",
+      "Registro tipo 1": "Email",
+      "1 regisro por consorciado": "367",
+      "Unnamed: 3": "416.0",
+      "Unnamed: 4": "50",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Email do Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "134",
+      "Registro tipo 1": "Empresa",
+      "1 regisro por consorciado": "417",
+      "Unnamed: 3": "446.0",
+      "Unnamed: 4": "30",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Empresa do Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "135",
+      "Registro tipo 1": "Endereco2",
+      "1 regisro por consorciado": "447",
+      "Unnamed: 3": "486.0",
+      "Unnamed: 4": "40",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Endereco do Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "136",
+      "Registro tipo 1": "Bairro2",
+      "1 regisro por consorciado": "487",
+      "Unnamed: 3": "511.0",
+      "Unnamed: 4": "25",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Bairro do Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "137",
+      "Registro tipo 1": "compl 2",
+      "1 regisro por consorciado": "512",
+      "Unnamed: 3": "521.0",
+      "Unnamed: 4": "10",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Complemento de devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "138",
+      "Registro tipo 1": "Cep2",
+      "1 regisro por consorciado": "522",
+      "Unnamed: 3": "529.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "CEP do Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "139",
+      "Registro tipo 1": "Cidade2",
+      "1 regisro por consorciado": "530",
+      "Unnamed: 3": "559.0",
+      "Unnamed: 4": "30",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Cidade do Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "140",
+      "Registro tipo 1": "Estado2",
+      "1 regisro por consorciado": "560",
+      "Unnamed: 3": "561.0",
+      "Unnamed: 4": "2",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Estado do Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "141",
+      "Registro tipo 1": "Ddd2",
+      "1 regisro por consorciado": "562",
+      "Unnamed: 3": "564.0",
+      "Unnamed: 4": "3",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "DDD do Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "142",
+      "Registro tipo 1": "Telefone2",
+      "1 regisro por consorciado": "565",
+      "Unnamed: 3": "579.0",
+      "Unnamed: 4": "15",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Telefone do Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "143",
+      "Registro tipo 1": "Ramal_Coml_Devedor",
+      "1 regisro por consorciado": "580",
+      "Unnamed: 3": "583.0",
+      "Unnamed: 4": "4",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Ramal Coml. Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "144",
+      "Registro tipo 1": "Conjuge Consorciado",
+      "1 regisro por consorciado": "584",
+      "Unnamed: 3": "623.0",
+      "Unnamed: 4": "40",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Nome do Conjuge do Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "145",
+      "Registro tipo 1": "DDD_Coml_Conj.",
+      "1 regisro por consorciado": "624",
+      "Unnamed: 3": "626.0",
+      "Unnamed: 4": "3",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "DDD Telefone Coml. Conjuge",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "146",
+      "Registro tipo 1": "Fon_Coml_Conj.",
+      "1 regisro por consorciado": "627",
+      "Unnamed: 3": "641.0",
+      "Unnamed: 4": "15",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Telefone Comercial do Conjuge Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "147",
+      "Registro tipo 1": "Ramal_Coml_Conj_Devedor",
+      "1 regisro por consorciado": "642",
+      "Unnamed: 3": "645.0",
+      "Unnamed: 4": "4",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Ramal Coml. Conjugê Devedor",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "148",
+      "Registro tipo 1": "DATA_NASCIMENTO",
+      "1 regisro por consorciado": "646",
+      "Unnamed: 3": "653.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Data de nascimento",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "149",
+      "Registro tipo 1": "NOME_PAI",
+      "1 regisro por consorciado": "654",
+      "Unnamed: 3": "693.0",
+      "Unnamed: 4": "40",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "NOME_PAI",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "150",
+      "Registro tipo 1": "NOME_MAE",
+      "1 regisro por consorciado": "694",
+      "Unnamed: 3": "733.0",
+      "Unnamed: 4": "40",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "NOME_MAE",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "151",
+      "Registro tipo 1": "PROFISSAO",
+      "1 regisro por consorciado": "734",
+      "Unnamed: 3": "773.0",
+      "Unnamed: 4": "40",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Descrição da Profissão",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "152",
+      "Registro tipo 1": "DATA_ENTREGA_BEM",
+      "1 regisro por consorciado": "774",
+      "Unnamed: 3": "781.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Data de entrega",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "153",
+      "Registro tipo 1": "Data da Expectativa",
+      "1 regisro por consorciado": "782",
+      "Unnamed: 3": "789.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Data da expectativa",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "154",
+      "Registro tipo 1": "DATA_ADESÃO",
+      "1 regisro por consorciado": "790",
+      "Unnamed: 3": "797.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Data da Adesão",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "155",
+      "Registro tipo 1": "DATA_TRANSFERENCIA",
+      "1 regisro por consorciado": "798",
+      "Unnamed: 3": "805.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Data da Transferencia",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "156",
+      "Registro tipo 1": "TIPO_CONTEMPLACAO",
+      "1 regisro por consorciado": "806",
+      "Unnamed: 3": "806.0",
+      "Unnamed: 4": "1",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "S ou L ",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "157",
+      "Registro tipo 1": "DATA_CONTEMPLACAO",
+      "1 regisro por consorciado": "807",
+      "Unnamed: 3": "814.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Data de contemplação",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "158",
+      "Registro tipo 1": "PERCENTUAL_LANCE",
+      "1 regisro por consorciado": "815",
+      "Unnamed: 3": "823.0",
+      "Unnamed: 4": "9",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Per Lance",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "159",
+      "Registro tipo 1": "Rev_",
+      "1 regisro por consorciado": "824",
+      "Unnamed: 3": "829.0",
+      "Unnamed: 4": "6",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Numero da revenda",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "160",
+      "Registro tipo 1": "Nome_Rev",
+      "1 regisro por consorciado": "830",
+      "Unnamed: 3": "869.0",
+      "Unnamed: 4": "40",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Nome da revenda",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "161",
+      "Registro tipo 1": "Codigo da Campanha",
+      "1 regisro por consorciado": "870",
+      "Unnamed: 3": "875.0",
+      "Unnamed: 4": "6",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Codigo da Campanha Vigente",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "162",
+      "Registro tipo 1": "Numero do Contrato",
+      "1 regisro por consorciado": "876",
+      "Unnamed: 3": "886.0",
+      "Unnamed: 4": "10",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Número da Proposta Alocada",
+      "Unnamed: 7": ""
+    }
+  ],
+  "registro2": [
+    {
+      "Unnamed: 0": "id",
+      "Registro tipo 2": "Campo",
+      "n registros, 1 registro para cada parcela vencida": "Posicao",
+      "Unnamed: 3": "",
+      "Unnamed: 4": "Tamanho",
+      "Unnamed: 5": "Formato",
+      "Unnamed: 6": "Descricao"
+    },
+    {
+      "Unnamed: 0": "201",
+      "Registro tipo 2": "TIPO       ",
+      "n registros, 1 registro para cada parcela vencida": "1",
+      "Unnamed: 3": "1.0",
+      "Unnamed: 4": "1",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "fixo = 2"
+    },
+    {
+      "Unnamed: 0": "202",
+      "Registro tipo 2": "GRUPO      ",
+      "n registros, 1 registro para cada parcela vencida": "2",
+      "Unnamed: 3": "7.0",
+      "Unnamed: 4": "6",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Descricao do Grupo"
+    },
+    {
+      "Unnamed: 0": "203",
+      "Registro tipo 2": "COTA       ",
+      "n registros, 1 registro para cada parcela vencida": "8",
+      "Unnamed: 3": "11.0",
+      "Unnamed: 4": "4",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Descricao da Cota"
+    },
+    {
+      "Unnamed: 0": "204",
+      "Registro tipo 2": "SEQUENCIA  ",
+      "n registros, 1 registro para cada parcela vencida": "12",
+      "Unnamed: 3": "13.0",
+      "Unnamed: 4": "2",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Versão"
+    },
+    {
+      "Unnamed: 0": "205",
+      "Registro tipo 2": "AVISO      ",
+      "n registros, 1 registro para cada parcela vencida": "14",
+      "Unnamed: 3": "21.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Numero Aviso"
+    },
+    {
+      "Unnamed: 0": "206",
+      "Registro tipo 2": "TIPOMOV    ",
+      "n registros, 1 registro para cada parcela vencida": "22",
+      "Unnamed: 3": "25.0",
+      "Unnamed: 4": "4",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Codigo Movimento = 0010 ou 0020  (termo = 0270)"
+    },
+    {
+      "Unnamed: 0": "207",
+      "Registro tipo 2": "VENCIMENTO ",
+      "n registros, 1 registro para cada parcela vencida": "26",
+      "Unnamed: 3": "33.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "vencimento da parcela"
+    },
+    {
+      "Unnamed: 0": "208",
+      "Registro tipo 2": "AGENTECOB  ",
+      "n registros, 1 registro para cada parcela vencida": "34",
+      "Unnamed: 3": "39.0",
+      "Unnamed: 4": "6",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "completar com zeros a esquerda"
+    },
+    {
+      "Unnamed: 0": "209",
+      "Registro tipo 2": "VALORPAR   ",
+      "n registros, 1 registro para cada parcela vencida": "40",
+      "Unnamed: 3": "55.0",
+      "Unnamed: 4": "16",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "sem pontuação, zeros esquerda"
+    },
+    {
+      "Unnamed: 0": "210",
+      "Registro tipo 2": "MULTAJUR   ",
+      "n registros, 1 registro para cada parcela vencida": "56",
+      "Unnamed: 3": "69.0",
+      "Unnamed: 4": "14",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "sem pontuação, zeros esquerda"
+    },
+    {
+      "Unnamed: 0": "211",
+      "Registro tipo 2": "VALORTOT   ",
+      "n registros, 1 registro para cada parcela vencida": "70",
+      "Unnamed: 3": "85.0",
+      "Unnamed: 4": "16",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "sem pontuação, zeros esquerda"
+    },
+    {
+      "Unnamed: 0": "212",
+      "Registro tipo 2": "NUMEROEXT  ",
+      "n registros, 1 registro para cada parcela vencida": "86",
+      "Unnamed: 3": "105.0",
+      "Unnamed: 4": "20",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "numero titulo"
+    },
+    {
+      "Unnamed: 0": "213",
+      "Registro tipo 2": "DATENVIO   ",
+      "n registros, 1 registro para cada parcela vencida": "106",
+      "Unnamed: 3": "113.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "sysdate"
+    },
+    {
+      "Unnamed: 0": "214",
+      "Registro tipo 2": "ASSEMBLÉIA",
+      "n registros, 1 registro para cada parcela vencida": "114",
+      "Unnamed: 3": "116.0",
+      "Unnamed: 4": "3",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Numero da assembléia da parcela em aberto"
+    },
+    {
+      "Unnamed: 0": "215",
+      "Registro tipo 2": "NUMERO PARCELA",
+      "n registros, 1 registro para cada parcela vencida": "117",
+      "Unnamed: 3": "119.0",
+      "Unnamed: 4": "3",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Numero da assembléia da parcela em aberto"
+    },
+    {
+      "Unnamed: 0": "216",
+      "Registro tipo 2": "% FDO COMUM",
+      "n registros, 1 registro para cada parcela vencida": "120",
+      "Unnamed: 3": "124.0",
+      "Unnamed: 4": "5",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Percentual de fundo Comum da Parcela (Plano de Cobrança)"
+    },
+    {
+      "Unnamed: 0": "217",
+      "Registro tipo 2": "% TX ADM",
+      "n registros, 1 registro para cada parcela vencida": "125",
+      "Unnamed: 3": "129.0",
+      "Unnamed: 4": "5",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Percentual de Taxa Adm da Parcela (Plano de Cobrança)"
+    },
+    {
+      "Unnamed: 0": "218",
+      "Registro tipo 2": "% FD RESERVA",
+      "n registros, 1 registro para cada parcela vencida": "130",
+      "Unnamed: 3": "134.0",
+      "Unnamed: 4": "5",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Percentual de fundo Reserva da Parcela (Plano de Cobrança)"
+    },
+    {
+      "Unnamed: 0": "219",
+      "Registro tipo 2": "% SEGURO",
+      "n registros, 1 registro para cada parcela vencida": "135",
+      "Unnamed: 3": "147.0",
+      "Unnamed: 4": "13",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Percentual de Seguro da Parcela (Plano de Cobrança)"
+    }
+  ],
+  "registro3": [
+    {
+      "Unnamed: 0": "id",
+      "Registro tipo 3": "Campo",
+      "n registros, 1 registro para cada chassi": "Posicao",
+      "Unnamed: 3": "",
+      "Unnamed: 4": "Tamanho",
+      "Unnamed: 5": "Formato",
+      "Unnamed: 6": "Descricao"
+    },
+    {
+      "Unnamed: 0": "301",
+      "Registro tipo 3": "TIPO       ",
+      "n registros, 1 registro para cada chassi": "1",
+      "Unnamed: 3": "1.0",
+      "Unnamed: 4": "1",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "fixo = 3"
+    },
+    {
+      "Unnamed: 0": "302",
+      "Registro tipo 3": "GRUPO      ",
+      "n registros, 1 registro para cada chassi": "2",
+      "Unnamed: 3": "7.0",
+      "Unnamed: 4": "6",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Descricao do Grupo"
+    },
+    {
+      "Unnamed: 0": "303",
+      "Registro tipo 3": "COTA       ",
+      "n registros, 1 registro para cada chassi": "8",
+      "Unnamed: 3": "11.0",
+      "Unnamed: 4": "4",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Descricao da Cota"
+    },
+    {
+      "Unnamed: 0": "304",
+      "Registro tipo 3": "SEQUENCIA  ",
+      "n registros, 1 registro para cada chassi": "12",
+      "Unnamed: 3": "13.0",
+      "Unnamed: 4": "2",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Versão"
+    },
+    {
+      "Unnamed: 0": "305",
+      "Registro tipo 3": "CHASSI",
+      "n registros, 1 registro para cada chassi": "14",
+      "Unnamed: 3": "34.0",
+      "Unnamed: 4": "21",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "CHASSI"
+    },
+    {
+      "Unnamed: 0": "306",
+      "Registro tipo 3": "PLACA",
+      "n registros, 1 registro para cada chassi": "35",
+      "Unnamed: 3": "44.0",
+      "Unnamed: 4": "10",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "PLACA"
+    },
+    {
+      "Unnamed: 0": "307",
+      "Registro tipo 3": "CODIGO_RENAVAM",
+      "n registros, 1 registro para cada chassi": "45",
+      "Unnamed: 3": "57.0",
+      "Unnamed: 4": "13",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "CODIGO_RENAVAM"
+    },
+    {
+      "Unnamed: 0": "308",
+      "Registro tipo 3": "MODELO",
+      "n registros, 1 registro para cada chassi": "58",
+      "Unnamed: 3": "72.0",
+      "Unnamed: 4": "15",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "MODELO"
+    },
+    {
+      "Unnamed: 0": "309",
+      "Registro tipo 3": "ANO_MODELO",
+      "n registros, 1 registro para cada chassi": "73",
+      "Unnamed: 3": "81.0",
+      "Unnamed: 4": "9",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "ANO_MODELO"
+    },
+    {
+      "Unnamed: 0": "310",
+      "Registro tipo 3": "COR",
+      "n registros, 1 registro para cada chassi": "82",
+      "Unnamed: 3": "97.0",
+      "Unnamed: 4": "16",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "COR"
+    },
+    {
+      "Unnamed: 0": "311",
+      "Registro tipo 3": "MARCA",
+      "n registros, 1 registro para cada chassi": "98",
+      "Unnamed: 3": "117.0",
+      "Unnamed: 4": "20",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "MARCA"
+    },
+    {
+      "Unnamed: 0": "312",
+      "Registro tipo 3": "DATA_NOTA_FISCAL",
+      "n registros, 1 registro para cada chassi": "118",
+      "Unnamed: 3": "125.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "DATA_NOTA_FISCAL"
+    },
+    {
+      "Unnamed: 0": "313",
+      "Registro tipo 3": "ENDERECO",
+      "n registros, 1 registro para cada chassi": "126",
+      "Unnamed: 3": "225.0",
+      "Unnamed: 4": "100",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "ENDERECO"
+    },
+    {
+      "Unnamed: 0": "314",
+      "Registro tipo 3": "BAIRRO",
+      "n registros, 1 registro para cada chassi": "226",
+      "Unnamed: 3": "255.0",
+      "Unnamed: 4": "30",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "BAIRRO"
+    },
+    {
+      "Unnamed: 0": "315",
+      "Registro tipo 3": "CEP",
+      "n registros, 1 registro para cada chassi": "256",
+      "Unnamed: 3": "263.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "CEP"
+    },
+    {
+      "Unnamed: 0": "316",
+      "Registro tipo 3": "CIDADE",
+      "n registros, 1 registro para cada chassi": "264",
+      "Unnamed: 3": "313.0",
+      "Unnamed: 4": "50",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "CIDADE"
+    },
+    {
+      "Unnamed: 0": "317",
+      "Registro tipo 3": "ESTADO",
+      "n registros, 1 registro para cada chassi": "314",
+      "Unnamed: 3": "315.0",
+      "Unnamed: 4": "2",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "ESTADO"
+    },
+    {
+      "Unnamed: 0": "318",
+      "Registro tipo 3": "MATRICULA",
+      "n registros, 1 registro para cada chassi": "316",
+      "Unnamed: 3": "323.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "MATRICULA"
+    },
+    {
+      "Unnamed: 0": "319",
+      "Registro tipo 3": "CARTORIO",
+      "n registros, 1 registro para cada chassi": "324",
+      "Unnamed: 3": "373.0",
+      "Unnamed: 4": "50",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "CARTORIO"
+    },
+    {
+      "Unnamed: 0": "320",
+      "Registro tipo 3": "VL_AVALIACAO",
+      "n registros, 1 registro para cada chassi": "374",
+      "Unnamed: 3": "385.0",
+      "Unnamed: 4": "12",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "VL_AVALIACAO"
+    }
+  ],
+  "registro4": [
+    {
+      "Unnamed: 0": "id",
+      "Registro tipo 4": "Campo",
+      "n registros, 1 registro para cada referencia": "Posicao",
+      "Unnamed: 3": "",
+      "Unnamed: 4": "Tamanho",
+      "Unnamed: 5": "Formato",
+      "Unnamed: 6": "Descricao"
+    },
+    {
+      "Unnamed: 0": "401",
+      "Registro tipo 4": "TIPO       ",
+      "n registros, 1 registro para cada referencia": "1",
+      "Unnamed: 3": "1.0",
+      "Unnamed: 4": "1",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "fixo = 4"
+    },
+    {
+      "Unnamed: 0": "402",
+      "Registro tipo 4": "GRUPO      ",
+      "n registros, 1 registro para cada referencia": "2",
+      "Unnamed: 3": "7.0",
+      "Unnamed: 4": "6",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Descricao do Grupo"
+    },
+    {
+      "Unnamed: 0": "403",
+      "Registro tipo 4": "COTA       ",
+      "n registros, 1 registro para cada referencia": "8",
+      "Unnamed: 3": "11.0",
+      "Unnamed: 4": "4",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Descricao da Cota"
+    },
+    {
+      "Unnamed: 0": "404",
+      "Registro tipo 4": "SEQUENCIA  ",
+      "n registros, 1 registro para cada referencia": "12",
+      "Unnamed: 3": "13.0",
+      "Unnamed: 4": "2",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Versão"
+    },
+    {
+      "Unnamed: 0": "405",
+      "Registro tipo 4": "TIPO_REFERENCIA",
+      "n registros, 1 registro para cada referencia": "14",
+      "Unnamed: 3": "34.0",
+      "Unnamed: 4": "21",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "TIPO_REFERENCIA *VER OBSERVAÇÃO 1"
+    },
+    {
+      "Unnamed: 0": "406",
+      "Registro tipo 4": "Nome",
+      "n registros, 1 registro para cada referencia": "35",
+      "Unnamed: 3": "74.0",
+      "Unnamed: 4": "40",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Nome para Referencias do Devedor"
+    },
+    {
+      "Unnamed: 0": "407",
+      "Registro tipo 4": "Endereço",
+      "n registros, 1 registro para cada referencia": "75",
+      "Unnamed: 3": "114.0",
+      "Unnamed: 4": "40",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Endereco da Referencia do Devedor"
+    },
+    {
+      "Unnamed: 0": "408",
+      "Registro tipo 4": "BAIRRO",
+      "n registros, 1 registro para cada referencia": "115",
+      "Unnamed: 3": "139.0",
+      "Unnamed: 4": "25",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Bairro do endereço das referencias"
+    },
+    {
+      "Unnamed: 0": "409",
+      "Registro tipo 4": "DDD",
+      "n registros, 1 registro para cada referencia": "140",
+      "Unnamed: 3": "142.0",
+      "Unnamed: 4": "3",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "DDD da Referencia Devedor A"
+    },
+    {
+      "Unnamed: 0": "410",
+      "Registro tipo 4": "Fone",
+      "n registros, 1 registro para cada referencia": "143",
+      "Unnamed: 3": "157.0",
+      "Unnamed: 4": "15",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Telefone da Referencia do Devedor"
+    },
+    {
+      "Unnamed: 0": "411",
+      "Registro tipo 4": "Ramal",
+      "n registros, 1 registro para cada referencia": "158",
+      "Unnamed: 3": "161.0",
+      "Unnamed: 4": "4",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Ramal da Referencia do Devedor"
+    },
+    {
+      "Unnamed: 0": "",
+      "Registro tipo 4": "",
+      "n registros, 1 registro para cada referencia": "",
+      "Unnamed: 3": "",
+      "Unnamed: 4": "",
+      "Unnamed: 5": "",
+      "Unnamed: 6": ""
+    },
+    {
+      "Unnamed: 0": "",
+      "Registro tipo 4": "",
+      "n registros, 1 registro para cada referencia": "",
+      "Unnamed: 3": "",
+      "Unnamed: 4": "",
+      "Unnamed: 5": "",
+      "Unnamed: 6": ""
+    },
+    {
+      "Unnamed: 0": "",
+      "Registro tipo 4": "",
+      "n registros, 1 registro para cada referencia": "",
+      "Unnamed: 3": "",
+      "Unnamed: 4": "",
+      "Unnamed: 5": "",
+      "Unnamed: 6": ""
+    },
+    {
+      "Unnamed: 0": "",
+      "Registro tipo 4": "",
+      "n registros, 1 registro para cada referencia": "",
+      "Unnamed: 3": "",
+      "Unnamed: 4": "",
+      "Unnamed: 5": "",
+      "Unnamed: 6": ""
+    },
+    {
+      "Unnamed: 0": "",
+      "Registro tipo 4": "OBSERVAÇÃO 1",
+      "n registros, 1 registro para cada referencia": "Deverão ser listados em referencias todos os dados de enderecos e referencias cadastrados",
+      "Unnamed: 3": "",
+      "Unnamed: 4": "",
+      "Unnamed: 5": "",
+      "Unnamed: 6": ""
+    }
+  ],
+  "registro5": [
+    {
+      "Unnamed: 0": "id",
+      "Registro tipo 5": "Campo",
+      "n registros, 1 registro para cada Avalista": "Posicao",
+      "Unnamed: 3": "",
+      "Unnamed: 4": "Tamanho",
+      "Unnamed: 5": "Formato",
+      "Unnamed: 6": "Descricao"
+    },
+    {
+      "Unnamed: 0": "501",
+      "Registro tipo 5": "TIPO       ",
+      "n registros, 1 registro para cada Avalista": "1",
+      "Unnamed: 3": "1.0",
+      "Unnamed: 4": "1",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "fixo = 5"
+    },
+    {
+      "Unnamed: 0": "502",
+      "Registro tipo 5": "GRUPO      ",
+      "n registros, 1 registro para cada Avalista": "2",
+      "Unnamed: 3": "7.0",
+      "Unnamed: 4": "6",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Descricao do Grupo"
+    },
+    {
+      "Unnamed: 0": "503",
+      "Registro tipo 5": "COTA       ",
+      "n registros, 1 registro para cada Avalista": "8",
+      "Unnamed: 3": "11.0",
+      "Unnamed: 4": "4",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Descricao da Cota"
+    },
+    {
+      "Unnamed: 0": "504",
+      "Registro tipo 5": "SEQUENCIA  ",
+      "n registros, 1 registro para cada Avalista": "12",
+      "Unnamed: 3": "13.0",
+      "Unnamed: 4": "2",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Versão"
+    },
+    {
+      "Unnamed: 0": "505",
+      "Registro tipo 5": "CPF Avalista",
+      "n registros, 1 registro para cada Avalista": "14",
+      "Unnamed: 3": "27.0",
+      "Unnamed: 4": "14",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "CPF do avalista"
+    },
+    {
+      "Unnamed: 0": "506",
+      "Registro tipo 5": "Avalista",
+      "n registros, 1 registro para cada Avalista": "28",
+      "Unnamed: 3": "67.0",
+      "Unnamed: 4": "40",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Avalista = nome"
+    },
+    {
+      "Unnamed: 0": "507",
+      "Registro tipo 5": "End_Aval",
+      "n registros, 1 registro para cada Avalista": "68",
+      "Unnamed: 3": "107.0",
+      "Unnamed: 4": "40",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Endereco do Avalista"
+    },
+    {
+      "Unnamed: 0": "508",
+      "Registro tipo 5": "BAIRRO",
+      "n registros, 1 registro para cada Avalista": "108",
+      "Unnamed: 3": "132.0",
+      "Unnamed: 4": "25",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Bairro do endereço do Avalista"
+    },
+    {
+      "Unnamed: 0": "509",
+      "Registro tipo 5": "Compl_Aval",
+      "n registros, 1 registro para cada Avalista": "133",
+      "Unnamed: 3": "142.0",
+      "Unnamed: 4": "10",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Complemento do Avalista"
+    },
+    {
+      "Unnamed: 0": "510",
+      "Registro tipo 5": "Cep_Aval",
+      "n registros, 1 registro para cada Avalista": "143",
+      "Unnamed: 3": "150.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "CEP do Avalista"
+    },
+    {
+      "Unnamed: 0": "511",
+      "Registro tipo 5": "Cidade_Aval",
+      "n registros, 1 registro para cada Avalista": "151",
+      "Unnamed: 3": "180.0",
+      "Unnamed: 4": "30",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Cidade do Avalista"
+    },
+    {
+      "Unnamed: 0": "512",
+      "Registro tipo 5": "Estado_Aval",
+      "n registros, 1 registro para cada Avalista": "181",
+      "Unnamed: 3": "182.0",
+      "Unnamed: 4": "2",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Estado do Avalista"
+    },
+    {
+      "Unnamed: 0": "513",
+      "Registro tipo 5": "Ddd_Aval",
+      "n registros, 1 registro para cada Avalista": "183",
+      "Unnamed: 3": "185.0",
+      "Unnamed: 4": "3",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "DDD do Avalista"
+    },
+    {
+      "Unnamed: 0": "514",
+      "Registro tipo 5": "Telefone_Aval",
+      "n registros, 1 registro para cada Avalista": "186",
+      "Unnamed: 3": "200.0",
+      "Unnamed: 4": "15",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Telefone do Avalista"
+    },
+    {
+      "Unnamed: 0": "515",
+      "Registro tipo 5": "Ddd_Celular_Aval",
+      "n registros, 1 registro para cada Avalista": "201",
+      "Unnamed: 3": "203.0",
+      "Unnamed: 4": "3",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "DDD Celula Avalista"
+    },
+    {
+      "Unnamed: 0": "516",
+      "Registro tipo 5": "Celular_Aval",
+      "n registros, 1 registro para cada Avalista": "204",
+      "Unnamed: 3": "218.0",
+      "Unnamed: 4": "15",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Celular do Avalista"
+    },
+    {
+      "Unnamed: 0": "517",
+      "Registro tipo 5": "Email_Aval",
+      "n registros, 1 registro para cada Avalista": "219",
+      "Unnamed: 3": "268.0",
+      "Unnamed: 4": "50",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Email do Avalista"
+    },
+    {
+      "Unnamed: 0": "518",
+      "Registro tipo 5": "Empresa_Aval",
+      "n registros, 1 registro para cada Avalista": "269",
+      "Unnamed: 3": "298.0",
+      "Unnamed: 4": "30",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Empresa do Avalista"
+    },
+    {
+      "Unnamed: 0": "519",
+      "Registro tipo 5": "Endereco2_Aval",
+      "n registros, 1 registro para cada Avalista": "299",
+      "Unnamed: 3": "338.0",
+      "Unnamed: 4": "40",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Endereco Coml. do Avalista"
+    },
+    {
+      "Unnamed: 0": "520",
+      "Registro tipo 5": "Bairro2",
+      "n registros, 1 registro para cada Avalista": "339",
+      "Unnamed: 3": "363.0",
+      "Unnamed: 4": "25",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Bairro do endereço2 do avalista"
+    },
+    {
+      "Unnamed: 0": "521",
+      "Registro tipo 5": "Cep2_Aval",
+      "n registros, 1 registro para cada Avalista": "364",
+      "Unnamed: 3": "371.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "CEP Coml.do Avalista"
+    },
+    {
+      "Unnamed: 0": "522",
+      "Registro tipo 5": "Cidade2_Aval",
+      "n registros, 1 registro para cada Avalista": "372",
+      "Unnamed: 3": "401.0",
+      "Unnamed: 4": "30",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Cidade Coml. do Avalista"
+    },
+    {
+      "Unnamed: 0": "523",
+      "Registro tipo 5": "Estado2_Aval",
+      "n registros, 1 registro para cada Avalista": "402",
+      "Unnamed: 3": "403.0",
+      "Unnamed: 4": "2",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Estado Coml. do Avalista"
+    },
+    {
+      "Unnamed: 0": "524",
+      "Registro tipo 5": "Ddd2_Coml_Aval",
+      "n registros, 1 registro para cada Avalista": "404",
+      "Unnamed: 3": "406.0",
+      "Unnamed: 4": "3",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "DDD Coml. do Avalista"
+    },
+    {
+      "Unnamed: 0": "525",
+      "Registro tipo 5": "Telefone2_Aval",
+      "n registros, 1 registro para cada Avalista": "407",
+      "Unnamed: 3": "421.0",
+      "Unnamed: 4": "15",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Telefone Coml. do Avalista"
+    },
+    {
+      "Unnamed: 0": "526",
+      "Registro tipo 5": "Ramal_Coml_Aval",
+      "n registros, 1 registro para cada Avalista": "422",
+      "Unnamed: 3": "425.0",
+      "Unnamed: 4": "4",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Ramal Coml. Avalista"
+    },
+    {
+      "Unnamed: 0": "527",
+      "Registro tipo 5": "Conjuge Avalista",
+      "n registros, 1 registro para cada Avalista": "426",
+      "Unnamed: 3": "465.0",
+      "Unnamed: 4": "40",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Nome do Conjuge do Avalista"
+    },
+    {
+      "Unnamed: 0": "528",
+      "Registro tipo 5": "DDD_Coml_Conj_Aval",
+      "n registros, 1 registro para cada Avalista": "466",
+      "Unnamed: 3": "468.0",
+      "Unnamed: 4": "3",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "DDD Coml. Conj. do Avalista"
+    },
+    {
+      "Unnamed: 0": "529",
+      "Registro tipo 5": "Fon_Coml_Conj_Aval",
+      "n registros, 1 registro para cada Avalista": "469",
+      "Unnamed: 3": "483.0",
+      "Unnamed: 4": "15",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Telefone Coml. do Conjuge do Avalista"
+    },
+    {
+      "Unnamed: 0": "530",
+      "Registro tipo 5": "Ramal_Coml_Conj_Aval",
+      "n registros, 1 registro para cada Avalista": "484",
+      "Unnamed: 3": "487.0",
+      "Unnamed: 4": "4",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Ramal Coml. Conjugê Avalista"
+    },
+    {
+      "Unnamed: 0": "531",
+      "Registro tipo 5": "Refer_A_Aval",
+      "n registros, 1 registro para cada Avalista": "488",
+      "Unnamed: 3": "527.0",
+      "Unnamed: 4": "40",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Nome para Referencias do Avalista"
+    },
+    {
+      "Unnamed: 0": "532",
+      "Registro tipo 5": "Endref_A_Aval",
+      "n registros, 1 registro para cada Avalista": "528",
+      "Unnamed: 3": "567.0",
+      "Unnamed: 4": "40",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Endereco da Referencia do Avalista"
+    },
+    {
+      "Unnamed: 0": "533",
+      "Registro tipo 5": "BAIRR_REFE_AVAL",
+      "n registros, 1 registro para cada Avalista": "568",
+      "Unnamed: 3": "592.0",
+      "Unnamed: 4": "25",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Bairro do endereço das referencias do avalista"
+    },
+    {
+      "Unnamed: 0": "534",
+      "Registro tipo 5": "DDD_A_Ref_Aval",
+      "n registros, 1 registro para cada Avalista": "593",
+      "Unnamed: 3": "595.0",
+      "Unnamed: 4": "3",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "DDD da Referencia Aval A"
+    },
+    {
+      "Unnamed: 0": "535",
+      "Registro tipo 5": "Fon_A_Aval",
+      "n registros, 1 registro para cada Avalista": "596",
+      "Unnamed: 3": "610.0",
+      "Unnamed: 4": "15",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Telefone da Referencia do Avalista"
+    },
+    {
+      "Unnamed: 0": "536",
+      "Registro tipo 5": "Ram_A_Aval",
+      "n registros, 1 registro para cada Avalista": "611",
+      "Unnamed: 3": "614.0",
+      "Unnamed: 4": "4",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Ramal da Referencia do Avalista"
+    },
+    {
+      "Unnamed: 0": "537",
+      "Registro tipo 5": "Refer_B_Aval",
+      "n registros, 1 registro para cada Avalista": "615",
+      "Unnamed: 3": "654.0",
+      "Unnamed: 4": "40",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Nome para Referencias do Avalista"
+    },
+    {
+      "Unnamed: 0": "538",
+      "Registro tipo 5": "Endref_B_Aval",
+      "n registros, 1 registro para cada Avalista": "655",
+      "Unnamed: 3": "694.0",
+      "Unnamed: 4": "40",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Endereco da Referencia do Avalista"
+    },
+    {
+      "Unnamed: 0": "539",
+      "Registro tipo 5": "BairroB_refe_aval",
+      "n registros, 1 registro para cada Avalista": "695",
+      "Unnamed: 3": "719.0",
+      "Unnamed: 4": "25",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "bairro do endereçoB da referencia do avalista"
+    },
+    {
+      "Unnamed: 0": "540",
+      "Registro tipo 5": "DDD_B_Ref_Aval",
+      "n registros, 1 registro para cada Avalista": "720",
+      "Unnamed: 3": "722.0",
+      "Unnamed: 4": "3",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "DDD da Referencia Aval B"
+    },
+    {
+      "Unnamed: 0": "541",
+      "Registro tipo 5": "Fon_B_Aval",
+      "n registros, 1 registro para cada Avalista": "723",
+      "Unnamed: 3": "737.0",
+      "Unnamed: 4": "15",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Telefone da Referencia do Avalista"
+    },
+    {
+      "Unnamed: 0": "542",
+      "Registro tipo 5": "Ram_B_Aval",
+      "n registros, 1 registro para cada Avalista": "738",
+      "Unnamed: 3": "741.0",
+      "Unnamed: 4": "4",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Ramal da Referencia do Avalista"
+    },
+    {
+      "Unnamed: 0": "543",
+      "Registro tipo 5": "Refer_C_Aval",
+      "n registros, 1 registro para cada Avalista": "742",
+      "Unnamed: 3": "781.0",
+      "Unnamed: 4": "40",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Nome para Referencias do Avalista"
+    },
+    {
+      "Unnamed: 0": "544",
+      "Registro tipo 5": "Endref_C_Aval",
+      "n registros, 1 registro para cada Avalista": "782",
+      "Unnamed: 3": "821.0",
+      "Unnamed: 4": "40",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Endereco da Referencia do Avalista"
+    },
+    {
+      "Unnamed: 0": "545",
+      "Registro tipo 5": "Bairro_C_Aval",
+      "n registros, 1 registro para cada Avalista": "822",
+      "Unnamed: 3": "846.0",
+      "Unnamed: 4": "25",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "bairro do endereço C da referencia do avalista"
+    },
+    {
+      "Unnamed: 0": "546",
+      "Registro tipo 5": "DDD_C_Ref_Aval",
+      "n registros, 1 registro para cada Avalista": "847",
+      "Unnamed: 3": "849.0",
+      "Unnamed: 4": "3",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "DDD da Referencia Aval C"
+    },
+    {
+      "Unnamed: 0": "547",
+      "Registro tipo 5": "Fon_C_Aval",
+      "n registros, 1 registro para cada Avalista": "850",
+      "Unnamed: 3": "864.0",
+      "Unnamed: 4": "15",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Telefone da Referencia do Avalista"
+    },
+    {
+      "Unnamed: 0": "548",
+      "Registro tipo 5": "Ram_C_Aval",
+      "n registros, 1 registro para cada Avalista": "865",
+      "Unnamed: 3": "868.0",
+      "Unnamed: 4": "4",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Ramal da Referencia do Avalista"
+    },
+    {
+      "Unnamed: 0": "549",
+      "Registro tipo 5": "Refer_D_Aval",
+      "n registros, 1 registro para cada Avalista": "869",
+      "Unnamed: 3": "908.0",
+      "Unnamed: 4": "40",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Nome para Referencias do Avalista"
+    },
+    {
+      "Unnamed: 0": "550",
+      "Registro tipo 5": "Endref_D_Aval",
+      "n registros, 1 registro para cada Avalista": "909",
+      "Unnamed: 3": "948.0",
+      "Unnamed: 4": "40",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Endereco da Referencia do Avalista"
+    },
+    {
+      "Unnamed: 0": "551",
+      "Registro tipo 5": "Bairro_D_Aval",
+      "n registros, 1 registro para cada Avalista": "949",
+      "Unnamed: 3": "973.0",
+      "Unnamed: 4": "25",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "bairro do endereço D da referencia do avalista"
+    },
+    {
+      "Unnamed: 0": "552",
+      "Registro tipo 5": "DDD_D_Ref_Aval",
+      "n registros, 1 registro para cada Avalista": "974",
+      "Unnamed: 3": "976.0",
+      "Unnamed: 4": "3",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "DDD da Referencia Aval D"
+    },
+    {
+      "Unnamed: 0": "553",
+      "Registro tipo 5": "Fon_D_Aval",
+      "n registros, 1 registro para cada Avalista": "977",
+      "Unnamed: 3": "991.0",
+      "Unnamed: 4": "15",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Telefone da Referencia do Avalista"
+    },
+    {
+      "Unnamed: 0": "554",
+      "Registro tipo 5": "Ram_D_Aval",
+      "n registros, 1 registro para cada Avalista": "992",
+      "Unnamed: 3": "995.0",
+      "Unnamed: 4": "4",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Ramal da Referencia do Avalista"
+    }
+  ],
+  "registro 6": [
+    {
+      "Unnamed: 0": "id",
+      "Registro tipo 6": "Campo",
+      "n registros, 1 registro para cada parcela a vencer": "Posicao",
+      "Unnamed: 3": "",
+      "Unnamed: 4": "Tamanho",
+      "Unnamed: 5": "Formato",
+      "Unnamed: 6": "Descricao",
+      "Unnamed: 7": "Observações"
+    },
+    {
+      "Unnamed: 0": "601",
+      "Registro tipo 6": "TIPO       ",
+      "n registros, 1 registro para cada parcela a vencer": "1",
+      "Unnamed: 3": "1.0",
+      "Unnamed: 4": "1",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "fixo = 6",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "602",
+      "Registro tipo 6": "GRUPO      ",
+      "n registros, 1 registro para cada parcela a vencer": "2",
+      "Unnamed: 3": "7.0",
+      "Unnamed: 4": "6",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Descricao do Grupo",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "603",
+      "Registro tipo 6": "COTA       ",
+      "n registros, 1 registro para cada parcela a vencer": "8",
+      "Unnamed: 3": "11.0",
+      "Unnamed: 4": "4",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Descricao da Cota",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "604",
+      "Registro tipo 6": "SEQUENCIA  ",
+      "n registros, 1 registro para cada parcela a vencer": "12",
+      "Unnamed: 3": "13.0",
+      "Unnamed: 4": "2",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Versão",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "605",
+      "Registro tipo 6": "AVISO      ",
+      "n registros, 1 registro para cada parcela a vencer": "14",
+      "Unnamed: 3": "21.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "Numero Aviso",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "606",
+      "Registro tipo 6": "TIPOMOV    ",
+      "n registros, 1 registro para cada parcela a vencer": "22",
+      "Unnamed: 3": "25.0",
+      "Unnamed: 4": "4",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Codigo Movimento = 0010 ou 0020  (termo = 0270)",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "607",
+      "Registro tipo 6": "VENCIMENTO ",
+      "n registros, 1 registro para cada parcela a vencer": "26",
+      "Unnamed: 3": "33.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "vencimento da parcela",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "608",
+      "Registro tipo 6": "AGENTECOB  ",
+      "n registros, 1 registro para cada parcela a vencer": "34",
+      "Unnamed: 3": "39.0",
+      "Unnamed: 4": "6",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "completar com zeros a esquerda",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "609",
+      "Registro tipo 6": "VALORPAR   ",
+      "n registros, 1 registro para cada parcela a vencer": "40",
+      "Unnamed: 3": "55.0",
+      "Unnamed: 4": "16",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "sem pontuação, zeros esquerda",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "610",
+      "Registro tipo 6": "MULTAJUR   ",
+      "n registros, 1 registro para cada parcela a vencer": "56",
+      "Unnamed: 3": "69.0",
+      "Unnamed: 4": "14",
+      "Unnamed: 5": "Character",
+      "Unnamed: 6": "sem pontuação, zeros esquerda",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "611",
+      "Registro tipo 6": "VALORTOT   ",
+      "n registros, 1 registro para cada parcela a vencer": "70",
+      "Unnamed: 3": "85.0",
+      "Unnamed: 4": "16",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "sem pontuação, zeros esquerda",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "612",
+      "Registro tipo 6": "NUMEROEXT  ",
+      "n registros, 1 registro para cada parcela a vencer": "86",
+      "Unnamed: 3": "105.0",
+      "Unnamed: 4": "20",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "numero titulo",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "613",
+      "Registro tipo 6": "DATENVIO   ",
+      "n registros, 1 registro para cada parcela a vencer": "106",
+      "Unnamed: 3": "113.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "sysdate",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "614",
+      "Registro tipo 6": "ASSEMBLÉIA",
+      "n registros, 1 registro para cada parcela a vencer": "114",
+      "Unnamed: 3": "116.0",
+      "Unnamed: 4": "3",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Numero da assembléia da parcela em aberto",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "615",
+      "Registro tipo 6": "NUMERO PARCELA",
+      "n registros, 1 registro para cada parcela a vencer": "117",
+      "Unnamed: 3": "119.0",
+      "Unnamed: 4": "3",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Numero da assembléia da parcela em aberto",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "616",
+      "Registro tipo 6": "% FDO COMUM",
+      "n registros, 1 registro para cada parcela a vencer": "120",
+      "Unnamed: 3": "124.0",
+      "Unnamed: 4": "5",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Percentual de fundo Comum da Parcela (Plano de Cobrança)",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "617",
+      "Registro tipo 6": "% TX ADM",
+      "n registros, 1 registro para cada parcela a vencer": "125",
+      "Unnamed: 3": "129.0",
+      "Unnamed: 4": "5",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Percentual de Taxa Adm da Parcela (Plano de Cobrança)",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "618",
+      "Registro tipo 6": "% FD RESERVA",
+      "n registros, 1 registro para cada parcela a vencer": "130",
+      "Unnamed: 3": "134.0",
+      "Unnamed: 4": "5",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Percentual de fundo Reserva da Parcela (Plano de Cobrança)",
+      "Unnamed: 7": ""
+    },
+    {
+      "Unnamed: 0": "619",
+      "Registro tipo 6": "% SEGURO",
+      "n registros, 1 registro para cada parcela a vencer": "135",
+      "Unnamed: 3": "147.0",
+      "Unnamed: 4": "13",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Percentual de Seguro da Parcela (Plano de Cobrança)",
+      "Unnamed: 7": ""
+    }
+  ],
+  "TRAILER": [
+    {
+      "Unnamed: 0": "id",
+      "Registro tipo T": "Campo",
+      "1 registro por Arquivo": "Posicao",
+      "Unnamed: 3": "",
+      "Unnamed: 4": "Tamanho",
+      "Unnamed: 5": "Formato",
+      "Unnamed: 6": "Descricao"
+    },
+    {
+      "Unnamed: 0": "T01",
+      "Registro tipo T": "TIPO_REG",
+      "1 registro por Arquivo": "1",
+      "Unnamed: 3": "1.0",
+      "Unnamed: 4": "1",
+      "Unnamed: 5": "T",
+      "Unnamed: 6": "Header - fixo T"
+    },
+    {
+      "Unnamed: 0": "T02",
+      "Registro tipo T": "data",
+      "1 registro por Arquivo": "2",
+      "Unnamed: 3": "9.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "AAAAMMDD",
+      "Unnamed: 6": "data de geração"
+    },
+    {
+      "Unnamed: 0": "T03",
+      "Registro tipo T": "Total_Reg_1",
+      "1 registro por Arquivo": "10",
+      "Unnamed: 3": "19.0",
+      "Unnamed: 4": "10",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Quantidade registros tipo 1"
+    },
+    {
+      "Unnamed: 0": "T04",
+      "Registro tipo T": "Qtd Parcelas",
+      "1 registro por Arquivo": "20",
+      "Unnamed: 3": "29.0",
+      "Unnamed: 4": "10",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Quantidade registros tipo 2"
+    },
+    {
+      "Unnamed: 0": "T05",
+      "Registro tipo T": "Valor Parcelas",
+      "1 registro por Arquivo": "30",
+      "Unnamed: 3": "49.0",
+      "Unnamed: 4": "20",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Soma campo ID-212 dos registros 2"
+    },
+    {
+      "Unnamed: 0": "T06",
+      "Registro tipo T": "Qtd Parcelas",
+      "1 registro por Arquivo": "50",
+      "Unnamed: 3": "59.0",
+      "Unnamed: 4": "10",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Quantidade registros tipo 6"
+    },
+    {
+      "Unnamed: 0": "T07",
+      "Registro tipo T": "Valor Parcelas",
+      "1 registro por Arquivo": "60",
+      "Unnamed: 3": "79.0",
+      "Unnamed: 4": "20",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "Soma campo ID-612 dos registros 6"
+    },
+    {
+      "Unnamed: 0": "T08",
+      "Registro tipo T": "NUMERO DO LOTE",
+      "1 registro por Arquivo": "80",
+      "Unnamed: 3": "87.0",
+      "Unnamed: 4": "8",
+      "Unnamed: 5": "Numeric",
+      "Unnamed: 6": "NUMERO DO LOTE SEQUENCIAL EXPECTATIVA"
+    }
+  ]
+}
