@@ -1,3 +1,5 @@
+import datetime
+import decimal
 import json
 import os
 import shutil
@@ -243,6 +245,202 @@ def api_processar():
         yield _sse_event({'type': 'done', 'summary': f'{imported_count} arquivos importados e processados.'})
 
     return Response(generate(), mimetype='text/event-stream')
+
+
+# ---------------------------------------------------------------------------
+# Helpers para API de Busca
+# ---------------------------------------------------------------------------
+
+def _get_db():
+    return pymysql.connect(**DB_CONFIG, cursorclass=pymysql.cursors.DictCursor)
+
+
+def _serialize(obj):
+    """Converte tipos nao-serializaveis do MySQL para JSON."""
+    if isinstance(obj, (datetime.date, datetime.datetime)):
+        return obj.isoformat()
+    if isinstance(obj, decimal.Decimal):
+        return float(obj)
+    if isinstance(obj, bytes):
+        return obj.decode('latin-1', errors='replace')
+    return str(obj)
+
+
+def _clean_rows(rows):
+    return [{k: _serialize(v) if v is not None else None for k, v in r.items()} for r in rows]
+
+
+def _clean_row(row):
+    if not row:
+        return None
+    return {k: _serialize(v) if v is not None else None for k, v in row.items()}
+
+
+# ---------------------------------------------------------------------------
+# API: Busca por Pessoa / Contrato
+# ---------------------------------------------------------------------------
+
+@app.route('/api/busca')
+def api_busca():
+    tipo = request.args.get('tipo', '').strip()
+    termo = request.args.get('termo', '').strip()
+    if not termo:
+        return jsonify({'results': [], 'tipo': tipo})
+
+    conn = _get_db()
+    cursor = conn.cursor()
+
+    results = []
+    if tipo == 'pessoa':
+        cursor.execute(
+            "SELECT id, cpf_cnpj, nome_completo, profissao "
+            "FROM pessoa "
+            "WHERE cpf_cnpj LIKE %s OR nome_completo LIKE %s "
+            "LIMIT 50",
+            (f'%{termo}%', f'%{termo}%'),
+        )
+        results = _clean_rows(cursor.fetchall())
+
+    elif tipo == 'contrato':
+        status_filtro = request.args.get('status', '').strip()
+        base_select = (
+            "SELECT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
+            "       p.nome_completo AS nome_devedor "
+            "FROM contrato c "
+            "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
+        )
+        parts = [p.strip() for p in termo.replace('-', '/').split('/')]
+        if len(parts) == 2:
+            grupo, cota = parts
+            where = "WHERE c.grupo LIKE %s AND c.cota LIKE %s"
+            params = [f'%{grupo}%', f'%{cota}%']
+        else:
+            where = "WHERE (c.grupo LIKE %s OR c.numero_contrato LIKE %s)"
+            params = [f'%{termo}%', f'%{termo}%']
+
+        if status_filtro:
+            where += " AND c.status = %s"
+            params.append(status_filtro)
+
+        cursor.execute(base_select + where + " LIMIT 50", params)
+        results = _clean_rows(cursor.fetchall())
+
+    cursor.close()
+    conn.close()
+    return jsonify({'results': results, 'tipo': tipo})
+
+
+@app.route('/api/pessoa/<int:pessoa_id>')
+def api_pessoa_detalhe(pessoa_id):
+    conn = _get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM pessoa WHERE id = %s", (pessoa_id,))
+    pessoa = _clean_row(cursor.fetchone())
+    if not pessoa:
+        cursor.close()
+        conn.close()
+        return jsonify({'error': 'Pessoa nao encontrada'}), 404
+
+    cursor.execute("SELECT * FROM endereco WHERE id_pessoa = %s", (pessoa_id,))
+    enderecos = _clean_rows(cursor.fetchall())
+
+    cursor.execute("SELECT * FROM telefone WHERE id_pessoa = %s", (pessoa_id,))
+    telefones = _clean_rows(cursor.fetchall())
+
+    cursor.execute("SELECT * FROM email WHERE id_pessoa = %s", (pessoa_id,))
+    emails = _clean_rows(cursor.fetchall())
+
+    cursor.execute(
+        "SELECT c.*, p_dev.nome_completo AS nome_devedor, p_aval.nome_completo AS nome_avalista "
+        "FROM contrato c "
+        "LEFT JOIN pessoa p_dev ON c.id_pessoa = p_dev.id "
+        "LEFT JOIN pessoa p_aval ON c.id_avalista = p_aval.id "
+        "WHERE c.id_pessoa = %s OR c.id_avalista = %s",
+        (pessoa_id, pessoa_id),
+    )
+    contratos = _clean_rows(cursor.fetchall())
+
+    cursor.close()
+    conn.close()
+    return jsonify({
+        'pessoa': pessoa,
+        'enderecos': enderecos,
+        'telefones': telefones,
+        'emails': emails,
+        'contratos': contratos,
+    })
+
+
+@app.route('/api/contrato/<int:contrato_id>')
+def api_contrato_detalhe(contrato_id):
+    conn = _get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM contrato WHERE id = %s", (contrato_id,))
+    contrato = _clean_row(cursor.fetchone())
+    if not contrato:
+        cursor.close()
+        conn.close()
+        return jsonify({'error': 'Contrato nao encontrado'}), 404
+
+    devedor = None
+    devedor_end = []
+    devedor_tel = []
+    devedor_email = []
+    if contrato.get('id_pessoa'):
+        cursor.execute("SELECT * FROM pessoa WHERE id = %s", (contrato['id_pessoa'],))
+        devedor = _clean_row(cursor.fetchone())
+        pid = contrato['id_pessoa']
+        cursor.execute("SELECT * FROM endereco WHERE id_pessoa = %s", (pid,))
+        devedor_end = _clean_rows(cursor.fetchall())
+        cursor.execute("SELECT * FROM telefone WHERE id_pessoa = %s", (pid,))
+        devedor_tel = _clean_rows(cursor.fetchall())
+        cursor.execute("SELECT * FROM email WHERE id_pessoa = %s", (pid,))
+        devedor_email = _clean_rows(cursor.fetchall())
+
+    avalista = None
+    avalista_end = []
+    avalista_tel = []
+    avalista_email = []
+    if contrato.get('id_avalista'):
+        cursor.execute("SELECT * FROM pessoa WHERE id = %s", (contrato['id_avalista'],))
+        avalista = _clean_row(cursor.fetchone())
+        aid = contrato['id_avalista']
+        cursor.execute("SELECT * FROM endereco WHERE id_pessoa = %s", (aid,))
+        avalista_end = _clean_rows(cursor.fetchall())
+        cursor.execute("SELECT * FROM telefone WHERE id_pessoa = %s", (aid,))
+        avalista_tel = _clean_rows(cursor.fetchall())
+        cursor.execute("SELECT * FROM email WHERE id_pessoa = %s", (aid,))
+        avalista_email = _clean_rows(cursor.fetchall())
+
+    cursor.execute(
+        "SELECT * FROM parcela WHERE id_contrato = %s ORDER BY numero_parcela",
+        (contrato_id,),
+    )
+    parcelas = _clean_rows(cursor.fetchall())
+
+    cursor.execute(
+        "SELECT * FROM ocorrencia WHERE id_contrato = %s ORDER BY data_arquivo DESC",
+        (contrato_id,),
+    )
+    ocorrencias = _clean_rows(cursor.fetchall())
+
+    cursor.close()
+    conn.close()
+    return jsonify({
+        'contrato': contrato,
+        'devedor': devedor,
+        'devedor_enderecos': devedor_end,
+        'devedor_telefones': devedor_tel,
+        'devedor_emails': devedor_email,
+        'avalista': avalista,
+        'avalista_enderecos': avalista_end,
+        'avalista_telefones': avalista_tel,
+        'avalista_emails': avalista_email,
+        'parcelas': parcelas,
+        'ocorrencias': ocorrencias,
+    })
 
 
 if __name__ == '__main__':
