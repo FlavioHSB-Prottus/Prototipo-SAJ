@@ -110,6 +110,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     dropZone.addEventListener('click', (e) => {
         if (e.target.closest('.picker-btn')) return;
+        if (e.target.closest('input[type="file"]')) return;
         folderInput.value = '';
         fileInput.click();
     });
