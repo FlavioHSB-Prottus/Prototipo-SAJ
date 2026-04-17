@@ -4,6 +4,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const dropContent = document.getElementById('dropContent');
     const fileLoadedState = document.getElementById('fileLoadedState');
     const fileInput = document.getElementById('fileInput');
+    const folderInput = document.getElementById('folderInput');
+    const btnPickFiles = document.getElementById('btnPickFiles');
+    const btnPickFolder = document.getElementById('btnPickFolder');
     const fileNameDisplay = document.getElementById('fileNameDisplay');
     const fileSizeDisplay = document.getElementById('fileSizeDisplay');
     const btnProcessar = document.getElementById('btnProcessar');
@@ -21,14 +24,64 @@ document.addEventListener('DOMContentLoaded', () => {
         return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
     }
 
+    /** Le todas as entradas de um diretorio (readEntries e paginado no Chrome). */
+    async function readAllEntries(dirReader) {
+        const entries = [];
+        let batch;
+        do {
+            batch = await new Promise((resolve) => dirReader.readEntries(resolve));
+            entries.push(...batch);
+        } while (batch.length > 0);
+        return entries;
+    }
+
+    /** Coleta recursivamente arquivos .txt a partir de uma entrada do File System API. */
+    async function collectTxtFromEntry(entry) {
+        const out = [];
+        if (entry.isFile) {
+            const f = await new Promise((resolve) => entry.file(resolve));
+            if (f.name.toLowerCase().endsWith('.txt')) out.push(f);
+            return out;
+        }
+        if (!entry.isDirectory) return out;
+        const reader = entry.createReader();
+        const entries = await readAllEntries(reader);
+        for (const child of entries) {
+            const sub = await collectTxtFromEntry(child);
+            out.push(...sub);
+        }
+        return out;
+    }
+
+    /** Monta lista de TXT a partir de drag-and-drop (arquivos, varios arquivos ou pastas). */
+    async function collectFromDataTransfer(dt) {
+        const out = [];
+        const items = dt.items;
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            const entry = item.webkitGetAsEntry?.();
+            if (entry) {
+                const list = await collectTxtFromEntry(entry);
+                out.push(...list);
+            } else if (item.kind === 'file') {
+                const f = item.getAsFile();
+                if (f && f.name.toLowerCase().endsWith('.txt')) out.push(f);
+            }
+        }
+        return out;
+    }
+
     function showSelectedFiles(files) {
-        selectedFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.txt'));
+        selectedFiles = Array.from(files).filter((f) => f.name.toLowerCase().endsWith('.txt'));
         if (selectedFiles.length === 0) return;
 
         const totalSize = selectedFiles.reduce((sum, f) => sum + f.size, 0);
+        const fromFolder = selectedFiles.some((f) => f.webkitRelativePath && f.webkitRelativePath.includes('/'));
 
         if (selectedFiles.length === 1) {
-            fileNameDisplay.textContent = selectedFiles[0].name;
+            fileNameDisplay.textContent = selectedFiles[0].webkitRelativePath || selectedFiles[0].name;
+        } else if (fromFolder) {
+            fileNameDisplay.textContent = selectedFiles.length + ' arquivos TXT (pasta / subpastas)';
         } else {
             fileNameDisplay.textContent = selectedFiles.length + ' arquivos TXT selecionados';
         }
@@ -43,8 +96,23 @@ document.addEventListener('DOMContentLoaded', () => {
         btnProcessar.removeAttribute('disabled');
     }
 
-    // Click na drop zone abre o seletor de arquivos
-    dropZone.addEventListener('click', () => fileInput.click());
+    btnPickFiles.addEventListener('click', (e) => {
+        e.stopPropagation();
+        folderInput.value = '';
+        fileInput.click();
+    });
+
+    btnPickFolder.addEventListener('click', (e) => {
+        e.stopPropagation();
+        fileInput.value = '';
+        folderInput.click();
+    });
+
+    dropZone.addEventListener('click', (e) => {
+        if (e.target.closest('.picker-btn')) return;
+        folderInput.value = '';
+        fileInput.click();
+    });
 
     fileInput.addEventListener('change', (e) => {
         if (e.target.files.length > 0) {
@@ -52,7 +120,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Drag and drop real
+    folderInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            showSelectedFiles(e.target.files);
+        }
+    });
+
     dropZone.addEventListener('dragover', (e) => {
         e.preventDefault();
         dropZone.classList.add('dragover');
@@ -62,15 +135,23 @@ document.addEventListener('DOMContentLoaded', () => {
         dropZone.classList.remove('dragover');
     });
 
-    dropZone.addEventListener('drop', (e) => {
+    dropZone.addEventListener('drop', async (e) => {
         e.preventDefault();
         dropZone.classList.remove('dragover');
-        if (e.dataTransfer.files.length > 0) {
-            showSelectedFiles(e.dataTransfer.files);
+        try {
+            const files = await collectFromDataTransfer(e.dataTransfer);
+            if (files.length > 0) {
+                fileInput.value = '';
+                folderInput.value = '';
+                showSelectedFiles(files);
+            }
+        } catch {
+            if (e.dataTransfer.files.length > 0) {
+                showSelectedFiles(e.dataTransfer.files);
+            }
         }
     });
 
-    // Processar: upload + SSE
     btnProcessar.addEventListener('click', async () => {
         if (selectedFiles.length === 0) return;
 
@@ -86,7 +167,10 @@ document.addEventListener('DOMContentLoaded', () => {
         progressStatusText.style.color = '';
 
         const formData = new FormData();
-        selectedFiles.forEach(f => formData.append('files', f));
+        selectedFiles.forEach((f) => {
+            const rel = f.webkitRelativePath || f.name;
+            formData.append('files', f, rel);
+        });
 
         try {
             const uploadResp = await fetch('/api/upload', { method: 'POST', body: formData });

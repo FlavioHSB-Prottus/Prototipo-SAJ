@@ -17,8 +17,12 @@
         <div class="drop-zone" id="dropZone">
             <div class="drop-content" id="dropContent">
                 <i class="fa-solid fa-cloud-arrow-up cloud-icon"></i>
-                <p>Arraste os arquivos TXT diários aqui ou clique para selecionar</p>
-                <span class="file-format-hint">Suporta formatos (.txt, .csv) de exportação bancária</span>
+                <p>Arraste arquivos TXT ou uma pasta aqui, ou escolha abaixo:</p>
+                <div class="upload-pickers">
+                    <button type="button" class="picker-btn" id="btnPickFiles"><i class="fa-solid fa-file-lines"></i> Arquivos TXT</button>
+                    <button type="button" class="picker-btn" id="btnPickFolder"><i class="fa-solid fa-folder-open"></i> Pasta com TXT</button>
+                </div>
+                <span class="file-format-hint">Pastas sao varridas em todos os subdiretorios (apenas .txt).</span>
             </div>
             
             <!-- Estado quando arquivos forem selecionados -->
@@ -29,6 +33,7 @@
             </div>
             
             <input type="file" id="fileInput" class="d-none" multiple accept=".txt">
+            <input type="file" id="folderInput" class="d-none" webkitdirectory directory multiple>
         </div>
 
         <!-- Botões de Ação do Upload -->

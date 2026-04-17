@@ -9,6 +9,7 @@ import tempfile
 
 import pymysql
 from flask import Flask, Response, render_template, request, redirect, url_for, jsonify
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 
@@ -79,9 +80,35 @@ def recuperar_senha():
 # API: Upload + Processamento com SSE
 # ---------------------------------------------------------------------------
 
+def _safe_txt_dest(temp_dir, upload_filename):
+    """Monta caminho seguro dentro de temp_dir para upload (inclui subpastas de importacao por pasta)."""
+    if not upload_filename:
+        return None
+    rel = upload_filename.replace('\\', '/').strip('/')
+    parts = []
+    for p in rel.split('/'):
+        if not p or p in ('.', '..'):
+            continue
+        s = secure_filename(p)
+        if s:
+            parts.append(s)
+    if not parts or not parts[-1].lower().endswith('.txt'):
+        return None
+    dest = os.path.join(temp_dir, *parts)
+    dest_abs = os.path.abspath(dest)
+    temp_abs = os.path.abspath(temp_dir)
+    try:
+        common = os.path.commonpath([temp_abs, dest_abs])
+    except ValueError:
+        return None
+    if common != temp_abs:
+        return None
+    return dest_abs
+
+
 @app.route('/api/upload', methods=['POST'])
 def api_upload():
-    """Recebe multiplos arquivos TXT e salva em pasta temporaria."""
+    """Recebe multiplos arquivos TXT e salva em pasta temporaria (estrutura de subpastas preservada)."""
     files = request.files.getlist('files')
     if not files or all(f.filename == '' for f in files):
         return jsonify({'error': 'Nenhum arquivo enviado'}), 400
@@ -89,10 +116,13 @@ def api_upload():
     temp_dir = tempfile.mkdtemp(prefix='saj_import_')
     saved = []
     for f in files:
-        if f.filename and f.filename.lower().endswith('.txt'):
-            dest = os.path.join(temp_dir, f.filename)
-            f.save(dest)
-            saved.append({'name': f.filename, 'size': os.path.getsize(dest)})
+        dest = _safe_txt_dest(temp_dir, f.filename)
+        if not dest:
+            continue
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        f.save(dest)
+        rel_name = os.path.relpath(dest, temp_dir).replace(os.sep, '/')
+        saved.append({'name': rel_name, 'size': os.path.getsize(dest)})
 
     if not saved:
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -146,7 +176,12 @@ def api_processar():
             **_POPEN_EXTRA,
         )
 
-        total_files = len([f for f in os.listdir(temp_dir) if f.lower().endswith('.txt')])
+        total_files = sum(
+            1
+            for root, _dirs, files in os.walk(temp_dir)
+            for f in files
+            if f.lower().endswith('.txt')
+        )
         imported_count = 0
 
         for line in iter(proc1.stdout.readline, ''):
