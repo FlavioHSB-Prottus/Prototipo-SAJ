@@ -694,5 +694,123 @@ def api_relatorios_pdf():
     return send_file(buf, as_attachment=True, download_name=fname, mimetype='application/pdf')
 
 
+# ---------------------------------------------------------------------------
+# API: Dashboard
+# ---------------------------------------------------------------------------
+
+@app.route('/api/dashboard')
+def api_dashboard():
+    conn = _get_db()
+    cursor = conn.cursor()
+
+    # --- KPIs ---
+    cursor.execute("SELECT COUNT(*) AS total FROM contrato WHERE status = 'aberto'")
+    kpi_abertos = cursor.fetchone()['total']
+
+    now = datetime.date.today()
+    mes_inicio = now.replace(day=1).isoformat()
+    mes_fim = now.isoformat()
+
+    cursor.execute(
+        "SELECT COUNT(DISTINCT o.id_contrato) AS total FROM ocorrencia o "
+        "INNER JOIN contrato c ON c.id = o.id_contrato "
+        "WHERE c.status = 'fechado' AND o.status = 'fechado' "
+        "AND o.data_arquivo >= %s AND o.data_arquivo <= %s",
+        (mes_inicio, mes_fim),
+    )
+    kpi_pagos = cursor.fetchone()['total']
+
+    cursor.execute("SELECT COUNT(*) AS total FROM contrato WHERE status = 'indenizado'")
+    kpi_indenizados = cursor.fetchone()['total']
+
+    cursor.execute(
+        "SELECT COUNT(DISTINCT o.id_contrato) AS total FROM ocorrencia o "
+        "WHERE o.status = 'aberto' AND o.descricao = 'contrato voltou' "
+        "AND o.data_arquivo >= %s AND o.data_arquivo <= %s",
+        (mes_inicio, mes_fim),
+    )
+    kpi_retomados = cursor.fetchone()['total']
+
+    # --- Grafico de linhas: pagos vs indenizados (ultimos 6 meses) ---
+    six_months_ago = (now.replace(day=1) - datetime.timedelta(days=1)).replace(day=1)
+    for _ in range(4):
+        six_months_ago = (six_months_ago - datetime.timedelta(days=1)).replace(day=1)
+    six_start = six_months_ago.isoformat()
+
+    cursor.execute(
+        "SELECT DATE_FORMAT(o.data_arquivo, '%%Y-%%m') AS mes, "
+        "       COUNT(DISTINCT o.id_contrato) AS total "
+        "FROM ocorrencia o WHERE o.status = 'fechado' "
+        "AND o.data_arquivo >= %s "
+        "GROUP BY mes ORDER BY mes",
+        (six_start,),
+    )
+    pagos_by_month = {r['mes']: r['total'] for r in cursor.fetchall()}
+
+    cursor.execute(
+        "SELECT DATE_FORMAT(o.data_arquivo, '%%Y-%%m') AS mes, "
+        "       COUNT(DISTINCT o.id_contrato) AS total "
+        "FROM ocorrencia o WHERE o.status = 'indenizado' "
+        "AND o.data_arquivo >= %s "
+        "GROUP BY mes ORDER BY mes",
+        (six_start,),
+    )
+    inden_by_month = {r['mes']: r['total'] for r in cursor.fetchall()}
+
+    all_months = sorted(set(list(pagos_by_month.keys()) + list(inden_by_month.keys())))
+    if not all_months:
+        d = six_months_ago
+        all_months = []
+        while d <= now:
+            all_months.append(d.strftime('%Y-%m'))
+            if d.month == 12:
+                d = d.replace(year=d.year + 1, month=1)
+            else:
+                d = d.replace(month=d.month + 1)
+
+    line_labels = all_months
+    line_pagos = [pagos_by_month.get(m, 0) for m in all_months]
+    line_inden = [inden_by_month.get(m, 0) for m in all_months]
+
+    # --- Grafico doughnut: distribuicao da carteira ---
+    cursor.execute("SELECT status, COUNT(*) AS total FROM contrato GROUP BY status")
+    pie_raw = {r['status']: r['total'] for r in cursor.fetchall()}
+
+    # --- Tabela de prioridade ---
+    cursor.execute(
+        "SELECT c.id, c.grupo, c.cota, c.numero_contrato, "
+        "       p.nome_completo AS nome_devedor, "
+        "       COUNT(par.id) AS parcelas_abertas, "
+        "       MIN(par.vencimento) AS vencimento_mais_antigo "
+        "FROM contrato c "
+        "INNER JOIN parcela par ON par.id_contrato = c.id AND par.status = 'aberto' "
+        "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
+        "WHERE c.status = 'aberto' "
+        "GROUP BY c.id, c.grupo, c.cota, c.numero_contrato, p.nome_completo "
+        "ORDER BY vencimento_mais_antigo ASC "
+        "LIMIT 20"
+    )
+    prioridade = _clean_rows(cursor.fetchall())
+
+    cursor.close()
+    conn.close()
+
+    return jsonify({
+        'kpis': {
+            'abertos': kpi_abertos,
+            'pagos': kpi_pagos,
+            'indenizados': kpi_indenizados,
+            'retomados': kpi_retomados,
+        },
+        'line_chart': {
+            'labels': line_labels,
+            'pagos': line_pagos,
+            'indenizados': line_inden,
+        },
+        'pie_chart': pie_raw,
+        'prioridade': prioridade,
+    })
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True, port=5000)
