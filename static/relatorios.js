@@ -1,8 +1,10 @@
 document.addEventListener('DOMContentLoaded', function () {
 
     var tipoSelect = document.getElementById('tipo_relatorio');
+    var prioridadeSelect = document.getElementById('prioridade_filtro');
     var dataInicial = document.getElementById('data_inicial');
     var dataFinal = document.getElementById('data_final');
+    var dataInicialGroup = document.getElementById('dataInicialGroup');
     var btnVisualizar = document.getElementById('btnVisualizar');
     var btnExcel = document.getElementById('btnExcel');
     var btnPdf = document.getElementById('btnPdf');
@@ -15,21 +17,52 @@ document.addEventListener('DOMContentLoaded', function () {
     var modalTitle = document.getElementById('modalTitle');
     var modalContent = document.getElementById('modalContent');
 
+    // --- Data padrão: hoje ---
+    var hoje = new Date().toISOString().split('T')[0];
+    dataFinal.value = hoje;
+
+    // --- Toggle Data Inicial conforme tipo ---
+    function toggleDataInicial() {
+        var isAbertos = tipoSelect.value === 'abertos';
+        dataInicial.disabled = isAbertos;
+        if (isAbertos) {
+            dataInicial.value = '';
+            dataInicialGroup.classList.add('field-disabled');
+        } else {
+            dataInicialGroup.classList.remove('field-disabled');
+        }
+    }
+
+    tipoSelect.addEventListener('change', toggleDataInicial);
+    toggleDataInicial(); // executar na carga
+
     function getParams() {
-        return {
+        var params = {
             tipo: tipoSelect.value,
-            data_inicial: dataInicial.value,
             data_final: dataFinal.value
         };
+        if (!dataInicial.disabled && dataInicial.value) {
+            params.data_inicial = dataInicial.value;
+        }
+        if (prioridadeSelect.value) {
+            params.prioridade = prioridadeSelect.value;
+        }
+        return params;
     }
 
     function validar() {
-        if (!dataInicial.value || !dataFinal.value) {
-            alert('Informe a Data Inicial e a Data Final.');
+        var isAbertos = tipoSelect.value === 'abertos';
+
+        if (!isAbertos && !dataInicial.value) {
+            alert('Informe a Data Inicial.');
             return false;
         }
-        if (dataInicial.value > dataFinal.value) {
-            alert('A Data Inicial deve ser anterior ou igual a Data Final.');
+        if (!dataFinal.value) {
+            alert('Informe a Data Final.');
+            return false;
+        }
+        if (!isAbertos && dataInicial.value > dataFinal.value) {
+            alert('A Data Inicial deve ser anterior ou igual à Data Final.');
             return false;
         }
         return true;

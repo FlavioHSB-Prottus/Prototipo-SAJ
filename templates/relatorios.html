@@ -21,12 +21,23 @@
                     <option value="pagos">Contratos Pagos/Fechados</option>
                     <option value="indenizados">Contratos Indenizados</option>
                     <option value="novos">Contratos Novos</option>
+                    <option value="voltaram">Contratos que Voltaram</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="prioridade_filtro">Prioridade</label>
+                <select id="prioridade_filtro" name="prioridade_filtro" class="form-control">
+                    <option value="">Todas</option>
+                    <option value="critico">Crítico (60-90+ dias)</option>
+                    <option value="atencao">Atenção (30-60 dias)</option>
+                    <option value="recente">Recente (1-30 dias)</option>
                 </select>
             </div>
             
-            <div class="form-group">
+            <div class="form-group" id="dataInicialGroup">
                 <label for="data_inicial">Data Inicial</label>
-                <input type="date" id="data_inicial" name="data_inicial" class="form-control" required>
+                <input type="date" id="data_inicial" name="data_inicial" class="form-control" disabled>
             </div>
 
             <div class="form-group">

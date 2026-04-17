@@ -1,6 +1,6 @@
 /* Specific spacings for Relatórios Form */
 .relatorio-form {
-    grid-template-columns: 2fr 1fr 1fr; /* 3 colunas já que removemos o quarto Select de status */
+    grid-template-columns: 2fr 1fr 1fr 1fr;
     margin-bottom: 0;
 }
 
@@ -11,6 +11,14 @@
     .rel-tipo {
         grid-column: span 2;
     }
+}
+
+/* Disabled date input */
+.form-control:disabled {
+    background-color: #f1f5f9;
+    color: #94a3b8;
+    cursor: not-allowed;
+    opacity: 0.7;
 }
 
 /* Actions Footer for Reports */

@@ -72,6 +72,14 @@ def cadastro():
 def importacao():
     return render_template('importacao.html')
 
+@app.route('/cobranca')
+def cobranca():
+    return render_template('cobranca.html')
+
+@app.route('/operadores')
+def operadores():
+    return render_template('operadores.html')
+
 @app.route('/recuperar_senha')
 def recuperar_senha():
     return render_template('recuperar_senha.html')
@@ -496,23 +504,47 @@ _RELATORIO_COLUMNS = [
 ]
 
 
-def _build_relatorio_query(tipo, data_inicial, data_final):
+def _build_relatorio_query(tipo, data_inicial, data_final, prioridade=None):
     """Retorna (sql, params) para o relatorio solicitado."""
-    params = [data_inicial, data_final]
+    params = []
 
     if tipo == 'abertos':
         sql = (
             "SELECT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
-            "       p.nome_completo AS nome_devedor, MAX(o.data_arquivo) AS data_arquivo "
+            "       p.nome_completo AS nome_devedor, "
+            "       MAX(o.data_arquivo) AS data_arquivo, "
+            "       MIN(par.vencimento) AS vencimento_mais_antigo, "
+            "       DATEDIFF(CURDATE(), MIN(par.vencimento)) AS dias_atraso "
             "FROM contrato c "
-            "INNER JOIN ocorrencia o ON c.id = o.id_contrato "
+            "LEFT JOIN ocorrencia o ON c.id = o.id_contrato "
             "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
+            "LEFT JOIN parcela par ON par.id_contrato = c.id AND par.status = 'aberto' "
             "WHERE c.status = 'aberto' "
-            "  AND o.data_arquivo >= %s AND o.data_arquivo <= %s "
-            "GROUP BY c.id, c.grupo, c.cota, c.numero_contrato, c.status, p.nome_completo "
-            "ORDER BY data_arquivo, c.grupo, c.cota"
         )
+        if data_final:
+            sql += " AND (o.data_arquivo IS NULL OR o.data_arquivo <= %s) "
+            params.append(data_final)
+        if data_inicial:
+            sql += " AND o.data_arquivo >= %s "
+            params.append(data_inicial)
+
+        sql += (
+            "GROUP BY c.id, c.grupo, c.cota, c.numero_contrato, c.status, p.nome_completo "
+        )
+
+        # Filtro de prioridade via HAVING
+        if prioridade == 'critico':
+            sql += "HAVING dias_atraso >= 60 "
+        elif prioridade == 'atencao':
+            sql += "HAVING dias_atraso >= 30 AND dias_atraso < 60 "
+        elif prioridade == 'recente':
+            sql += "HAVING dias_atraso >= 1 AND dias_atraso < 30 "
+
+        sql += "ORDER BY dias_atraso DESC, c.grupo, c.cota"
         return sql, params
+
+    # Demais tipos: pagos, indenizados, novos
+    params = [data_inicial, data_final]
 
     base = (
         "SELECT DISTINCT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
@@ -524,6 +556,8 @@ def _build_relatorio_query(tipo, data_inicial, data_final):
 
     if tipo == 'novos':
         where = "WHERE o.status = 'aberto' AND o.descricao LIKE '%%novo%%'"
+    elif tipo == 'voltaram':
+        where = "WHERE o.status = 'aberto' AND o.descricao LIKE '%%contrato voltou%%'"
     elif tipo == 'pagos':
         where = "WHERE c.status = 'fechado' AND o.status = 'fechado'"
     elif tipo == 'indenizados':
@@ -536,8 +570,8 @@ def _build_relatorio_query(tipo, data_inicial, data_final):
     return sql, params
 
 
-def _fetch_relatorio_rows(tipo, data_inicial, data_final):
-    sql, params = _build_relatorio_query(tipo, data_inicial, data_final)
+def _fetch_relatorio_rows(tipo, data_inicial, data_final, prioridade=None):
+    sql, params = _build_relatorio_query(tipo, data_inicial, data_final, prioridade)
     conn = _get_db()
     cursor = conn.cursor()
     cursor.execute(sql, params)
@@ -551,9 +585,16 @@ def _validate_relatorio_params():
     tipo = request.args.get('tipo', '').strip()
     data_inicial = request.args.get('data_inicial', '').strip()
     data_final = request.args.get('data_final', '').strip()
-    if not tipo or not data_inicial or not data_final:
-        return None, None, None, 'Parametros tipo, data_inicial e data_final sao obrigatorios.'
-    return tipo, data_inicial, data_final, None
+    prioridade = request.args.get('prioridade', '').strip()
+
+    if not tipo:
+        return None, None, None, None, 'Parametro tipo e obrigatorio.'
+    # Para 'abertos', data_inicial é opcional
+    if tipo != 'abertos' and (not data_inicial or not data_final):
+        return None, None, None, None, 'Parametros data_inicial e data_final sao obrigatorios.'
+    if tipo == 'abertos' and not data_final:
+        return None, None, None, None, 'Parametro data_final e obrigatorio.'
+    return tipo, data_inicial or None, data_final, prioridade or None, None
 
 
 _TIPO_LABELS = {
@@ -561,15 +602,16 @@ _TIPO_LABELS = {
     'pagos': 'Contratos Pagos/Fechados',
     'indenizados': 'Contratos Indenizados',
     'novos': 'Contratos Novos',
+    'voltaram': 'Contratos que Voltaram',
 }
 
 
 @app.route('/api/relatorios')
 def api_relatorios():
-    tipo, dt_ini, dt_fim, err = _validate_relatorio_params()
+    tipo, dt_ini, dt_fim, prioridade, err = _validate_relatorio_params()
     if err:
         return jsonify({'error': err}), 400
-    rows = _fetch_relatorio_rows(tipo, dt_ini, dt_fim)
+    rows = _fetch_relatorio_rows(tipo, dt_ini, dt_fim, prioridade)
     return jsonify({'results': rows, 'tipo': tipo, 'total': len(rows)})
 
 
@@ -578,11 +620,11 @@ def api_relatorios_excel():
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
-    tipo, dt_ini, dt_fim, err = _validate_relatorio_params()
+    tipo, dt_ini, dt_fim, prioridade, err = _validate_relatorio_params()
     if err:
         return jsonify({'error': err}), 400
 
-    rows = _fetch_relatorio_rows(tipo, dt_ini, dt_fim)
+    rows = _fetch_relatorio_rows(tipo, dt_ini, dt_fim, prioridade)
     titulo = _TIPO_LABELS.get(tipo, tipo)
 
     wb = Workbook()
@@ -640,11 +682,11 @@ def api_relatorios_excel():
 def api_relatorios_pdf():
     from fpdf import FPDF
 
-    tipo, dt_ini, dt_fim, err = _validate_relatorio_params()
+    tipo, dt_ini, dt_fim, prioridade, err = _validate_relatorio_params()
     if err:
         return jsonify({'error': err}), 400
 
-    rows = _fetch_relatorio_rows(tipo, dt_ini, dt_fim)
+    rows = _fetch_relatorio_rows(tipo, dt_ini, dt_fim, prioridade)
     titulo = _TIPO_LABELS.get(tipo, tipo)
 
     pdf = FPDF(orientation='L', unit='mm', format='A4')
@@ -810,6 +852,170 @@ def api_dashboard():
         'pie_chart': pie_raw,
         'prioridade': prioridade,
     })
+
+
+# ---------------------------------------------------------------------------
+# API: Cobrança — Contratos agrupados por prioridade de parcelas
+# ---------------------------------------------------------------------------
+
+@app.route('/api/cobranca')
+def api_cobranca():
+    """Retorna contratos abertos divididos em 3 faixas de prioridade
+    baseadas no vencimento mais antigo de parcelas em aberto."""
+    operador = request.args.get('operador', '').strip()
+
+    conn = _get_db()
+    cursor = conn.cursor()
+
+    # Query base: contratos abertos com parcelas em aberto
+    base_sql = (
+        "SELECT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
+        "       p.nome_completo AS nome_devedor, p.cpf_cnpj, "
+        "       c.valor_credito, "
+        "       MIN(par.vencimento) AS vencimento_mais_antigo, "
+        "       DATEDIFF(CURDATE(), MIN(par.vencimento)) AS dias_atraso, "
+        "       COUNT(par.id) AS parcelas_abertas "
+        "FROM contrato c "
+        "INNER JOIN parcela par ON par.id_contrato = c.id AND par.status = 'aberto' "
+        "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
+        "WHERE c.status = 'aberto' "
+    )
+    params = []
+
+    # Filtro de operador (campo futuro — coluna operador em contrato)
+    if operador:
+        base_sql += " AND c.operador = %s "
+        params.append(operador)
+
+    base_sql += (
+        "GROUP BY c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
+        "         p.nome_completo, p.cpf_cnpj, c.valor_credito "
+        "ORDER BY dias_atraso DESC"
+    )
+
+    cursor.execute(base_sql, params)
+    rows = _clean_rows(cursor.fetchall())
+
+    # Dividir em 3 blocos de prioridade
+    critico = []   # 60-90 dias
+    atencao = []   # 30-60 dias
+    recente = []   # 1-30 dias
+
+    for r in rows:
+        dias = r.get('dias_atraso') or 0
+        if isinstance(dias, str):
+            dias = int(float(dias))
+        if dias >= 60:
+            critico.append(r)
+        elif dias >= 30:
+            atencao.append(r)
+        elif dias >= 1:
+            recente.append(r)
+        # dias <= 0 => parcela ainda não venceu, não entra nos blocos
+
+    # Lista de operadores distintos (para o filtro no front)
+    try:
+        cursor.execute(
+            "SELECT DISTINCT operador FROM contrato "
+            "WHERE operador IS NOT NULL AND operador <> '' "
+            "ORDER BY operador"
+        )
+        operadores = [r['operador'] for r in cursor.fetchall()]
+    except Exception:
+        operadores = []
+
+    cursor.close()
+    conn.close()
+
+    return jsonify({
+        'critico': critico,
+        'atencao': atencao,
+        'recente': recente,
+        'total': len(critico) + len(atencao) + len(recente),
+        'operadores': operadores,
+    })
+
+
+# ---------------------------------------------------------------------------
+# API: Consorciados e Avalistas
+# ---------------------------------------------------------------------------
+
+def _build_pessoa_query(join_field, q, tipo):
+    """Helper para construir query de listagem de pessoas vinculadas a contratos."""
+    sql = (
+        "SELECT p.id, p.nome_completo, p.cpf_cnpj, "
+        "       COUNT(DISTINCT c.id) AS total_contratos "
+        "FROM pessoa p "
+        "INNER JOIN contrato c ON c." + join_field + " = p.id "
+    )
+    params = []
+    where_parts = []
+
+    if q and tipo:
+        if tipo == 'nome':
+            where_parts.append("p.nome_completo LIKE %s")
+            params.append('%' + q + '%')
+        elif tipo == 'cpf':
+            where_parts.append("p.cpf_cnpj LIKE %s")
+            params.append('%' + q + '%')
+        elif tipo == 'grupo_cota':
+            where_parts.append("(c.grupo LIKE %s OR c.cota LIKE %s OR CONCAT(c.grupo, '/', c.cota) LIKE %s)")
+            params.extend(['%' + q + '%', '%' + q + '%', '%' + q + '%'])
+    elif q:
+        where_parts.append("(p.nome_completo LIKE %s OR p.cpf_cnpj LIKE %s)")
+        params.extend(['%' + q + '%', '%' + q + '%'])
+
+    if where_parts:
+        sql += "WHERE " + " AND ".join(where_parts) + " "
+
+    sql += "GROUP BY p.id, p.nome_completo, p.cpf_cnpj "
+    sql += "ORDER BY p.nome_completo "
+
+    return sql, params
+
+
+@app.route('/api/consorciados')
+def api_consorciados():
+    """Lista pessoas (devedores) vinculadas a contratos via id_pessoa."""
+    q = request.args.get('q', '').strip()
+    tipo = request.args.get('tipo', '').strip()
+
+    sql, params = _build_pessoa_query('id_pessoa', q, tipo)
+
+    # Sem busca = limite 10 (preview); com busca = todos os resultados
+    if not q:
+        sql += "LIMIT 10"
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    cursor.execute(sql, params)
+    rows = _clean_rows(cursor.fetchall())
+    cursor.close()
+    conn.close()
+
+    return jsonify({'results': rows, 'total': len(rows)})
+
+
+@app.route('/api/avalistas')
+def api_avalistas():
+    """Lista pessoas (avalistas) vinculadas a contratos via id_avalista."""
+    q = request.args.get('q', '').strip()
+    tipo = request.args.get('tipo', '').strip()
+
+    sql, params = _build_pessoa_query('id_avalista', q, tipo)
+
+    # Sem busca = limite 10 (preview); com busca = todos os resultados
+    if not q:
+        sql += "LIMIT 10"
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    cursor.execute(sql, params)
+    rows = _clean_rows(cursor.fetchall())
+    cursor.close()
+    conn.close()
+
+    return jsonify({'results': rows, 'total': len(rows)})
 
 
 if __name__ == '__main__':

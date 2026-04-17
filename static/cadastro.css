@@ -58,9 +58,22 @@
 }
 
 .big-input {
-    width: 60%;
-    padding: 12px 14px 12px 40px; /* espaco pra icone */
+    flex: 1;
+    padding: 12px 14px 12px 14px;
     font-size: 1rem;
+}
+
+.filter-type-select {
+    width: auto;
+    min-width: 150px;
+    padding: 12px 14px;
+    font-size: 0.95rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background-color: #f8fafc;
+    color: var(--primary-color);
+    font-weight: 600;
+    cursor: pointer;
 }
 
 .btn-search {
@@ -165,3 +178,49 @@
 .text-danger { color: #ef4444; }
 .text-warning { color: #f59e0b; }
 .text-success { color: #10b981; }
+
+/* Badge de contagem */
+.badge-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #f1f5f9;
+    color: var(--primary-color);
+    font-size: 0.85rem;
+    font-weight: 700;
+    padding: 4px 14px;
+    border-radius: 20px;
+    border: 1px solid var(--border-color);
+    min-width: 50px;
+}
+
+/* Loading */
+.loading-row {
+    text-align: center;
+    padding: 32px 24px !important;
+    color: var(--text-muted);
+    font-size: 0.95rem;
+}
+
+.loading-row i {
+    margin-right: 8px;
+    color: #3b82f6;
+}
+
+/* Contratos badge na tabela */
+.contratos-num {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    background-color: #eff6ff;
+    color: #3b82f6;
+}
+
+/* Espaçamento entre bloco busca e tabela */
+.filter-card + .results-card {
+    margin-top: -8px;
+}
