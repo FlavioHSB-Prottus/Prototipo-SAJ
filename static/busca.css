@@ -327,3 +327,71 @@ select.form-control {
     font-size: 0.9rem;
     color: var(--text-main);
 }
+
+/* Utilitarios */
+.d-none { display: none !important; }
+
+.no-results {
+    padding: 48px 24px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 1rem;
+}
+
+.no-results i {
+    margin-right: 8px;
+    color: #f59e0b;
+}
+
+/* Secao de contatos inline */
+.contact-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+}
+
+@media (max-width: 768px) {
+    .contact-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.contact-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.contact-list li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.9rem;
+    color: var(--text-main);
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.contact-list li:last-child {
+    border-bottom: none;
+}
+
+.contact-list li i {
+    color: #64748b;
+    width: 18px;
+    text-align: center;
+}
+
+.contact-list .contact-tipo {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    background-color: #f1f5f9;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-left: auto;
+}
