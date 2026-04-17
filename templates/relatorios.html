@@ -1,18 +1,18 @@
 {% extends 'layout.html' %}
 
 {% block head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}"> <!-- Reaproveita styled-table -->
-<link rel="stylesheet" href="{{ url_for('static', filename='busca.css') }}"> <!-- Reaproveita layouts, modal e grid -->
+<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='busca.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='relatorios.css') }}">
 {% endblock %}
 
 {% block content %}
-<div class="busca-wrapper"> <!-- Reuso do espaçamento e estrutura geral -->
+<div class="busca-wrapper">
     
     <!-- Filtros p/ Relatório -->
     <div class="filter-card">
         <h3><i class="fa-solid fa-file-invoice"></i> Relatórios de Contratos</h3>
-        <form action="#" method="GET" class="filter-form relatorio-form">
+        <form id="relatorioForm" class="filter-form relatorio-form">
             
             <div class="form-group rel-tipo">
                 <label for="tipo_relatorio">Tipos de Contratos</label>
@@ -26,149 +26,61 @@
             
             <div class="form-group">
                 <label for="data_inicial">Data Inicial</label>
-                <input type="date" id="data_inicial" name="data_inicial" class="form-control">
+                <input type="date" id="data_inicial" name="data_inicial" class="form-control" required>
             </div>
 
             <div class="form-group">
                 <label for="data_final">Data Final</label>
-                <input type="date" id="data_final" name="data_final" class="form-control">
+                <input type="date" id="data_final" name="data_final" class="form-control" required>
             </div>
             
         </form>
 
-        <!-- Botões de Ação Separados do Grid -->
         <div class="export-actions">
-            <button type="button" class="btn-search"><i class="fa-solid fa-desktop"></i> Visualizar na Tela</button>
+            <button type="button" class="btn-search" id="btnVisualizar"><i class="fa-solid fa-desktop"></i> Visualizar na Tela</button>
             <div class="export-group">
-                <button type="button" class="btn-export btn-export-excel"><i class="fa-solid fa-file-excel"></i> Exportar Excel (CSV)</button>
-                <button type="button" class="btn-export btn-export-pdf"><i class="fa-solid fa-file-pdf"></i> Exportar PDF</button>
+                <button type="button" class="btn-export btn-export-excel" id="btnExcel"><i class="fa-solid fa-file-excel"></i> Exportar Excel</button>
+                <button type="button" class="btn-export btn-export-pdf" id="btnPdf"><i class="fa-solid fa-file-pdf"></i> Exportar PDF</button>
             </div>
         </div>
     </div>
 
-    <!-- Resultados substituídos pela visualização no formato de Busca (Tabela de Contratos) -->
-    <div class="results-card table-section">
+    <!-- Resultados -->
+    <div class="results-card table-section d-none" id="resultsSection">
         <div class="table-header">
-            <h3>Contratos do Relatório (Exemplo)</h3>
+            <h3 id="resultsTitle">Contratos do Relatório</h3>
         </div>
         <div class="table-responsive">
             <table class="styled-table">
                 <thead>
                     <tr>
-                        <th>Nº do Contrato</th>
                         <th>Grupo / Cota</th>
-                        <th>Nome do Avalista</th>
+                        <th>Nº Contrato</th>
+                        <th>Nome Devedor</th>
                         <th>Status</th>
+                        <th>Data Arquivo</th>
                         <th class="text-right">Ações</th>
                     </tr>
                 </thead>
-                <tbody>
-                    <tr>
-                        <td class="fw-bold">148922-5</td>
-                        <td>0084 / 125</td>
-                        <td>Roberto Almeida Silveira</td>
-                        <td><span class="status-badge status-active">Aberto</span></td>
-                        <td class="text-right">
-                            <button class="action-btn" title="Ver Detalhes"><i class="fa-solid fa-file-lines"></i> Detalhes</button>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td class="fw-bold">103445-X</td>
-                        <td>0192 / 045</td>
-                        <td>Viação Cometa SA</td>
-                        <td><span class="status-badge status-success">Pago</span></td>
-                        <td class="text-right">
-                            <button class="action-btn" title="Ver Detalhes"><i class="fa-solid fa-file-lines"></i> Detalhes</button>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td class="fw-bold">098331-2</td>
-                        <td>0200 / 012</td>
-                        <td>Construtora Alfa ME</td>
-                        <td><span class="status-badge status-warning">Indenizado</span></td>
-                        <td class="text-right">
-                            <button class="action-btn" title="Ver Detalhes"><i class="fa-solid fa-file-lines"></i> Detalhes</button>
-                        </td>
-                    </tr>
+                <tbody id="resultsBody">
                 </tbody>
             </table>
+        </div>
+        <div class="no-results d-none" id="noResults">
+            <p><i class="fa-solid fa-circle-exclamation"></i> Nenhum contrato encontrado para os filtros informados.</p>
         </div>
     </div>
 
 </div>
 
-<!-- Modal de Detalhes do Contrato (Copiado da busca para funcionar aqui) -->
+<!-- Modal de Detalhes -->
 <div id="detalhesModal" class="modal-overlay">
     <div class="modal-container">
         <div class="modal-header">
-            <h2>Detalhes do Contrato: <span class="text-accent">148922-5</span></h2>
+            <h2 id="modalTitle">Detalhes</h2>
             <button class="close-modal-btn" id="closeModalBtn"><i class="fa-solid fa-xmark"></i></button>
         </div>
-        <div class="modal-body">
-            
-            <!-- 1. Informações do Contrato -->
-            <div class="detail-section">
-                <h3><i class="fa-solid fa-file-contract"></i> Dados do Contrato</h3>
-                <div class="detail-grid">
-                    <div class="data-item"><span class="data-label">Grupo / Cota:</span> <span class="data-value">0084 / 125</span></div>
-                    <div class="data-item"><span class="data-label">Status Atual:</span> <span class="status-badge status-active">Em Cobrança</span></div>
-                    <div class="data-item"><span class="data-label">Valor do Bem:</span> <span class="data-value">R$ 45.000,00</span></div>
-                    <div class="data-item"><span class="data-label">Data de Adesão:</span> <span class="data-value">12/04/2022</span></div>
-                </div>
-            </div>
-
-            <!-- 2. Detalhes do Avalista -->
-            <div class="detail-section">
-                <h3><i class="fa-solid fa-user-tie"></i> Dados do Cliente / Avalista</h3>
-                <div class="detail-grid">
-                    <div class="data-item"><span class="data-label">Nome:</span> <span class="data-value">Roberto Almeida Silveira</span></div>
-                    <div class="data-item"><span class="data-label">CPF/CNPJ:</span> <span class="data-value">123.456.789-00</span></div>
-                    <div class="data-item"><span class="data-label">Telefone:</span> <span class="data-value">(11) 98765-4321</span></div>
-                    <div class="data-item"><span class="data-label">E-mail:</span> <span class="data-value">roberto.almeida@email.com</span></div>
-                </div>
-            </div>
-
-            <!-- 3. Parcelas -->
-            <div class="detail-section">
-                <h3><i class="fa-solid fa-list-ol"></i> Resumo de Parcelas</h3>
-                <div class="table-responsive">
-                    <table class="styled-table modal-table">
-                        <thead>
-                            <tr>
-                                <th>Nº</th>
-                                <th>Vencimento</th>
-                                <th>Valor</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr><td>34</td><td>15/10/2025</td><td>R$ 850,00</td><td><span class="status-badge status-danger">Atrasada</span></td></tr>
-                            <tr><td>35</td><td>15/11/2025</td><td>R$ 850,00</td><td><span class="status-badge status-danger">Atrasada</span></td></tr>
-                            <tr><td>36</td><td>15/12/2025</td><td>R$ 850,00</td><td><span class="status-badge status-warning">A Vencer</span></td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- 4. Logs / Ocorrências -->
-            <div class="detail-section">
-                <h3><i class="fa-solid fa-timeline"></i> Histórico de Ocorrências (Logs)</h3>
-                <div class="timeline">
-                    <div class="timeline-item">
-                        <div class="timeline-date">10/11/2025</div>
-                        <div class="timeline-event"><strong>Notificação Enviada:</strong> E-mail de cobrança disparado pelo sistema.</div>
-                    </div>
-                    <div class="timeline-item">
-                        <div class="timeline-date">05/11/2025</div>
-                        <div class="timeline-event"><strong>Tentativa de Contato:</strong> Telefone caixa postal (Operador: João).</div>
-                    </div>
-                    <div class="timeline-item">
-                        <div class="timeline-date">15/10/2025</div>
-                        <div class="timeline-event"><strong>Quebra de Acordo:</strong> Parcela 34 não foi paga na data combinada.</div>
-                    </div>
-                </div>
-            </div>
-
+        <div class="modal-body" id="modalContent">
         </div>
     </div>
 </div>
@@ -179,6 +91,5 @@
 {% endblock %}
 
 {% block scripts %}
-<!-- Reusa o script do modal do modulo de busca -->
-<script src="{{ url_for('static', filename='busca.js') }}"></script>
+<script src="{{ url_for('static', filename='relatorios.js') }}"></script>
 {% endblock %}

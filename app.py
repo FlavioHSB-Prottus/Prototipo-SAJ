@@ -1,5 +1,6 @@
 import datetime
 import decimal
+import io
 import json
 import os
 import shutil
@@ -8,7 +9,7 @@ import sys
 import tempfile
 
 import pymysql
-from flask import Flask, Response, render_template, request, redirect, url_for, jsonify
+from flask import Flask, Response, render_template, request, redirect, url_for, jsonify, send_file
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
@@ -479,6 +480,206 @@ def api_contrato_detalhe(contrato_id):
         'parcelas': parcelas,
         'ocorrencias': ocorrencias,
     })
+
+
+# ---------------------------------------------------------------------------
+# API: Relatorios
+# ---------------------------------------------------------------------------
+
+_RELATORIO_COLUMNS = [
+    ('Grupo', 'grupo'),
+    ('Cota', 'cota'),
+    ('Nro Contrato', 'numero_contrato'),
+    ('Nome Devedor', 'nome_devedor'),
+    ('Status', 'status'),
+    ('Data Arquivo', 'data_arquivo'),
+]
+
+
+def _build_relatorio_query(tipo, data_inicial, data_final):
+    """Retorna (sql, params) para o relatorio solicitado."""
+    base = (
+        "SELECT DISTINCT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
+        "       p.nome_completo AS nome_devedor, o.data_arquivo "
+        "FROM ocorrencia o "
+        "LEFT JOIN contrato c ON c.id = o.id_contrato "
+        "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
+    )
+
+    if tipo == 'abertos':
+        where = "WHERE c.status = 'aberto' AND o.status = 'aberto'"
+    elif tipo == 'novos':
+        where = "WHERE o.status = 'aberto' AND o.descricao LIKE '%%novo%%'"
+    elif tipo == 'pagos':
+        where = "WHERE c.status = 'fechado' AND o.status = 'fechado'"
+    elif tipo == 'indenizados':
+        where = "WHERE c.status = 'indenizado' AND o.status = 'indenizado'"
+    else:
+        where = "WHERE 1=1"
+
+    where += " AND o.data_arquivo >= %s AND o.data_arquivo <= %s"
+    params = [data_inicial, data_final]
+
+    sql = base + where + " ORDER BY o.data_arquivo, c.grupo, c.cota"
+    return sql, params
+
+
+def _fetch_relatorio_rows(tipo, data_inicial, data_final):
+    sql, params = _build_relatorio_query(tipo, data_inicial, data_final)
+    conn = _get_db()
+    cursor = conn.cursor()
+    cursor.execute(sql, params)
+    rows = _clean_rows(cursor.fetchall())
+    cursor.close()
+    conn.close()
+    return rows
+
+
+def _validate_relatorio_params():
+    tipo = request.args.get('tipo', '').strip()
+    data_inicial = request.args.get('data_inicial', '').strip()
+    data_final = request.args.get('data_final', '').strip()
+    if not tipo or not data_inicial or not data_final:
+        return None, None, None, 'Parametros tipo, data_inicial e data_final sao obrigatorios.'
+    return tipo, data_inicial, data_final, None
+
+
+_TIPO_LABELS = {
+    'abertos': 'Contratos Abertos',
+    'pagos': 'Contratos Pagos/Fechados',
+    'indenizados': 'Contratos Indenizados',
+    'novos': 'Contratos Novos',
+}
+
+
+@app.route('/api/relatorios')
+def api_relatorios():
+    tipo, dt_ini, dt_fim, err = _validate_relatorio_params()
+    if err:
+        return jsonify({'error': err}), 400
+    rows = _fetch_relatorio_rows(tipo, dt_ini, dt_fim)
+    return jsonify({'results': rows, 'tipo': tipo, 'total': len(rows)})
+
+
+@app.route('/api/relatorios/excel')
+def api_relatorios_excel():
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    tipo, dt_ini, dt_fim, err = _validate_relatorio_params()
+    if err:
+        return jsonify({'error': err}), 400
+
+    rows = _fetch_relatorio_rows(tipo, dt_ini, dt_fim)
+    titulo = _TIPO_LABELS.get(tipo, tipo)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Relatorio'
+
+    header_font = Font(bold=True, color='FFFFFF', size=11)
+    header_fill = PatternFill(start_color='3B82F6', end_color='3B82F6', fill_type='solid')
+    header_align = Alignment(horizontal='center', vertical='center')
+    thin_border = Border(
+        left=Side(style='thin', color='D1D5DB'),
+        right=Side(style='thin', color='D1D5DB'),
+        top=Side(style='thin', color='D1D5DB'),
+        bottom=Side(style='thin', color='D1D5DB'),
+    )
+
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(_RELATORIO_COLUMNS))
+    title_cell = ws.cell(row=1, column=1, value=f'{titulo}  |  {dt_ini} a {dt_fim}')
+    title_cell.font = Font(bold=True, size=13)
+    title_cell.alignment = Alignment(horizontal='center')
+
+    for col_idx, (label, _key) in enumerate(_RELATORIO_COLUMNS, start=1):
+        cell = ws.cell(row=3, column=col_idx, value=label)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        cell.border = thin_border
+
+    alt_fill = PatternFill(start_color='F8FAFC', end_color='F8FAFC', fill_type='solid')
+    for row_idx, row in enumerate(rows, start=4):
+        for col_idx, (_label, key) in enumerate(_RELATORIO_COLUMNS, start=1):
+            val = row.get(key, '')
+            cell = ws.cell(row=row_idx, column=col_idx, value=val if val is not None else '')
+            cell.border = thin_border
+            if (row_idx - 4) % 2 == 1:
+                cell.fill = alt_fill
+
+    for col_idx, (_label, _key) in enumerate(_RELATORIO_COLUMNS, start=1):
+        max_len = len(_label)
+        for row_idx in range(4, 4 + len(rows)):
+            cell_val = str(ws.cell(row=row_idx, column=col_idx).value or '')
+            max_len = max(max_len, len(cell_val))
+        ws.column_dimensions[ws.cell(row=3, column=col_idx).column_letter].width = min(max_len + 4, 40)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    fname = f'relatorio_{tipo}_{dt_ini}_{dt_fim}.xlsx'
+    return send_file(buf, as_attachment=True, download_name=fname,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@app.route('/api/relatorios/pdf')
+def api_relatorios_pdf():
+    from fpdf import FPDF
+
+    tipo, dt_ini, dt_fim, err = _validate_relatorio_params()
+    if err:
+        return jsonify({'error': err}), 400
+
+    rows = _fetch_relatorio_rows(tipo, dt_ini, dt_fim)
+    titulo = _TIPO_LABELS.get(tipo, tipo)
+
+    pdf = FPDF(orientation='L', unit='mm', format='A4')
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    pdf.set_font('Helvetica', 'B', 14)
+    pdf.cell(0, 10, titulo, ln=True, align='C')
+    pdf.set_font('Helvetica', '', 10)
+    pdf.cell(0, 6, f'Periodo: {dt_ini} a {dt_fim}', ln=True, align='C')
+    pdf.ln(6)
+
+    col_widths = [30, 25, 40, 90, 40, 35]
+    headers = [label for label, _key in _RELATORIO_COLUMNS]
+
+    pdf.set_font('Helvetica', 'B', 9)
+    pdf.set_fill_color(59, 130, 246)
+    pdf.set_text_color(255, 255, 255)
+    for i, h in enumerate(headers):
+        pdf.cell(col_widths[i], 8, h, border=1, align='C', fill=True)
+    pdf.ln()
+
+    pdf.set_font('Helvetica', '', 8)
+    pdf.set_text_color(30, 41, 59)
+    for row_idx, row in enumerate(rows):
+        if row_idx % 2 == 1:
+            pdf.set_fill_color(248, 250, 252)
+            fill = True
+        else:
+            pdf.set_fill_color(255, 255, 255)
+            fill = True
+
+        for i, (_label, key) in enumerate(_RELATORIO_COLUMNS):
+            val = str(row.get(key, '') or '')
+            pdf.cell(col_widths[i], 7, val[:50], border=1, align='C', fill=fill)
+        pdf.ln()
+
+    pdf.ln(4)
+    pdf.set_font('Helvetica', 'I', 8)
+    pdf.cell(0, 5, f'Total de registros: {len(rows)}', ln=True)
+
+    buf = io.BytesIO()
+    pdf.output(buf)
+    buf.seek(0)
+
+    fname = f'relatorio_{tipo}_{dt_ini}_{dt_fim}.pdf'
+    return send_file(buf, as_attachment=True, download_name=fname, mimetype='application/pdf')
 
 
 if __name__ == '__main__':
