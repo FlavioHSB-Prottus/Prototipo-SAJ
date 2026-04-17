@@ -13,6 +13,11 @@ app = Flask(__name__)
 SCRIPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scripts')
 PYTHON_EXE = sys.executable
 
+_SUBPROCESS_ENV = {**os.environ, 'PYTHONUNBUFFERED': '1'}
+_POPEN_EXTRA = {}
+if sys.platform == 'win32':
+    _POPEN_EXTRA['creationflags'] = subprocess.CREATE_NO_WINDOW
+
 DB_CONFIG = {
     'host': 'localhost',
     'port': 3306,
@@ -129,12 +134,14 @@ def api_processar():
 
         script1 = os.path.join(SCRIPTS_DIR, 'import_only_arquivos_gm.py')
         proc1 = subprocess.Popen(
-            [PYTHON_EXE, script1, temp_dir],
+            [PYTHON_EXE, '-u', script1, temp_dir],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             encoding='utf-8',
             errors='replace',
+            env=_SUBPROCESS_ENV,
+            **_POPEN_EXTRA,
         )
 
         total_files = len([f for f in os.listdir(temp_dir) if f.lower().endswith('.txt')])
@@ -193,13 +200,15 @@ def api_processar():
 
         script2 = os.path.join(SCRIPTS_DIR, 'tracker_gm_range_date_contratos.py')
         proc2 = subprocess.Popen(
-            [PYTHON_EXE, script2],
+            [PYTHON_EXE, '-u', script2],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             encoding='utf-8',
             errors='replace',
+            env=_SUBPROCESS_ENV,
+            **_POPEN_EXTRA,
         )
 
         proc2.stdin.write(start_date + '\n')
