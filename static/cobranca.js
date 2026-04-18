@@ -205,7 +205,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function buildPriorityBlock(level, title, desc, iconClass, contracts) {
         const block = document.createElement('div');
-        block.className = 'priority-block ' + level;
+        block.className = 'priority-block ' + level + ' collapsed';
 
         const count = contracts ? contracts.length : 0;
         const diasClass = 'dias-' + level;

@@ -50,16 +50,9 @@
     gap: 16px;
 }
 
-.search-icon {
-    position: absolute;
-    left: 14px;
-    color: #94a3b8;
-    pointer-events: none;
-}
-
 .big-input {
     flex: 1;
-    padding: 12px 14px 12px 14px;
+    padding: 12px 14px;
     font-size: 1rem;
 }
 
