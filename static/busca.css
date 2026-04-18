@@ -395,3 +395,48 @@ select.form-control {
     border-radius: 4px;
     margin-left: auto;
 }
+
+.btn-ligar {
+    background: none;
+    border: 1px solid #3b82f6;
+    border-radius: 6px;
+    color: #3b82f6;
+    cursor: pointer;
+    padding: 4px 8px;
+    font-size: 0.8rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition);
+    margin-left: 8px;
+}
+
+.btn-ligar:hover {
+    background-color: #3b82f6;
+    color: #ffffff;
+}
+
+.modal-nav-back {
+    margin-bottom: 16px;
+}
+
+.btn-voltar-pessoa {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--primary-color);
+    background-color: #f1f5f9;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: var(--transition);
+    font-family: inherit;
+}
+
+.btn-voltar-pessoa:hover {
+    background-color: #e2e8f0;
+    border-color: #cbd5e1;
+}
