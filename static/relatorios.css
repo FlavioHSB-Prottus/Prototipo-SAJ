@@ -1,34 +1,71 @@
-/* Specific spacings for Relatórios Form */
-.relatorio-form {
-    grid-template-columns: 2fr 1fr 1fr 1fr;
-    margin-bottom: 0;
+/* =============================================
+   MÓDULO DE RELATÓRIOS — Estilos de Ordenação
+   ============================================= */
+
+.sortable-header {
+    cursor: pointer;
+    position: relative;
+    user-select: none;
+    transition: background-color 0.2s;
+    white-space: nowrap;
+    padding-right: 32px !important; /* Espaço para o ícone */
 }
 
-@media (max-width: 1024px) {
-    .relatorio-form {
-        grid-template-columns: 1fr 1fr;
-    }
-    .rel-tipo {
-        grid-column: span 2;
-    }
+.sortable-header:hover {
+    background-color: #f1f5f9 !important;
+    color: var(--primary-color) !important;
 }
 
-/* Disabled date input */
-.form-control:disabled {
-    background-color: #f1f5f9;
+.sort-icon {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #cbd5e1;
+    font-size: 0.75rem;
+    transition: color 0.2s, transform 0.2s;
+}
+
+.sortable-header:hover .sort-icon {
     color: #94a3b8;
-    cursor: not-allowed;
-    opacity: 0.7;
 }
 
-/* Actions Footer for Reports */
+/* Estado Ativo: Crescente */
+.sortable-header.asc {
+    background-color: #eff6ff !important;
+    color: #3b82f6 !important;
+}
+.sortable-header.asc .sort-icon {
+    color: #3b82f6;
+    transform: translateY(-50%) rotate(0deg);
+}
+.sortable-header.asc .sort-icon::before {
+    content: "\f0de"; /* fa-sort-up */
+}
+
+/* Estado Ativo: Decrescente */
+.sortable-header.desc {
+    background-color: #eff6ff !important;
+    color: #3b82f6 !important;
+}
+.sortable-header.desc .sort-icon {
+    color: #3b82f6;
+    transform: translateY(-50%) rotate(0deg);
+}
+.sortable-header.desc .sort-icon::before {
+    content: "\f0dd"; /* fa-sort-down */
+}
+
+/* Estilo para links de exportação */
 .export-actions {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color);
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-top: 24px;
-    padding-top: 24px;
-    border-top: 1px solid var(--border-color);
+    gap: 16px;
+    flex-wrap: wrap;
 }
 
 .export-group {
@@ -36,58 +73,35 @@
     gap: 12px;
 }
 
-@media (max-width: 768px) {
-    .export-actions {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 16px;
-    }
-    .export-group {
-        flex-direction: column;
-    }
-}
-
-/* Export Buttons Styling */
 .btn-export {
-    padding: 11px 20px;
-    border-radius: 6px;
-    font-size: 0.95rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: var(--transition);
     display: inline-flex;
     align-items: center;
-    justify-content: center;
     gap: 8px;
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+    border: 1px solid transparent;
 }
 
 .btn-export-excel {
-    background-color: #f0fdf4;
-    color: #166534; /* Darker green */
-    border: 1px solid #bbf7d0;
+    background-color: #ecfdf5;
+    color: #059669;
+    border-color: #10b981;
 }
-
 .btn-export-excel:hover {
-    background-color: #dcfce7;
-    box-shadow: 0 2px 4px rgba(22, 101, 52, 0.1);
+    background-color: #10b981;
+    color: white;
 }
 
 .btn-export-pdf {
     background-color: #fef2f2;
-    color: #991b1b; /* Darker red */
-    border: 1px solid #fecaca;
+    color: #dc2626;
+    border-color: #ef4444;
 }
-
 .btn-export-pdf:hover {
-    background-color: #fee2e2;
-    box-shadow: 0 2px 4px rgba(153, 27, 27, 0.1);
-}
-
-/* Text Utility Colors for the table */
-.text-danger {
-    color: #ef4444;
-}
-
-.text-success {
-    color: #10b981;
+    background-color: #ef4444;
+    color: white;
 }

@@ -495,9 +495,8 @@ def api_contrato_detalhe(contrato_id):
 # ---------------------------------------------------------------------------
 
 _RELATORIO_COLUMNS = [
-    ('Grupo', 'grupo'),
-    ('Cota', 'cota'),
-    ('Nro Contrato', 'numero_contrato'),
+    ('Grupo / Cota', 'grupo'),
+    ('CPF / CNPJ', 'cpf_cnpj'),
     ('Nome Devedor', 'nome_devedor'),
     ('Status', 'status'),
     ('Data Arquivo', 'data_arquivo'),
@@ -511,7 +510,7 @@ def _build_relatorio_query(tipo, data_inicial, data_final, prioridade=None):
     if tipo == 'abertos':
         sql = (
             "SELECT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
-            "       p.nome_completo AS nome_devedor, "
+            "       p.nome_completo AS nome_devedor, p.cpf_cnpj, "
             "       MAX(o.data_arquivo) AS data_arquivo, "
             "       MIN(par.vencimento) AS vencimento_mais_antigo, "
             "       DATEDIFF(CURDATE(), MIN(par.vencimento)) AS dias_atraso "
@@ -529,7 +528,7 @@ def _build_relatorio_query(tipo, data_inicial, data_final, prioridade=None):
             params.append(data_inicial)
 
         sql += (
-            "GROUP BY c.id, c.grupo, c.cota, c.numero_contrato, c.status, p.nome_completo "
+            "GROUP BY c.id, c.grupo, c.cota, c.numero_contrato, c.status, p.nome_completo, p.cpf_cnpj "
         )
 
         # Filtro de prioridade via HAVING
@@ -548,7 +547,7 @@ def _build_relatorio_query(tipo, data_inicial, data_final, prioridade=None):
 
     base = (
         "SELECT DISTINCT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
-        "       p.nome_completo AS nome_devedor, o.data_arquivo "
+        "       p.nome_completo AS nome_devedor, p.cpf_cnpj, o.data_arquivo "
         "FROM ocorrencia o "
         "LEFT JOIN contrato c ON c.id = o.id_contrato "
         "LEFT JOIN pessoa p ON c.id_pessoa = p.id "

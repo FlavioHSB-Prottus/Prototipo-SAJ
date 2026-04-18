@@ -17,6 +17,9 @@ document.addEventListener('DOMContentLoaded', function () {
     var modalTitle = document.getElementById('modalTitle');
     var modalContent = document.getElementById('modalContent');
 
+    var currentResults = [];
+    var sortConfig = { column: null, order: 'asc' };
+
     // --- Data padrão: hoje ---
     var hoje = new Date().toISOString().split('T')[0];
     dataFinal.value = hoje;
@@ -91,7 +94,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 resultsBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:#ef4444">' + esc(data.error) + '</td></tr>';
                 return;
             }
-            renderResults(data.results);
+            currentResults = data.results || [];
+            // Reset order on new search
+            sortConfig = { column: null, order: 'asc' };
+            resetSortHeaders();
+            renderResults(currentResults);
         } catch (err) {
             resultsBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:#ef4444">Erro: ' + esc(err.message) + '</td></tr>';
         }
@@ -126,7 +133,7 @@ document.addEventListener('DOMContentLoaded', function () {
             var tr = document.createElement('tr');
             tr.innerHTML =
                 '<td class="fw-bold">' + esc(c.grupo) + ' / ' + esc(c.cota) + '</td>' +
-                '<td>' + esc(c.numero_contrato || '-') + '</td>' +
+                '<td>' + esc(c.cpf_cnpj || '-') + '</td>' +
                 '<td>' + esc(c.nome_devedor || '-') + '</td>' +
                 '<td><span class="status-badge ' + getStatusClass(c.status) + '">' + esc(c.status || '-') + '</span></td>' +
                 '<td>' + formatDate(c.data_arquivo) + '</td>' +
@@ -142,6 +149,77 @@ document.addEventListener('DOMContentLoaded', function () {
             btn.addEventListener('click', function () {
                 openDetails(this.getAttribute('data-id'));
             });
+        });
+    }
+
+    // --- Ordenação ---
+    document.querySelectorAll('.sortable-header').forEach(function (header) {
+        header.addEventListener('click', function () {
+            var column = this.getAttribute('data-column');
+            handleSort(column, this);
+        });
+    });
+
+    function handleSort(column, element) {
+        if (sortConfig.column === column) {
+            sortConfig.order = sortConfig.order === 'asc' ? 'desc' : 'asc';
+        } else {
+            sortConfig.column = column;
+            sortConfig.order = 'asc';
+        }
+
+        updateSortUI(element);
+        sortData();
+        renderResults(currentResults);
+    }
+
+    function updateSortUI(activeElement) {
+        resetSortHeaders();
+        activeElement.classList.add(sortConfig.order);
+    }
+
+    function resetSortHeaders() {
+        document.querySelectorAll('.sortable-header').forEach(function (h) {
+            h.classList.remove('asc', 'desc');
+        });
+    }
+
+    function sortData() {
+        var col = sortConfig.column;
+        var order = sortConfig.order === 'asc' ? 1 : -1;
+
+        currentResults.sort(function (a, b) {
+            var valA = a[col];
+            var valB = b[col];
+
+            // Tratamento especial por coluna
+            if (col === 'data_arquivo') {
+                valA = valA ? new Date(valA) : new Date(0);
+                valB = valB ? new Date(valB) : new Date(0);
+            } else if (col === 'numero_contrato') {
+                // Tentativa de ordenar numericamente se possível
+                var nA = parseInt(valA);
+                var nB = parseInt(valB);
+                if (!isNaN(nA) && !isNaN(nB)) {
+                    valA = nA;
+                    valB = nB;
+                }
+            } else if (col === 'grupo') {
+                // Grupo/Cota: ordenar por grupo e depois cota
+                var aFull = (a.grupo || '') + (a.cota || '');
+                var bFull = (b.grupo || '') + (b.cota || '');
+                return aFull.localeCompare(bFull) * order;
+            }
+
+            // Fallback: comparação de string genérica
+            if (valA === valB) return 0;
+            if (valA === null || valA === undefined) return 1;
+            if (valB === null || valB === undefined) return -1;
+
+            if (typeof valA === 'string') {
+                return valA.localeCompare(valB) * order;
+            }
+            return (valA < valB ? -1 : 1) * order;
         });
     }
 
