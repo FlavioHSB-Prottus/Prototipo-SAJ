@@ -1,7 +1,7 @@
 {% extends 'layout.html' %}
 
 {% block head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}"> <!-- Reuso de layout -->
+<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 {% endblock %}
 
@@ -10,57 +10,51 @@
     
     <!-- Resumo / KPIs Estratégicos -->
     <div class="kpi-row">
-        <!-- Novos Contratos -->
         <div class="kpi-card priority">
             <div class="kpi-icon"><i class="fa-solid fa-file-signature"></i></div>
             <div class="kpi-content">
                 <p class="kpi-title">Novos Contratos (Mês)</p>
-                <h2 class="kpi-value">124</h2>
+                <h2 class="kpi-value" id="kpiNovos">--</h2>
             </div>
         </div>
 
-        <!-- Safra Atual -->
         <div class="kpi-card neutral">
             <div class="kpi-icon"><i class="fa-solid fa-calendar-check"></i></div>
             <div class="kpi-content">
                 <p class="kpi-title">Safra Atual em Destaque</p>
-                <h2 class="kpi-value" style="font-size: 1.3rem; margin-top: 5px;">Safra 3 <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-muted);">(Dias 13 a 19)</span></h2>
+                <h2 class="kpi-value" id="kpiSafra" style="font-size: 1.3rem; margin-top: 5px;">--</h2>
             </div>
         </div>
 
-        <!-- Taxa de Recuperação -->
         <div class="kpi-card success">
             <div class="kpi-icon"><i class="fa-solid fa-arrow-trend-up"></i></div>
             <div class="kpi-content">
                 <p class="kpi-title">Taxa de Recuperação Global</p>
-                <h2 class="kpi-value">68%</h2>
+                <h2 class="kpi-value" id="kpiRecuperacao">--</h2>
             </div>
         </div>
 
-        <!-- Parcelas Críticas -->
         <div class="kpi-card warning">
             <div class="kpi-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
             <div class="kpi-content">
                 <p class="kpi-title">Parcelas Críticas (90d)</p>
-                <h2 class="kpi-value">42</h2>
+                <h2 class="kpi-value" id="kpiParcelas">--</h2>
             </div>
         </div>
     </div>
 
     <!-- Área de Gráficos -->
     <div class="charts-row">
-        <!-- Gráfico Barras: Desempenho de Safras -->
         <div class="chart-container line-chart-container">
             <div class="card-header-slim">
                 <h3>Produtividade por Safra</h3>
-                <span class="subtitle">Entrada vs Recuperação (Mês Atual)</span>
+                <span class="subtitle" id="chartBarSubtitle">Carregando...</span>
             </div>
             <div class="chart-wrapper">
                 <canvas id="safraChart"></canvas>
             </div>
         </div>
         
-        <!-- Gráfico Doughnut: Faixa de Vencimento -->
         <div class="chart-container pie-chart-container">
             <div class="card-header-slim">
                 <h3>Abertos por Vencimento</h3>
@@ -78,7 +72,7 @@
             <div class="table-header-actions">
                 <div class="period-filter">
                     <label for="mesAnoFiltro"><i class="fa-solid fa-calendar-days"></i> Período:</label>
-                    <input type="month" id="mesAnoFiltro" class="form-control-sm" value="2026-04">
+                    <input type="month" id="mesAnoFiltro" class="form-control-sm">
                 </div>
             </div>
         </div>
@@ -94,39 +88,7 @@
                         <th class="text-right">Ação</th>
                     </tr>
                 </thead>
-                <tbody>
-                    <tr data-safra="Safra 1" data-volume="420" data-d30="214" data-d60="150" data-d90="56">
-                        <td class="fw-bold">Safra 1 (01 - 09)</td>
-                        <td>420</td>
-                        <td>214</td>
-                        <td>150</td>
-                        <td class="text-danger fw-bold">56</td>
-                        <td class="text-right"><button class="action-btn btn-analisar" data-safra-index="0"><i class="fa-solid fa-chart-line"></i> Analisar Safra</button></td>
-                    </tr>
-                    <tr data-safra="Safra 2" data-volume="310" data-d30="180" data-d60="95" data-d90="35">
-                        <td class="fw-bold">Safra 2 (10 - 12)</td>
-                        <td>310</td>
-                        <td>180</td>
-                        <td>95</td>
-                        <td class="text-danger fw-bold">35</td>
-                        <td class="text-right"><button class="action-btn btn-analisar" data-safra-index="1"><i class="fa-solid fa-chart-line"></i> Analisar Safra</button></td>
-                    </tr>
-                    <tr data-safra="Safra 3" data-volume="540" data-d30="402" data-d60="120" data-d90="18">
-                        <td class="fw-bold">Safra 3 (13 - 19)</td>
-                        <td>540</td>
-                        <td>402</td>
-                        <td>120</td>
-                        <td class="text-danger fw-bold">18</td>
-                        <td class="text-right"><button class="action-btn btn-analisar" data-safra-index="2"><i class="fa-solid fa-chart-line"></i> Analisar Safra</button></td>
-                    </tr>
-                    <tr data-safra="Safra 4" data-volume="182" data-d30="160" data-d60="20" data-d90="2">
-                        <td class="fw-bold">Safra 4 (20 - fim)</td>
-                        <td>182</td>
-                        <td>160</td>
-                        <td>20</td>
-                        <td class="text-danger fw-bold">2</td>
-                        <td class="text-right"><button class="action-btn btn-analisar" data-safra-index="3"><i class="fa-solid fa-chart-line"></i> Analisar Safra</button></td>
-                    </tr>
+                <tbody id="safraTableBody">
                 </tbody>
             </table>
         </div>

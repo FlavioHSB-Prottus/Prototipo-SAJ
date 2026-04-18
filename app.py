@@ -1,3 +1,4 @@
+import calendar
 import datetime
 import decimal
 import io
@@ -1081,5 +1082,234 @@ def api_operadores_dashboard():
         'operadores': list(operators_map.values()),
         'kpis': kpis
     })
+
+
+# ---------------------------------------------------------------------------
+# API: Performance (safras x ocorrencias)
+# ---------------------------------------------------------------------------
+
+def _safra_bounds(year, month, parte):
+    """parte 0..3: (1-9), (10-12), (13-19), (20-fim). Retorna (date_start, date_end)."""
+    last = calendar.monthrange(year, month)[1]
+    bounds = [(1, 9), (10, 12), (13, 19), (20, last)]
+    d1, d2 = bounds[parte]
+    return datetime.date(year, month, d1), datetime.date(year, month, d2)
+
+
+def _shift_month(year, month, delta):
+    idx = year * 12 + (month - 1) + delta
+    return idx // 12, idx % 12 + 1
+
+
+def _count_distinct_ocorrencias(cursor, date_ranges, status_filter=None, desc_novo_only=False):
+    """date_ranges: lista de (d_start, d_end) inclusive. status_filter: None (todos), ou lista de status."""
+    if not date_ranges:
+        return 0
+    parts = []
+    params = []
+    for d1, d2 in date_ranges:
+        parts.append('(o.data_arquivo >= %s AND o.data_arquivo <= %s)')
+        params.extend([d1.isoformat(), d2.isoformat()])
+    where = '(' + ' OR '.join(parts) + ')'
+    extra = ''
+    if status_filter:
+        ph = ','.join(['%s'] * len(status_filter))
+        extra += f' AND o.status IN ({ph})'
+        params.extend(status_filter)
+    if desc_novo_only:
+        extra += " AND o.status = 'aberto' AND o.descricao LIKE '%%novo%%'"
+    sql = f'SELECT COUNT(DISTINCT o.id_contrato) AS n FROM ocorrencia o WHERE {where}{extra}'
+    cursor.execute(sql, params)
+    row = cursor.fetchone()
+    return int(row['n'] or 0)
+
+
+def _split_range_weeks(d1, d2, num_buckets=4):
+    """Divide [d1,d2] em num_buckets intervalos consecutivos (datas inclusive)."""
+    n_days = (d2 - d1).days + 1
+    if n_days <= 0:
+        return [(d1, d2)] * num_buckets
+    buckets = []
+    for i in range(num_buckets):
+        start_off = (i * n_days) // num_buckets
+        end_off = ((i + 1) * n_days + num_buckets - 1) // num_buckets - 1
+        b_start = d1 + datetime.timedelta(days=start_off)
+        b_end = d1 + datetime.timedelta(days=min(end_off, n_days - 1))
+        if b_end > d2:
+            b_end = d2
+        buckets.append((b_start, b_end))
+    return buckets
+
+
+def _bucket_entrada_recuperacao(cursor, buckets):
+    entrada = []
+    recuperacao = []
+    labels = []
+    for i, (b1, b2) in enumerate(buckets):
+        labels.append(f'P{i + 1}')
+        entrada.append(
+            _count_distinct_ocorrencias(
+                cursor, [(b1, b2)], None, desc_novo_only=True
+            )
+        )
+        recuperacao.append(
+            _count_distinct_ocorrencias(
+                cursor, [(b1, b2)], ['fechado', 'indenizado'], False
+            )
+        )
+    return {'barLabels': labels, 'entrada': entrada, 'recuperacao': recuperacao}
+
+
+@app.route('/api/performance')
+def api_performance():
+    mes = request.args.get('mes', '').strip()
+    if not mes or len(mes) < 7:
+        return jsonify({'error': 'Parametro mes obrigatorio (YYYY-MM)'}), 400
+    try:
+        y, m = int(mes[:4]), int(mes[5:7])
+        datetime.date(y, m, 1)
+    except ValueError:
+        return jsonify({'error': 'mes invalido'}), 400
+
+    conn = _get_db()
+    cursor = conn.cursor()
+
+    # KPI: novos contratos no mes (qualquer dia)
+    cursor.execute(
+        "SELECT COUNT(DISTINCT o.id_contrato) AS n FROM ocorrencia o "
+        "WHERE o.status = 'aberto' AND o.descricao LIKE '%%novo%%' "
+        "AND YEAR(o.data_arquivo) = %s AND MONTH(o.data_arquivo) = %s",
+        (y, m),
+    )
+    kpi_novos = int(cursor.fetchone()['n'] or 0)
+
+    # KPI: safra em destaque (hoje)
+    today = datetime.date.today()
+    parte_hoje = None
+    for p in range(4):
+        d1, d2 = _safra_bounds(today.year, today.month, p)
+        if d1 <= today <= d2:
+            parte_hoje = p
+            break
+    safra_labels = [
+        'Safra 1 (01 - 09)',
+        'Safra 2 (10 - 12)',
+        'Safra 3 (13 - 19)',
+        'Safra 4 (20 - fim)',
+    ]
+    kpi_safra_label = safra_labels[parte_hoje] if parte_hoje is not None else '—'
+
+    # KPI: taxa recuperacao no mes (fechado+indenizado vs total ocorrencias com status relevante)
+    cursor.execute(
+        "SELECT COUNT(*) AS n FROM ocorrencia o "
+        "WHERE YEAR(o.data_arquivo) = %s AND MONTH(o.data_arquivo) = %s "
+        "AND o.status IN ('aberto', 'fechado', 'indenizado')",
+        (y, m),
+    )
+    total_mov = int(cursor.fetchone()['n'] or 0)
+    cursor.execute(
+        "SELECT COUNT(*) AS n FROM ocorrencia o "
+        "WHERE YEAR(o.data_arquivo) = %s AND MONTH(o.data_arquivo) = %s "
+        "AND o.status IN ('fechado', 'indenizado')",
+        (y, m),
+    )
+    mov_rec = int(cursor.fetchone()['n'] or 0)
+    kpi_rec_pct = round(100.0 * mov_rec / total_mov, 1) if total_mov else 0.0
+
+    # KPI: parcelas criticas (aberto, vencimento ha mais de 90 dias)
+    cursor.execute(
+        "SELECT COUNT(*) AS n FROM parcela par "
+        "INNER JOIN contrato c ON c.id = par.id_contrato "
+        "WHERE par.status = 'aberto' AND c.status = 'aberto' "
+        "AND par.vencimento < DATE_SUB(CURDATE(), INTERVAL 90 DAY)"
+    )
+    kpi_parcelas_crit = int(cursor.fetchone()['n'] or 0)
+
+    safras_out = []
+    bar_entrada = []
+    bar_recuperacao = []
+
+    for parte in range(4):
+        d_m0a, d_m0b = _safra_bounds(y, m, parte)
+        y1, m1 = _shift_month(y, m, 1)
+        d_m1a, d_m1b = _safra_bounds(y1, m1, parte)
+        y2, m2 = _shift_month(y, m, 2)
+        d_m2a, d_m2b = _safra_bounds(y2, m2, parte)
+
+        ranges_m = [(d_m0a, d_m0b)]
+        ranges_m_m1 = [(d_m0a, d_m0b), (d_m1a, d_m1b)]
+        ranges_m_m2 = [(d_m0a, d_m0b), (d_m1a, d_m1b), (d_m2a, d_m2b)]
+
+        volume = _count_distinct_ocorrencias(cursor, ranges_m, None, False)
+        d30 = _count_distinct_ocorrencias(cursor, ranges_m, ['fechado', 'indenizado'], False)
+        d60 = _count_distinct_ocorrencias(cursor, ranges_m_m1, ['fechado', 'indenizado'], False)
+        d90 = _count_distinct_ocorrencias(cursor, ranges_m_m2, ['fechado', 'indenizado'], False)
+
+        buckets = _split_range_weeks(d_m0a, d_m0b, 4)
+        detail = _bucket_entrada_recuperacao(cursor, buckets)
+        doughnut_safra = [d30, max(0, d60 - d30), max(0, d90 - d60)]
+
+        safras_out.append({
+            'index': parte,
+            'label': safra_labels[parte],
+            'volume': volume,
+            'd30': d30,
+            'd60': d60,
+            'd90': d90,
+            'detail': {**detail, 'doughnut': doughnut_safra},
+        })
+
+        novos_safra = _count_distinct_ocorrencias(cursor, ranges_m, None, desc_novo_only=True)
+        rec_safra = _count_distinct_ocorrencias(cursor, ranges_m, ['fechado', 'indenizado'], False)
+        bar_entrada.append(novos_safra)
+        bar_recuperacao.append(rec_safra)
+
+    # Doughnut global: contratos abertos com parcela vencida, por dias de atraso (min vencimento)
+    cursor.execute(
+        """
+        SELECT CASE
+            WHEN DATEDIFF(CURDATE(), v.min_v) BETWEEN 1 AND 30 THEN 'd30'
+            WHEN DATEDIFF(CURDATE(), v.min_v) BETWEEN 31 AND 60 THEN 'd60'
+            WHEN DATEDIFF(CURDATE(), v.min_v) > 60 THEN 'd90'
+            ELSE 'out'
+        END AS faixa, COUNT(*) AS n
+        FROM (
+            SELECT c.id, MIN(par.vencimento) AS min_v
+            FROM contrato c
+            INNER JOIN parcela par ON par.id_contrato = c.id AND par.status = 'aberto'
+            WHERE c.status = 'aberto'
+            GROUP BY c.id
+            HAVING min_v < CURDATE()
+        ) v
+        GROUP BY faixa
+        """
+    )
+    dg = {'d30': 0, 'd60': 0, 'd90': 0}
+    for r in cursor.fetchall():
+        if r['faixa'] in dg:
+            dg[r['faixa']] = int(r['n'] or 0)
+    doughnut_global = [dg['d30'], dg['d60'], dg['d90']]
+
+    cursor.close()
+    conn.close()
+
+    return jsonify({
+        'mes': mes,
+        'kpis': {
+            'novos_mes': kpi_novos,
+            'safra_destaque': kpi_safra_label,
+            'recuperacao_pct': kpi_rec_pct,
+            'parcelas_criticas_90d': kpi_parcelas_crit,
+        },
+        'safras': safras_out,
+        'chart_all': {
+            'barLabels': safra_labels,
+            'entrada': bar_entrada,
+            'recuperacao': bar_recuperacao,
+            'doughnut': doughnut_global,
+        },
+    })
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True, port=5000)
