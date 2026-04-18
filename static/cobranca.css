@@ -606,3 +606,43 @@
         gap: 8px;
     }
 }
+/* ---- Ordenação Interativa ---- */
+.sortable-header {
+    cursor: pointer !important;
+    position: relative;
+    user-select: none;
+    transition: background-color 0.2s;
+    white-space: nowrap;
+    padding-right: 32px !important;
+}
+
+.sortable-header:hover {
+    background-color: #f1f5f9 !important;
+}
+
+.sort-icon {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #cbd5e1;
+    font-size: 0.7rem;
+    transition: color 0.2s;
+}
+
+.sortable-header:hover .sort-icon {
+    color: #94a3b8;
+}
+
+.sortable-header.asc .sort-icon,
+.sortable-header.desc .sort-icon {
+    color: #3b82f6;
+}
+
+.sortable-header.asc .sort-icon::before {
+    content: "\f0de"; /* fa-sort-up */
+}
+
+.sortable-header.desc .sort-icon::before {
+    content: "\f0dd"; /* fa-sort-down */
+}

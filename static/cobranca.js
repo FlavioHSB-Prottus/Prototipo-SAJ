@@ -24,6 +24,13 @@ document.addEventListener('DOMContentLoaded', function () {
     let currentData = null;
     let searchDebounce = null;
 
+    // Estado de ordenação por bloco
+    var sortConfigs = {
+        critico: { column: null, order: 'asc' },
+        atencao: { column: null, order: 'asc' },
+        recente: { column: null, order: 'asc' }
+    };
+
     // Placeholders dinâmicos por tipo de pesquisa
     const placeholders = {
         all: 'Pesquisar por Nome, CPF, Grupo/Cota ou Bem...',
@@ -140,6 +147,13 @@ document.addEventListener('DOMContentLoaded', function () {
             const data = await resp.json();
             currentData = data;
 
+            // Resetar ordenação ao trocar de operador ou carregar novo
+            sortConfigs = {
+                critico: { column: null, order: 'asc' },
+                atencao: { column: null, order: 'asc' },
+                recente: { column: null, order: 'asc' }
+            };
+
             // Preencher dropdown de operadores (apenas 1 vez ou se lista mudou)
             if (data.operadores && data.operadores.length > 0) {
                 const currentVal = operadorSelect.value;
@@ -176,19 +190,19 @@ document.addEventListener('DOMContentLoaded', function () {
         // Bloco CRÍTICO
         blocksContainer.appendChild(
             buildPriorityBlock('critico', 'Crítico', '60 – 90+ dias de atraso',
-                'fa-solid fa-fire', data.critico)
+                'fa-solid fa-fire', sortLevelData(data.critico, 'critico'))
         );
 
         // Bloco ATENÇÃO
         blocksContainer.appendChild(
             buildPriorityBlock('atencao', 'Atenção', '30 – 60 dias de atraso',
-                'fa-solid fa-exclamation-triangle', data.atencao)
+                'fa-solid fa-exclamation-triangle', sortLevelData(data.atencao, 'atencao'))
         );
 
         // Bloco RECENTE
         blocksContainer.appendChild(
             buildPriorityBlock('recente', 'Recente', '1 – 30 dias de atraso',
-                'fa-solid fa-clock', data.recente)
+                'fa-solid fa-clock', sortLevelData(data.recente, 'recente'))
         );
 
         // Atualizar contagens
@@ -249,15 +263,48 @@ document.addEventListener('DOMContentLoaded', function () {
             table.className = 'styled-table';
 
             const thead = document.createElement('thead');
+            const cfg = sortConfigs[level];
+
+            function getHeaderHTML(label, col) {
+                var cls = 'sortable-header';
+                if (cfg.column === col) cls += ' ' + cfg.order;
+                return '<th class="' + cls + '" data-column="' + col + '" data-level="' + level + '">' +
+                    label + ' <i class="fa-solid fa-sort sort-icon"></i></th>';
+            }
+
             thead.innerHTML =
                 '<tr>' +
-                '<th>Grupo / Cota</th>' +
-                '<th>Nome Devedor</th>' +
-                '<th>CPF / CNPJ</th>' +
-                '<th>Parcelas Abertas</th>' +
-                '<th>Dias Atraso</th>' +
-                '<th class="text-right">Vencimento</th>' +
+                getHeaderHTML('Grupo / Cota', 'grupo') +
+                getHeaderHTML('Nome Devedor', 'nome_devedor') +
+                getHeaderHTML('CPF / CNPJ', 'cpf_cnpj') +
+                getHeaderHTML('Parcelas Abertas', 'parcelas_abertas') +
+                getHeaderHTML('Dias Atraso', 'dias_atraso') +
+                getHeaderHTML('Vencimento', 'vencimento_mais_antigo') +
                 '</tr>';
+
+            // Click listener para ordenação
+            thead.querySelectorAll('.sortable-header').forEach(function (th) {
+                th.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    var col = this.getAttribute('data-column');
+                    var lvl = this.getAttribute('data-level');
+
+                    if (sortConfigs[lvl].column === col) {
+                        sortConfigs[lvl].order = sortConfigs[lvl].order === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        sortConfigs[lvl].column = col;
+                        sortConfigs[lvl].order = 'asc';
+                    }
+
+                    // Re-renderizar mantendo o filtro de pesquisa atual
+                    applyFilter();
+
+                    // Abrir o bloco se ele foi renderizado fechado (opcional, mas bom pra UX)
+                    const newBlock = blocksContainer.querySelector('.' + lvl);
+                    if (newBlock) newBlock.classList.remove('collapsed');
+                });
+            });
+
             table.appendChild(thead);
 
             const tbody = document.createElement('tbody');
@@ -604,6 +651,43 @@ document.addEventListener('DOMContentLoaded', function () {
         if (s === 'parcela paga') return 'status-success';
         if (s === 'parcela vencida') return 'status-danger';
         return 'status-active';
+    }
+
+    // ---- Lógica de Ordenação ----
+    function sortLevelData(contracts, level) {
+        if (!contracts || contracts.length === 0) return contracts;
+        const cfg = sortConfigs[level];
+        if (!cfg.column) return contracts;
+
+        const col = cfg.column;
+        const order = cfg.order === 'asc' ? 1 : -1;
+
+        return [...contracts].sort(function (a, b) {
+            var valA = a[col];
+            var valB = b[col];
+
+            // Casos especiais
+            if (col === 'vencimento_mais_antigo') {
+                valA = valA ? new Date(valA) : new Date(0);
+                valB = valB ? new Date(valB) : new Date(0);
+            } else if (col === 'parcelas_abertas' || col === 'dias_atraso') {
+                valA = parseInt(valA) || 0;
+                valB = parseInt(valB) || 0;
+            } else if (col === 'grupo') {
+                var fullA = (a.grupo || '') + (a.cota || '');
+                var fullB = (b.grupo || '') + (b.cota || '');
+                return fullA.localeCompare(fullB) * order;
+            }
+
+            if (valA === valB) return 0;
+            if (valA === null || valA === undefined) return 1;
+            if (valB === null || valB === undefined) return -1;
+
+            if (typeof valA === 'string') {
+                return valA.localeCompare(valB) * order;
+            }
+            return (valA < valB ? -1 : 1) * order;
+        });
     }
 
 });
