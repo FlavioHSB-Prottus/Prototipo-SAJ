@@ -882,9 +882,9 @@ def api_cobranca():
     )
     params = []
 
-    # Filtro de operador (campo futuro — coluna operador em contrato)
+    # Filtro de operador (vindo da tabela operador)
     if operador:
-        base_sql += " AND c.operador = %s "
+        base_sql += " AND EXISTS (SELECT 1 FROM operador op WHERE op.grupo = c.grupo AND op.cota = c.cota AND op.nome = %s) "
         params.append(operador)
 
     base_sql += (
@@ -916,11 +916,11 @@ def api_cobranca():
     # Lista de operadores distintos (para o filtro no front)
     try:
         cursor.execute(
-            "SELECT DISTINCT operador FROM contrato "
-            "WHERE operador IS NOT NULL AND operador <> '' "
-            "ORDER BY operador"
+            "SELECT DISTINCT nome FROM operador "
+            "WHERE perfil = 'operador' "
+            "ORDER BY nome"
         )
-        operadores = [r['operador'] for r in cursor.fetchall()]
+        operadores = [r['nome'] for r in cursor.fetchall()]
     except Exception:
         operadores = []
 
@@ -1017,6 +1017,70 @@ def api_avalistas():
 
     return jsonify({'results': rows, 'total': len(rows)})
 
+@app.route('/api/operadores/dashboard')
+def api_operadores_dashboard():
+    """Retorna estatísticas e lista de contratos agrupados por operador."""
+    conn = _get_db()
+    cursor = conn.cursor()
 
+    # Query principal: dados dos operadores e seus contratos abertos
+    sql = """
+        SELECT o.nome as operador_nome, o.situacao, c.id, c.grupo, c.cota, 
+               c.numero_contrato, c.valor_credito, p.nome_completo as nome_devedor, p.cpf_cnpj,
+               (SELECT DATEDIFF(CURDATE(), MIN(vencimento)) FROM parcela WHERE id_contrato = c.id AND status = 'aberto') as dias_atraso,
+               (SELECT COUNT(*) FROM parcela WHERE id_contrato = c.id AND status = 'aberto') as parcelas_abertas,
+               (SELECT MIN(vencimento) FROM parcela WHERE id_contrato = c.id AND status = 'aberto') as vencimento_mais_antigo
+        FROM operador o
+        INNER JOIN contrato c ON o.grupo = c.grupo AND o.cota = c.cota
+        LEFT JOIN pessoa p ON c.id_pessoa = p.id
+        WHERE c.status = 'aberto' AND o.perfil = 'operador'
+        ORDER BY o.nome, o.situacao, o.id DESC
+    """
+    cursor.execute(sql)
+    rows = _clean_rows(cursor.fetchall())
+
+    # Agrupar por operador
+    operators_map = {}
+    for r in rows:
+        name = r['operador_nome']
+        if name not in operators_map:
+            operators_map[name] = {
+                'nome': name,
+                'contratos': [],
+                'stats': {'total': 0, 'critico': 0, 'atencao': 0, 'recente': 0}
+            }
+        
+        operators_map[name]['contratos'].append(r)
+        operators_map[name]['stats']['total'] += 1
+        sit = r['situacao']
+        if sit == 'critico': operators_map[name]['stats']['critico'] += 1
+        elif sit == 'atenção': operators_map[name]['stats']['atencao'] += 1
+        elif sit == 'recente': operators_map[name]['stats']['recente'] += 1
+
+    # KPIs Gerais baseados nos contratos abertos atuais
+    cursor.execute("""
+        SELECT o.situacao, COUNT(*) as total 
+        FROM operador o
+        INNER JOIN contrato c ON o.grupo = c.grupo AND o.cota = c.cota
+        WHERE c.status = 'aberto' AND o.perfil = 'operador'
+        GROUP BY o.situacao
+    """)
+    kpi_rows = cursor.fetchall()
+    kpis = {'total': 0, 'critico': 0, 'atencao': 0, 'recente': 0}
+    for kr in kpi_rows:
+        sit = kr['situacao']
+        val = kr['total']
+        if sit == 'critico': kpis['critico'] = val
+        elif sit == 'atenção': kpis['atencao'] = val
+        elif sit == 'recente': kpis['recente'] = val
+        kpis['total'] += val
+
+    cursor.close()
+    conn.close()
+
+    return jsonify({
+        'operadores': list(operators_map.values()),
+        'kpis': kpis
+    })
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True, port=5000)
