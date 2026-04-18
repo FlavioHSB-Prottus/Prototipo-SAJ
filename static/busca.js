@@ -17,6 +17,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const statusFiltro = document.getElementById('status_filtro');
 
     let activeTipo = 'pessoa';
+    var _pessoaCache = null;
+    var _fromPessoa = false;
 
     // Placeholder dinamico + mostrar/ocultar filtro de status
     tipoBusca.addEventListener('change', function () {
@@ -116,6 +118,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // --- Modal ---
 
     async function openDetails(id, tipo) {
+        _fromPessoa = false;
         modalContent.innerHTML = '<div style="text-align:center;padding:48px;color:var(--text-muted)"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem"></i><p style="margin-top:12px">Carregando detalhes...</p></div>';
         modalTitle.textContent = 'Carregando...';
         detalhesModal.classList.add('active');
@@ -140,6 +143,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function renderPessoaModal(data) {
+        _pessoaCache = data;
         var p = data.pessoa;
         modalTitle.innerHTML = 'Detalhes da Pessoa: <span class="text-accent">' + esc(p.nome_completo) + '</span>';
 
@@ -182,6 +186,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 data.telefones.forEach(function (t) {
                     html += '<li><i class="fa-solid fa-phone"></i> ' + esc(t.numero || '-');
                     if (t.ramal) html += ' (ramal ' + esc(t.ramal) + ')';
+                    html += '<button class="btn-ligar" title="Ligar"><i class="fa-solid fa-phone-volume"></i></button>';
                     html += '<span class="contact-tipo">' + esc(t.tipo) + '</span></li>';
                 });
                 html += '</ul></div>';
@@ -203,7 +208,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (data.contratos && data.contratos.length > 0) {
             html += '<div class="detail-section"><h3><i class="fa-solid fa-file-contract"></i> Contratos Vinculados</h3>';
             html += '<div class="table-responsive"><table class="styled-table modal-table"><thead><tr>';
-            html += '<th>Grupo / Cota</th><th>Nro Contrato</th><th>Status</th><th>Valor Credito</th><th>Papel</th>';
+            html += '<th>Grupo / Cota</th><th>Nro Contrato</th><th>Status</th><th>Valor Credito</th><th>Papel</th><th class="text-right">Acoes</th>';
             html += '</tr></thead><tbody>';
             data.contratos.forEach(function (c) {
                 var papel = (String(c.id_pessoa) === String(data.pessoa.id)) ? 'Devedor' : 'Avalista';
@@ -213,12 +218,37 @@ document.addEventListener('DOMContentLoaded', function () {
                 html += '<td><span class="status-badge ' + getStatusClass(c.status) + '">' + esc(c.status || '-') + '</span></td>';
                 html += '<td>' + formatCurrency(c.valor_credito) + '</td>';
                 html += '<td>' + papel + '</td>';
+                html += '<td class="text-right"><button type="button" class="action-btn btn-ver-contrato" data-contrato-id="' + String(c.id) + '"><i class="fa-solid fa-file-lines"></i> Detalhes</button></td>';
                 html += '</tr>';
             });
             html += '</tbody></table></div></div>';
         }
 
         modalContent.innerHTML = html;
+        bindPessoaModalContratoButtons();
+    }
+
+    function bindPessoaModalContratoButtons() {
+        modalContent.querySelectorAll('.btn-ver-contrato').forEach(function (btn) {
+            btn.addEventListener('click', async function () {
+                var cid = this.getAttribute('data-contrato-id');
+                if (!cid) return;
+                _fromPessoa = true;
+                modalContent.innerHTML = '<div style="text-align:center;padding:48px;color:var(--text-muted)"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem"></i><p style="margin-top:12px">Carregando detalhes...</p></div>';
+                modalTitle.textContent = 'Carregando...';
+                try {
+                    var resp = await fetch('/api/contrato/' + cid);
+                    var d = await resp.json();
+                    if (d.error) {
+                        modalContent.innerHTML = '<p style="padding:24px;color:#ef4444">' + esc(d.error) + '</p>';
+                        return;
+                    }
+                    renderContratoModal(d);
+                } catch (err) {
+                    modalContent.innerHTML = '<p style="padding:24px;color:#ef4444">Erro: ' + esc(err.message) + '</p>';
+                }
+            });
+        });
     }
 
     function renderContratoModal(data) {
@@ -226,6 +256,10 @@ document.addEventListener('DOMContentLoaded', function () {
         modalTitle.innerHTML = 'Detalhes do Contrato: <span class="text-accent">' + esc(c.grupo) + '/' + esc(c.cota) + '</span>';
 
         var html = '';
+
+        if (_fromPessoa) {
+            html += '<div class="modal-nav-back"><button type="button" class="btn-voltar-pessoa"><i class="fa-solid fa-arrow-left"></i> Voltar para pessoa</button></div>';
+        }
 
         // Dados do contrato
         html += '<div class="detail-section"><h3><i class="fa-solid fa-file-contract"></i> Dados do Contrato</h3>';
@@ -286,6 +320,17 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         modalContent.innerHTML = html;
+
+        if (_fromPessoa) {
+            var backBtn = modalContent.querySelector('.btn-voltar-pessoa');
+            if (backBtn) {
+                backBtn.addEventListener('click', function () {
+                    if (_pessoaCache) {
+                        renderPessoaModal(_pessoaCache);
+                    }
+                });
+            }
+        }
     }
 
     function renderPessoaSection(titulo, pessoa, enderecos, telefones, emails) {
@@ -314,6 +359,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 telefones.forEach(function (t) {
                     html += '<li><i class="fa-solid fa-phone"></i> ' + esc(t.numero || '-');
                     if (t.ramal) html += ' (ramal ' + esc(t.ramal) + ')';
+                    html += '<button class="btn-ligar" title="Ligar"><i class="fa-solid fa-phone-volume"></i></button>';
                     html += '<span class="contact-tipo">' + esc(t.tipo) + '</span></li>';
                 });
                 html += '</ul></div>';

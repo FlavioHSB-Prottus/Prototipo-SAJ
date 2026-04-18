@@ -530,6 +530,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 telefones.forEach(function (t) {
                     html += '<li><i class="fa-solid fa-phone"></i> ' + esc(t.numero || '-');
                     if (t.ramal) html += ' (ramal ' + esc(t.ramal) + ')';
+                    html += '<button class="btn-ligar" title="Ligar"><i class="fa-solid fa-phone-volume"></i></button>';
                     html += '<span class="contact-tipo">' + esc(t.tipo) + '</span></li>';
                 });
                 html += '</ul></div>';
