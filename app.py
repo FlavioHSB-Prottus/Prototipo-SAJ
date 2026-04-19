@@ -850,80 +850,89 @@ def api_contrato_detalhe(contrato_id):
     conn = _get_db()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT * FROM contrato WHERE id = %s", (contrato_id,))
-    contrato = _clean_row(cursor.fetchone())
-    if not contrato:
-        cursor.close()
-        conn.close()
-        return jsonify({'error': 'Contrato nao encontrado'}), 404
+    def _safe_all(sql, params=()):
+        """Executa SELECT isoladamente; retorna [] em caso de erro (tabela
+        ausente, coluna faltando, etc) sem quebrar a resposta inteira."""
+        try:
+            cursor.execute(sql, params)
+            return _clean_rows(cursor.fetchall())
+        except Exception as exc:
+            app.logger.warning('api_contrato_detalhe: falha em %r (%s)', sql, exc)
+            return []
 
-    devedor = None
-    devedor_end = []
-    devedor_tel = []
-    devedor_email = []
-    if contrato.get('id_pessoa'):
-        cursor.execute("SELECT * FROM pessoa WHERE id = %s", (contrato['id_pessoa'],))
-        devedor = _clean_row(cursor.fetchone())
-        pid = contrato['id_pessoa']
-        cursor.execute("SELECT * FROM endereco WHERE id_pessoa = %s", (pid,))
-        devedor_end = _clean_rows(cursor.fetchall())
-        cursor.execute("SELECT * FROM telefone WHERE id_pessoa = %s", (pid,))
-        devedor_tel = _clean_rows(cursor.fetchall())
-        cursor.execute("SELECT * FROM email WHERE id_pessoa = %s", (pid,))
-        devedor_email = _clean_rows(cursor.fetchall())
+    def _safe_one(sql, params=()):
+        try:
+            cursor.execute(sql, params)
+            return _clean_row(cursor.fetchone())
+        except Exception as exc:
+            app.logger.warning('api_contrato_detalhe: falha em %r (%s)', sql, exc)
+            return None
 
-    avalista = None
-    avalista_end = []
-    avalista_tel = []
-    avalista_email = []
-    if contrato.get('id_avalista'):
-        cursor.execute("SELECT * FROM pessoa WHERE id = %s", (contrato['id_avalista'],))
-        avalista = _clean_row(cursor.fetchone())
-        aid = contrato['id_avalista']
-        cursor.execute("SELECT * FROM endereco WHERE id_pessoa = %s", (aid,))
-        avalista_end = _clean_rows(cursor.fetchall())
-        cursor.execute("SELECT * FROM telefone WHERE id_pessoa = %s", (aid,))
-        avalista_tel = _clean_rows(cursor.fetchall())
-        cursor.execute("SELECT * FROM email WHERE id_pessoa = %s", (aid,))
-        avalista_email = _clean_rows(cursor.fetchall())
+    try:
+        contrato = _safe_one("SELECT * FROM contrato WHERE id = %s", (contrato_id,))
+        if not contrato:
+            return jsonify({'error': 'Contrato nao encontrado'}), 404
 
-    cursor.execute(
-        "SELECT * FROM parcela WHERE id_contrato = %s ORDER BY numero_parcela",
-        (contrato_id,),
-    )
-    parcelas = _clean_rows(cursor.fetchall())
+        devedor = None
+        devedor_end = devedor_tel = devedor_email = []
+        if contrato.get('id_pessoa'):
+            pid = contrato['id_pessoa']
+            devedor = _safe_one("SELECT * FROM pessoa WHERE id = %s", (pid,))
+            devedor_end = _safe_all("SELECT * FROM endereco WHERE id_pessoa = %s", (pid,))
+            devedor_tel = _safe_all("SELECT * FROM telefone WHERE id_pessoa = %s", (pid,))
+            devedor_email = _safe_all("SELECT * FROM email WHERE id_pessoa = %s", (pid,))
 
-    cursor.execute(
-        "SELECT * FROM ocorrencia WHERE id_contrato = %s ORDER BY data_arquivo DESC",
-        (contrato_id,),
-    )
-    ocorrencias = _clean_rows(cursor.fetchall())
+        avalista = None
+        avalista_end = avalista_tel = avalista_email = []
+        if contrato.get('id_avalista'):
+            aid = contrato['id_avalista']
+            avalista = _safe_one("SELECT * FROM pessoa WHERE id = %s", (aid,))
+            avalista_end = _safe_all("SELECT * FROM endereco WHERE id_pessoa = %s", (aid,))
+            avalista_tel = _safe_all("SELECT * FROM telefone WHERE id_pessoa = %s", (aid,))
+            avalista_email = _safe_all("SELECT * FROM email WHERE id_pessoa = %s", (aid,))
 
-    cursor.execute(
-        "SELECT * FROM tramitacao WHERE id_contrato = %s ORDER BY data DESC",
-        (contrato_id,),
-    )
-    tramitacoes = _clean_rows(cursor.fetchall())
+        parcelas = _safe_all(
+            "SELECT * FROM parcela WHERE id_contrato = %s ORDER BY numero_parcela",
+            (contrato_id,),
+        )
+        ocorrencias = _safe_all(
+            "SELECT * FROM ocorrencia WHERE id_contrato = %s ORDER BY data_arquivo DESC",
+            (contrato_id,),
+        )
+        tramitacoes = _safe_all(
+            "SELECT * FROM tramitacao WHERE id_contrato = %s ORDER BY data DESC",
+            (contrato_id,),
+        )
 
-    bens = _fetch_bens_para_contrato(cursor, contrato)
+        try:
+            bens = _fetch_bens_para_contrato(cursor, contrato)
+        except Exception as exc:
+            app.logger.warning('api_contrato_detalhe: falha em bens (%s)', exc)
+            bens = []
 
-    cursor.close()
-    conn.close()
-    return jsonify({
-        'contrato': contrato,
-        'devedor': devedor,
-        'devedor_enderecos': devedor_end,
-        'devedor_telefones': devedor_tel,
-        'devedor_emails': devedor_email,
-        'avalista': avalista,
-        'avalista_enderecos': avalista_end,
-        'avalista_telefones': avalista_tel,
-        'avalista_emails': avalista_email,
-        'parcelas': parcelas,
-        'ocorrencias': ocorrencias,
-        'tramitacoes': tramitacoes,
-        'bens': bens,
-    })
+        return jsonify({
+            'contrato': contrato,
+            'devedor': devedor,
+            'devedor_enderecos': devedor_end,
+            'devedor_telefones': devedor_tel,
+            'devedor_emails': devedor_email,
+            'avalista': avalista,
+            'avalista_enderecos': avalista_end,
+            'avalista_telefones': avalista_tel,
+            'avalista_emails': avalista_email,
+            'parcelas': parcelas,
+            'ocorrencias': ocorrencias,
+            'tramitacoes': tramitacoes,
+            'bens': bens,
+        })
+    except Exception as exc:
+        app.logger.exception('api_contrato_detalhe: erro inesperado')
+        return jsonify({'error': 'Erro ao carregar contrato: ' + str(exc)}), 500
+    finally:
+        try: cursor.close()
+        except Exception: pass
+        try: conn.close()
+        except Exception: pass
 
 
 # ---------------------------------------------------------------------------
@@ -2320,6 +2329,435 @@ def api_performance_export(formato):
                          mimetype='application/pdf')
     # powerbi -> csv
     buf = _export_to_csv_powerbi(ctx, dataset)
+    return send_file(buf, as_attachment=True, download_name=base + '_powerbi.csv',
+                     mimetype='text/csv')
+
+
+# ---------------------------------------------------------------------------
+# API: Dashboard — exportacao (xlsx / pdf / powerbi)
+# ---------------------------------------------------------------------------
+
+_DASH_SERIES_LABELS = {
+    'pagos':       'Contratos Pagos',
+    'indenizados': 'Contratos Indenizados',
+    'novos':       'Contratos Novos',
+    'retomados':   'Contratos que Voltaram',
+}
+_DASH_SERIES_WHERE = {
+    'pagos':       ("o.status = 'fechado'", []),
+    'indenizados': ("o.status = 'indenizado'", []),
+    'novos':       ("o.descricao = 'contrato novo'", []),
+    'retomados':   ("o.descricao = 'contrato voltou'", []),
+}
+_DASH_PIE_LABELS = {
+    'aberto':     'Em Cobranca',
+    'fechado':    'Pagos',
+    'indenizado': 'Indenizados',
+}
+
+
+def _month_range_from_yyyymm(ym_start, ym_end):
+    """Aceita 'YYYY-MM' start e end (inclusivo) -> lista de meses em ordem."""
+    def _parse(ym):
+        y, m = int(ym[:4]), int(ym[5:7])
+        return y, m
+    y1, m1 = _parse(ym_start)
+    y2, m2 = _parse(ym_end)
+    out = []
+    while (y1, m1) <= (y2, m2):
+        out.append(f'{y1:04d}-{m1:02d}')
+        if m1 == 12:
+            y1, m1 = y1 + 1, 1
+        else:
+            m1 += 1
+    return out
+
+
+def _last_day_of(y, m):
+    return calendar.monthrange(y, m)[1]
+
+
+def _resolve_dash_export_payload():
+    payload = request.get_json(silent=True) or {}
+    ps = str(payload.get('period_start', '')).strip()
+    pe = str(payload.get('period_end', '')).strip()
+    try:
+        if not ps or not pe or len(ps) < 7 or len(pe) < 7:
+            raise ValueError
+        y1, m1 = int(ps[:4]), int(ps[5:7])
+        y2, m2 = int(pe[:4]), int(pe[5:7])
+        datetime.date(y1, m1, 1)
+        datetime.date(y2, m2, 1)
+        if (y1, m1) > (y2, m2):
+            ps, pe = pe, ps
+    except (TypeError, ValueError):
+        return None, 'Periodo invalido (period_start / period_end no formato YYYY-MM)'
+
+    series = [s for s in (payload.get('series') or []) if s in _DASH_SERIES_LABELS]
+    if not series:
+        series = ['pagos', 'indenizados']
+
+    pie = [p for p in (payload.get('pie') or []) if p in _DASH_PIE_LABELS]
+    if not pie:
+        pie = list(_DASH_PIE_LABELS.keys())
+
+    return {
+        'period_start': ps,
+        'period_end': pe,
+        'series': series,
+        'pie': pie,
+        'line_image': payload.get('line_image') or '',
+        'pie_image': payload.get('pie_image') or '',
+    }, None
+
+
+def _fetch_dash_export_dataset(cursor, ctx):
+    meses = _month_range_from_yyyymm(ctx['period_start'], ctx['period_end'])
+
+    # --- Series mensais (long format / tidy) ---
+    series_rows = []
+    # SQL date window
+    y1, m1 = int(ctx['period_start'][:4]), int(ctx['period_start'][5:7])
+    y2, m2 = int(ctx['period_end'][:4]), int(ctx['period_end'][5:7])
+    d_ini = datetime.date(y1, m1, 1).isoformat()
+    d_fim = datetime.date(y2, m2, _last_day_of(y2, m2)).isoformat()
+
+    series_totals = {}  # key -> total no periodo
+    series_by_month = {}  # key -> {mes: count}
+
+    for key in ctx['series']:
+        where, params = _DASH_SERIES_WHERE[key]
+        cursor.execute(
+            "SELECT DATE_FORMAT(o.data_arquivo, '%%Y-%%m') AS mes, "
+            "       COUNT(DISTINCT o.id_contrato) AS total "
+            "FROM ocorrencia o "
+            f"WHERE {where} "
+            "AND o.data_arquivo >= %s AND o.data_arquivo <= %s "
+            "GROUP BY mes ORDER BY mes",
+            tuple(params) + (d_ini, d_fim),
+        )
+        by_m = {r['mes']: int(r['total']) for r in cursor.fetchall()}
+        series_by_month[key] = by_m
+        series_totals[key] = sum(by_m.values())
+        for mes in meses:
+            series_rows.append({
+                'mes': mes,
+                'serie': _DASH_SERIES_LABELS[key],
+                'valor': by_m.get(mes, 0),
+            })
+
+    # --- Pie chart (distribuicao global atual) ---
+    cursor.execute("SELECT status, COUNT(*) AS total FROM contrato GROUP BY status")
+    pie_raw = {r['status']: int(r['total']) for r in cursor.fetchall()}
+    pie_rows = [
+        {'status': _DASH_PIE_LABELS[k], 'total': pie_raw.get(k, 0)}
+        for k in ctx['pie']
+    ]
+
+    # --- KPIs do periodo ---
+    cursor.execute("SELECT COUNT(*) AS total FROM contrato WHERE status = 'aberto'")
+    em_cobranca = int(cursor.fetchone()['total'])
+    kpis = {'em_cobranca': em_cobranca}
+    for k in ctx['series']:
+        kpis[k] = series_totals.get(k, 0)
+
+    # --- Contratos envolvidos (ocorrencias no periodo x series selecionadas) ---
+    # Monta um WHERE que combine todos os filtros das series ativas com OR.
+    or_parts = []
+    or_params = []
+    for k in ctx['series']:
+        where, params = _DASH_SERIES_WHERE[k]
+        or_parts.append('(' + where + ')')
+        or_params += params
+    where_series = '(' + ' OR '.join(or_parts) + ')' if or_parts else '1=0'
+
+    sql = (
+        "SELECT DISTINCT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
+        "       c.valor_credito, c.data_adesao, "
+        "       p.nome_completo AS devedor, p.cpf_cnpj AS devedor_cpf_cnpj "
+        "FROM ocorrencia o "
+        "INNER JOIN contrato c ON c.id = o.id_contrato "
+        "LEFT JOIN pessoa p ON p.id = c.id_pessoa "
+        f"WHERE {where_series} "
+        "AND o.data_arquivo >= %s AND o.data_arquivo <= %s "
+        "ORDER BY c.grupo, c.cota"
+    )
+    cursor.execute(sql, tuple(or_params) + (d_ini, d_fim))
+    contratos = _clean_rows(cursor.fetchall())
+
+    return {
+        'meses': meses,
+        'series_rows': series_rows,
+        'pie_rows': pie_rows,
+        'kpis': kpis,
+        'contratos': contratos,
+    }
+
+
+def _dash_export_context_labels(ctx):
+    series_lbl = ', '.join(_DASH_SERIES_LABELS[s] for s in ctx['series'])
+    pie_lbl = ', '.join(_DASH_PIE_LABELS[p] for p in ctx['pie'])
+    periodo_lbl = ctx['period_start'] + ' a ' + ctx['period_end']
+    return series_lbl, pie_lbl, periodo_lbl
+
+
+def _dash_export_to_xlsx(ctx, dataset):
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    wb = Workbook()
+    header_font = Font(bold=True, color='FFFFFF', size=11)
+    header_fill = PatternFill(start_color='3B82F6', end_color='3B82F6', fill_type='solid')
+    header_align = Alignment(horizontal='center', vertical='center')
+    thin = Side(style='thin', color='D1D5DB')
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    def _write_sheet(ws, headers, rows):
+        for col_idx, h in enumerate(headers, start=1):
+            cell = ws.cell(row=1, column=col_idx, value=h)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+            cell.border = border
+        for row_idx, r in enumerate(rows, start=2):
+            for col_idx, val in enumerate(r, start=1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=val)
+                cell.border = border
+        for col_idx, h in enumerate(headers, start=1):
+            max_len = len(str(h))
+            for row_idx in range(2, 2 + len(rows)):
+                v = ws.cell(row=row_idx, column=col_idx).value
+                max_len = max(max_len, len(str(v)) if v is not None else 0)
+            ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = min(max_len + 4, 40)
+
+    ws0 = wb.active
+    ws0.title = 'Parametros'
+    series_lbl, pie_lbl, periodo_lbl = _dash_export_context_labels(ctx)
+    ws0['A1'] = 'Parametros da exportacao (Dashboard)'
+    ws0['A1'].font = Font(bold=True, size=13)
+    info = [
+        ('Periodo', periodo_lbl),
+        ('Series comparadas', series_lbl),
+        ('Distribuicao (pizza)', pie_lbl),
+        ('Gerado em', datetime.datetime.now().strftime('%d/%m/%Y %H:%M')),
+    ]
+    for i, (k, v) in enumerate(info, start=3):
+        ws0.cell(row=i, column=1, value=k).font = Font(bold=True)
+        ws0.cell(row=i, column=2, value=v)
+    ws0.column_dimensions['A'].width = 24
+    ws0.column_dimensions['B'].width = 60
+
+    ws1 = wb.create_sheet('KPIs')
+    k = dataset['kpis']
+    kpi_headers = ['KPI', 'Valor']
+    kpi_rows = [['Em Cobranca (atual)', k.get('em_cobranca', 0)]]
+    for key in ctx['series']:
+        kpi_rows.append([_DASH_SERIES_LABELS[key] + ' (periodo)', k.get(key, 0)])
+    _write_sheet(ws1, kpi_headers, kpi_rows)
+
+    ws2 = wb.create_sheet('Series Evolucao')
+    _write_sheet(ws2, ['Mes', 'Serie', 'Valor'],
+                 [[r['mes'], r['serie'], r['valor']] for r in dataset['series_rows']])
+
+    ws3 = wb.create_sheet('Distribuicao Carteira')
+    _write_sheet(ws3, ['Status', 'Total'], [[r['status'], r['total']] for r in dataset['pie_rows']])
+
+    ws4 = wb.create_sheet('Contratos')
+    headers = ['ID', 'Grupo', 'Cota', 'Nro Contrato', 'Status', 'Valor do Credito',
+               'Data de Adesao', 'Devedor', 'CPF/CNPJ']
+    keys = ['id', 'grupo', 'cota', 'numero_contrato', 'status', 'valor_credito',
+            'data_adesao', 'devedor', 'devedor_cpf_cnpj']
+    _write_sheet(ws4, headers, [[c.get(kk, '') for kk in keys] for c in dataset['contratos']])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+def _dash_export_to_csv_powerbi(ctx, dataset):
+    import csv
+    buf = io.StringIO()
+    writer = csv.writer(buf, delimiter=';')
+    series_lbl, pie_lbl, periodo_lbl = _dash_export_context_labels(ctx)
+    writer.writerow(['# Dashboard JB - export Power BI'])
+    writer.writerow(['# Periodo', periodo_lbl])
+    writer.writerow(['# Series', series_lbl])
+    writer.writerow(['# Distribuicao', pie_lbl])
+    writer.writerow(['# Gerado em', datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')])
+    writer.writerow([])
+
+    # Tabela series (tidy long-format)
+    writer.writerow(['tabela', 'mes', 'serie', 'valor'])
+    for r in dataset['series_rows']:
+        writer.writerow(['series', r['mes'], r['serie'], r['valor']])
+
+    # KPIs
+    writer.writerow(['kpi', '-', 'Em Cobranca (atual)', dataset['kpis'].get('em_cobranca', 0)])
+    for key in ctx['series']:
+        writer.writerow(['kpi', '-', _DASH_SERIES_LABELS[key] + ' (periodo)', dataset['kpis'].get(key, 0)])
+
+    # Pie
+    for r in dataset['pie_rows']:
+        writer.writerow(['pie', '-', r['status'], r['total']])
+
+    # Contratos
+    for c in dataset['contratos']:
+        writer.writerow([
+            'contratos',
+            str(c.get('grupo') or '') + '/' + str(c.get('cota') or ''),
+            c.get('data_adesao') or '',
+            c.get('status') or '',
+            c.get('valor_credito') or 0,
+            c.get('devedor') or '',
+            c.get('devedor_cpf_cnpj') or '',
+            c.get('numero_contrato') or '',
+        ])
+
+    data = buf.getvalue().encode('utf-8-sig')
+    out = io.BytesIO(data)
+    out.seek(0)
+    return out
+
+
+def _dash_export_to_pdf(ctx, dataset):
+    from fpdf import FPDF
+
+    pdf = FPDF(orientation='L', unit='mm', format='A4')
+    pdf.set_auto_page_break(auto=True, margin=12)
+    pdf.add_page()
+
+    series_lbl, pie_lbl, periodo_lbl = _dash_export_context_labels(ctx)
+
+    pdf.set_font('Helvetica', 'B', 16)
+    pdf.cell(0, 10, 'Dashboard JB - Relatorio Exportado', ln=True, align='C')
+    pdf.set_font('Helvetica', '', 10)
+    pdf.cell(0, 6, 'Periodo: ' + periodo_lbl, ln=True, align='C')
+    pdf.cell(0, 6, 'Series: ' + series_lbl, ln=True, align='C')
+    pdf.cell(0, 6, 'Distribuicao: ' + pie_lbl, ln=True, align='C')
+    pdf.cell(0, 6, 'Gerado em ' + datetime.datetime.now().strftime('%d/%m/%Y %H:%M'), ln=True, align='C')
+    pdf.ln(4)
+
+    tmp_files = []
+    try:
+        line_bytes = _decode_data_url_png(ctx['line_image'])
+        pie_bytes = _decode_data_url_png(ctx['pie_image'])
+
+        page_w = pdf.w - 2 * pdf.l_margin
+        if line_bytes and pie_bytes:
+            tf_l = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+            tf_l.write(line_bytes); tf_l.close(); tmp_files.append(tf_l.name)
+            tf_p = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+            tf_p.write(pie_bytes); tf_p.close(); tmp_files.append(tf_p.name)
+            img_h = 75
+            col_w = (page_w - 6) / 2
+            y0 = pdf.get_y()
+            pdf.image(tf_l.name, x=pdf.l_margin, y=y0, w=col_w, h=img_h)
+            pdf.image(tf_p.name, x=pdf.l_margin + col_w + 6, y=y0, w=col_w, h=img_h)
+            pdf.set_y(y0 + img_h + 6)
+        elif line_bytes:
+            tf_l = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+            tf_l.write(line_bytes); tf_l.close(); tmp_files.append(tf_l.name)
+            pdf.image(tf_l.name, x=pdf.l_margin, w=page_w, h=90)
+            pdf.ln(4)
+
+        # KPIs
+        pdf.set_font('Helvetica', 'B', 11)
+        pdf.cell(0, 7, 'KPIs', ln=True)
+        pdf.set_font('Helvetica', 'B', 9)
+        pdf.set_fill_color(59, 130, 246); pdf.set_text_color(255, 255, 255)
+        kpi_headers = ['KPI', 'Valor']
+        kcw = [200, 45]
+        for i, h in enumerate(kpi_headers):
+            pdf.cell(kcw[i], 7, h, border=1, align='C', fill=True)
+        pdf.ln()
+        pdf.set_font('Helvetica', '', 9)
+        pdf.set_text_color(30, 41, 59)
+        kpi_items = [('Em Cobranca (atual)', dataset['kpis'].get('em_cobranca', 0))]
+        for key in ctx['series']:
+            kpi_items.append((_DASH_SERIES_LABELS[key] + ' (periodo)', dataset['kpis'].get(key, 0)))
+        for idx, (lab, val) in enumerate(kpi_items):
+            fill = idx % 2 == 1
+            pdf.set_fill_color(248 if fill else 255, 250 if fill else 255, 252 if fill else 255)
+            pdf.cell(kcw[0], 7, str(lab), border=1, align='L', fill=True)
+            pdf.cell(kcw[1], 7, str(val), border=1, align='C', fill=True)
+            pdf.ln()
+        pdf.ln(4)
+
+        # Contratos (ate 300)
+        contratos = dataset['contratos'][:300]
+        pdf.set_font('Helvetica', 'B', 11)
+        pdf.cell(0, 7, 'Contratos envolvidos (' + str(len(dataset['contratos'])) + ' total, mostrando ' + str(len(contratos)) + ')', ln=True)
+        pdf.set_font('Helvetica', 'B', 8)
+        pdf.set_fill_color(59, 130, 246); pdf.set_text_color(255, 255, 255)
+        ch = ['Grupo/Cota', 'Nro Contrato', 'Status', 'Valor Credito', 'Adesao', 'Devedor', 'CPF/CNPJ']
+        cw = [28, 32, 22, 32, 24, 90, 40]
+        for i, h in enumerate(ch):
+            pdf.cell(cw[i], 6, h, border=1, align='C', fill=True)
+        pdf.ln()
+        pdf.set_font('Helvetica', '', 7)
+        pdf.set_text_color(30, 41, 59)
+        for idx, c in enumerate(contratos):
+            fill = idx % 2 == 1
+            pdf.set_fill_color(248 if fill else 255, 250 if fill else 255, 252 if fill else 255)
+            valor = c.get('valor_credito')
+            try:
+                valor_fmt = 'R$ ' + f"{float(valor):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            except Exception:
+                valor_fmt = str(valor or '-')
+            row = [
+                str(c.get('grupo') or '') + '/' + str(c.get('cota') or ''),
+                str(c.get('numero_contrato') or '-'),
+                str(c.get('status') or '-'),
+                valor_fmt,
+                str(c.get('data_adesao') or '-'),
+                (str(c.get('devedor') or '-'))[:50],
+                str(c.get('devedor_cpf_cnpj') or '-'),
+            ]
+            for i, v in enumerate(row):
+                pdf.cell(cw[i], 6, v, border=1, align='C', fill=True)
+            pdf.ln()
+
+        buf = io.BytesIO()
+        pdf.output(buf)
+        buf.seek(0)
+        return buf
+    finally:
+        for p in tmp_files:
+            try: os.unlink(p)
+            except Exception: pass
+
+
+@app.route('/api/dashboard/export/<formato>', methods=['POST'])
+def api_dashboard_export(formato):
+    formato = (formato or '').lower()
+    if formato not in ('xlsx', 'pdf', 'powerbi'):
+        return jsonify({'error': 'formato invalido'}), 400
+
+    ctx, err = _resolve_dash_export_payload()
+    if err:
+        return jsonify({'error': err}), 400
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        dataset = _fetch_dash_export_dataset(cursor, ctx)
+    finally:
+        cursor.close()
+        conn.close()
+
+    ts = datetime.datetime.now().strftime('%Y%m%d_%H%M')
+    base = f'dashboard_{ctx["period_start"]}_a_{ctx["period_end"]}_{ts}'
+
+    if formato == 'xlsx':
+        buf = _dash_export_to_xlsx(ctx, dataset)
+        return send_file(buf, as_attachment=True, download_name=base + '.xlsx',
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    if formato == 'pdf':
+        buf = _dash_export_to_pdf(ctx, dataset)
+        return send_file(buf, as_attachment=True, download_name=base + '.pdf',
+                         mimetype='application/pdf')
+    buf = _dash_export_to_csv_powerbi(ctx, dataset)
     return send_file(buf, as_attachment=True, download_name=base + '_powerbi.csv',
                      mimetype='text/csv')
 

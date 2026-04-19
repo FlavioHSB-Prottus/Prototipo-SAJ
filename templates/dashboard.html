@@ -157,6 +157,33 @@
                 </div>
             </div>
 
+            <!-- 4. Exportacao -->
+            <div class="control-card control-card-export">
+                <div class="control-card-title">
+                    <i class="fa-solid fa-file-export"></i>
+                    <span>Exportar dados e gráficos</span>
+                </div>
+                <p class="control-card-desc">Exporta a seleção atual (séries, período e distribuição) com dados dos contratos e imagens dos gráficos</p>
+                <div class="control-card-body export-buttons">
+                    <button type="button" class="export-btn export-btn-xls" data-formato="xlsx">
+                        <i class="fa-solid fa-file-excel"></i>
+                        <span>Exportar XLS</span>
+                        <small>.xlsx · planilha completa</small>
+                    </button>
+                    <button type="button" class="export-btn export-btn-pdf" data-formato="pdf">
+                        <i class="fa-solid fa-file-pdf"></i>
+                        <span>Exportar PDF</span>
+                        <small>.pdf · relatório com gráficos</small>
+                    </button>
+                    <button type="button" class="export-btn export-btn-pbi" data-formato="powerbi">
+                        <i class="fa-solid fa-chart-bar"></i>
+                        <span>Exportar Power BI</span>
+                        <small>.csv · tidy long-format</small>
+                    </button>
+                </div>
+                <div class="export-feedback" id="exportFeedbackDash" style="display:none;"></div>
+            </div>
+
         </div>
     </div>
 

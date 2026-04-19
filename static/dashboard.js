@@ -573,6 +573,105 @@ document.addEventListener('DOMContentLoaded', async function () {
         return 'status-active';
     }
 
+    // ========================================================================
+    //                  EXPORTACAO (XLSX / PDF / Power BI)
+    // ========================================================================
+    var exportBtnsDash = document.querySelectorAll('.control-card-export .export-btn');
+    var exportFeedbackDash = document.getElementById('exportFeedbackDash');
+
+    function showExportFeedbackDash(msg, kind) {
+        if (!exportFeedbackDash) return;
+        exportFeedbackDash.textContent = msg;
+        exportFeedbackDash.className = 'export-feedback' + (kind ? ' ' + kind : '');
+        exportFeedbackDash.style.display = 'block';
+    }
+    function hideExportFeedbackDash(delay) {
+        if (!exportFeedbackDash) return;
+        setTimeout(function () { exportFeedbackDash.style.display = 'none'; }, delay || 3500);
+    }
+    function chartToDataURLDash(instance) {
+        try {
+            if (!instance) return '';
+            return instance.toBase64Image('image/png', 1.0);
+        } catch (e) {
+            return '';
+        }
+    }
+
+    async function doExportDash(formato) {
+        var activeSeries = Object.keys(selectedSeries).filter(function (k) { return selectedSeries[k]; });
+        var activePie = Object.keys(pieSelection).filter(function (k) { return pieSelection[k]; });
+        if (!activeSeries.length) {
+            showExportFeedbackDash('Selecione ao menos uma série para exportar.', 'err');
+            hideExportFeedbackDash();
+            return;
+        }
+        var payload = {
+            period_start: periodStart,
+            period_end: periodEnd,
+            series: activeSeries,
+            pie: activePie,
+        };
+        if (formato === 'pdf') {
+            payload.line_image = chartToDataURLDash(lineChart);
+            payload.pie_image = chartToDataURLDash(pieChart);
+        }
+
+        var btn = document.querySelector('.control-card-export .export-btn[data-formato="' + formato + '"]');
+        var originalHtml = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i><span>Gerando...</span><small>aguarde</small>';
+        }
+        showExportFeedbackDash('Gerando arquivo, aguarde...', 'info');
+
+        try {
+            var resp = await fetch('/api/dashboard/export/' + formato, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            if (!resp.ok) {
+                var errObj;
+                try { errObj = await resp.json(); } catch (e) { errObj = { error: 'Falha na exportacao (' + resp.status + ')' }; }
+                throw new Error(errObj.error || 'Erro ao exportar');
+            }
+            var blob = await resp.blob();
+            var cd = resp.headers.get('Content-Disposition') || '';
+            var match = cd.match(/filename="?([^";]+)"?/i);
+            var filename = match ? match[1] : ('dashboard_export.' + (formato === 'powerbi' ? 'csv' : formato));
+
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(function () {
+                URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            }, 200);
+
+            showExportFeedbackDash('Arquivo "' + filename + '" gerado com sucesso.', 'ok');
+            hideExportFeedbackDash();
+        } catch (err) {
+            showExportFeedbackDash('Erro: ' + (err.message || 'falha desconhecida'), 'err');
+            hideExportFeedbackDash(5000);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+            }
+        }
+    }
+
+    exportBtnsDash.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var formato = btn.getAttribute('data-formato');
+            if (formato) doExportDash(formato);
+        });
+    });
+
     // Expose for potential debug
     window.__dashboard = { data: data, refreshAll: refreshAll };
 });
