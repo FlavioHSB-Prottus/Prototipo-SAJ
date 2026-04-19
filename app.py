@@ -572,6 +572,124 @@ def _clean_row(row):
 
 
 # ---------------------------------------------------------------------------
+# Introspeccao da tabela de bens
+# ---------------------------------------------------------------------------
+# A tabela de bens pode se chamar `bem` ou `bens` e seu schema pode
+# variar (descricao, modelo, marca, codigo, etc). Tambem pode estar
+# ligada ao contrato por `id_contrato` OU por (`grupo`, `cota`).
+#
+# Este helper inspeciona INFORMATION_SCHEMA uma unica vez por processo
+# e devolve um dicionario com:
+#     {
+#         'table':    'bens' | 'bem' | None,
+#         'text_cols': [<nomes das colunas textuais>],
+#         'join_on':  'id_contrato' | 'grupo_cota' | None,
+#     }
+# Quando o tracker for ajustado e a tabela for populada, nada precisa
+# mudar aqui: a busca passa a encontrar resultados automaticamente.
+
+_BEM_SCHEMA_CACHE = None
+
+
+def _get_bem_schema():
+    """Retorna metadados da tabela de bens. Faz cache por processo."""
+    global _BEM_SCHEMA_CACHE
+    if _BEM_SCHEMA_CACHE is not None:
+        return _BEM_SCHEMA_CACHE
+
+    info = {'table': None, 'text_cols': [], 'join_on': None}
+    try:
+        conn = _get_db()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME IN ('bem', 'bens')
+            """
+        )
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        if not rows:
+            _BEM_SCHEMA_CACHE = info
+            return info
+
+        # Se ambas existirem, preferimos 'bens' (plural costuma ser o novo).
+        tables = {r['TABLE_NAME']: [] for r in rows}
+        for r in rows:
+            tables[r['TABLE_NAME']].append(r)
+        chosen = 'bens' if 'bens' in tables else 'bem'
+        cols_rows = tables[chosen]
+
+        text_types = {'varchar', 'char', 'text', 'tinytext', 'mediumtext', 'longtext'}
+        all_cols = {r['COLUMN_NAME'].lower() for r in cols_rows}
+        text_cols = [r['COLUMN_NAME'] for r in cols_rows
+                     if str(r['DATA_TYPE']).lower() in text_types]
+
+        # Prioriza colunas com semantica de descricao.
+        preferred = ['descricao', 'descricao_bem', 'desc_bem', 'modelo',
+                     'marca', 'categoria', 'codigo', 'codigo_bem', 'nome']
+        ordered = [c for c in preferred if c in text_cols]
+        ordered += [c for c in text_cols if c not in ordered]
+
+        join_on = None
+        if 'id_contrato' in all_cols:
+            join_on = 'id_contrato'
+        elif 'grupo' in all_cols and 'cota' in all_cols:
+            join_on = 'grupo_cota'
+
+        info = {'table': chosen, 'text_cols': ordered, 'join_on': join_on}
+    except Exception:
+        # Qualquer falha -> nenhum bem disponivel, busca devolve vazio.
+        info = {'table': None, 'text_cols': [], 'join_on': None}
+
+    _BEM_SCHEMA_CACHE = info
+    return info
+
+
+def _bem_join_clause(alias_contrato='c', alias_bem='b'):
+    """Retorna string do JOIN com a tabela de bens (ou None se indisponivel)."""
+    info = _get_bem_schema()
+    if not info['table'] or not info['join_on']:
+        return None
+    if info['join_on'] == 'id_contrato':
+        return (f"INNER JOIN {info['table']} {alias_bem} "
+                f"ON {alias_bem}.id_contrato = {alias_contrato}.id ")
+    # grupo + cota
+    return (f"INNER JOIN {info['table']} {alias_bem} "
+            f"ON {alias_bem}.grupo = {alias_contrato}.grupo "
+            f"AND {alias_bem}.cota = {alias_contrato}.cota ")
+
+
+def _bem_where_clause(termo, alias_bem='b'):
+    """Retorna (sql_fragment, params) para filtrar por termo nas colunas textuais do bem.
+
+    Se nao houver colunas textuais, devolve (None, []).
+    """
+    info = _get_bem_schema()
+    if not info['text_cols']:
+        return None, []
+    parts = [f"{alias_bem}.`{c}` LIKE %s" for c in info['text_cols']]
+    params = [f'%{termo}%'] * len(info['text_cols'])
+    return "(" + " OR ".join(parts) + ")", params
+
+
+def _bem_concat_expr(alias_bem='b'):
+    """Expressao SQL que concatena as colunas textuais para mostrar no resultado.
+
+    Exemplo: "CONCAT_WS(' / ', b.descricao, b.modelo)".
+    """
+    info = _get_bem_schema()
+    if not info['text_cols']:
+        return "''"
+    cols = ", ".join(f"{alias_bem}.`{c}`" for c in info['text_cols'])
+    return f"CONCAT_WS(' / ', {cols})"
+
+
+# ---------------------------------------------------------------------------
 # API: Busca por Pessoa / Contrato
 # ---------------------------------------------------------------------------
 
@@ -619,6 +737,39 @@ def api_busca():
 
         cursor.execute(base_select + where + " LIMIT 50", params)
         results = _clean_rows(cursor.fetchall())
+
+    elif tipo == 'bem':
+        # Busca contratos por descricao do bem (modelo, marca, etc).
+        # Schema da tabela de bens e detectado dinamicamente.
+        status_filtro = request.args.get('status', '').strip()
+        join_clause = _bem_join_clause('c', 'b')
+        bem_where, bem_params = _bem_where_clause(termo, 'b')
+
+        if not join_clause or not bem_where:
+            # Tabela de bens indisponivel ou sem colunas textuais.
+            results = []
+        else:
+            bem_expr = _bem_concat_expr('b')
+            sql = (
+                "SELECT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
+                "       p.nome_completo AS nome_devedor, "
+                f"       GROUP_CONCAT(DISTINCT {bem_expr} SEPARATOR ' | ') AS bem_descricao "
+                "FROM contrato c "
+                + join_clause +
+                "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
+                "WHERE " + bem_where + " "
+            )
+            params = list(bem_params)
+            if status_filtro:
+                sql += "AND c.status = %s "
+                params.append(status_filtro)
+            sql += (
+                "GROUP BY c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
+                "         p.nome_completo "
+                "LIMIT 50"
+            )
+            cursor.execute(sql, params)
+            results = _clean_rows(cursor.fetchall())
 
     cursor.close()
     conn.close()
@@ -1115,35 +1266,74 @@ def api_dashboard():
 @app.route('/api/cobranca')
 def api_cobranca():
     """Retorna contratos abertos divididos em 3 faixas de prioridade
-    baseadas no vencimento mais antigo de parcelas em aberto."""
-    operador = request.args.get('operador', '').strip()
+    baseadas no vencimento mais antigo de parcelas em aberto.
+
+    O filtro de "operador" agora usa a tabela `funcionario_cobranca`
+    (id_funcionario + id_contrato). Aceita tanto `funcionario_id`
+    (numerico, preferencial) quanto `operador` (string, retrocompat).
+    """
+    funcionario_id_raw = request.args.get('funcionario_id', '').strip()
+    operador_nome = request.args.get('operador', '').strip()
+
+    funcionario_id = None
+    if funcionario_id_raw:
+        try:
+            funcionario_id = int(funcionario_id_raw)
+        except ValueError:
+            funcionario_id = None
 
     conn = _get_db()
     cursor = conn.cursor()
 
-    # Query base: contratos abertos com parcelas em aberto
+    # Query base: contratos abertos com parcelas em aberto, com join
+    # opcional em funcionario_cobranca/funcionario para expor o
+    # responsavel de cobranca e (se a tabela existir) com a descricao
+    # do bem associado ao contrato.
+    bem_info = _get_bem_schema()
+    bem_select = "NULL"
+    bem_join = ""
+    if bem_info['table'] and bem_info['join_on']:
+        bem_concat = _bem_concat_expr('b')
+        bem_select = f"GROUP_CONCAT(DISTINCT {bem_concat} SEPARATOR ' | ')"
+        if bem_info['join_on'] == 'id_contrato':
+            bem_join = f"LEFT JOIN {bem_info['table']} b ON b.id_contrato = c.id "
+        else:
+            bem_join = (
+                f"LEFT JOIN {bem_info['table']} b "
+                "ON b.grupo = c.grupo AND b.cota = c.cota "
+            )
+
     base_sql = (
         "SELECT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
         "       p.nome_completo AS nome_devedor, p.cpf_cnpj, "
         "       c.valor_credito, "
         "       MIN(par.vencimento) AS vencimento_mais_antigo, "
         "       DATEDIFF(CURDATE(), MIN(par.vencimento)) AS dias_atraso, "
-        "       COUNT(par.id) AS parcelas_abertas "
+        "       COUNT(par.id) AS parcelas_abertas, "
+        "       fc.id_funcionario AS id_funcionario, "
+        "       f.nome AS nome_funcionario, "
+        f"       {bem_select} AS bem_descricao "
         "FROM contrato c "
         "INNER JOIN parcela par ON par.id_contrato = c.id AND par.status = 'aberto' "
         "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
+        "LEFT JOIN funcionario_cobranca fc ON fc.id_contrato = c.id "
+        "LEFT JOIN funcionario f ON f.id = fc.id_funcionario "
+        + bem_join +
         "WHERE c.status = 'aberto' "
     )
     params = []
 
-    # Filtro de operador (vindo da tabela operador)
-    if operador:
-        base_sql += " AND EXISTS (SELECT 1 FROM operador op WHERE op.grupo = c.grupo AND op.cota = c.cota AND op.nome = %s) "
-        params.append(operador)
+    if funcionario_id is not None:
+        base_sql += " AND fc.id_funcionario = %s "
+        params.append(funcionario_id)
+    elif operador_nome:
+        base_sql += " AND f.nome = %s "
+        params.append(operador_nome)
 
     base_sql += (
         "GROUP BY c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
-        "         p.nome_completo, p.cpf_cnpj, c.valor_credito "
+        "         p.nome_completo, p.cpf_cnpj, c.valor_credito, "
+        "         fc.id_funcionario, f.nome "
         "ORDER BY dias_atraso DESC"
     )
 
@@ -1151,7 +1341,7 @@ def api_cobranca():
     rows = _clean_rows(cursor.fetchall())
 
     # Dividir em 3 blocos de prioridade
-    critico = []   # 60-90 dias
+    critico = []   # 60-90+ dias
     atencao = []   # 30-60 dias
     recente = []   # 1-30 dias
 
@@ -1165,18 +1355,17 @@ def api_cobranca():
             atencao.append(r)
         elif dias >= 1:
             recente.append(r)
-        # dias <= 0 => parcela ainda não venceu, não entra nos blocos
+        # dias <= 0 => parcela ainda nao venceu, nao entra nos blocos
 
-    # Lista de operadores distintos (para o filtro no front)
+    # Lista de funcionarios (para popular o <select> do filtro no front).
     try:
-        cursor.execute(
-            "SELECT DISTINCT nome FROM operador "
-            "WHERE perfil = 'operador' "
-            "ORDER BY nome"
-        )
-        operadores = [r['nome'] for r in cursor.fetchall()]
+        cursor.execute("SELECT id, nome FROM funcionario ORDER BY nome")
+        funcionarios = [
+            {'id': int(r['id']), 'nome': r['nome']}
+            for r in cursor.fetchall()
+        ]
     except Exception:
-        operadores = []
+        funcionarios = []
 
     cursor.close()
     conn.close()
@@ -1186,7 +1375,9 @@ def api_cobranca():
         'atencao': atencao,
         'recente': recente,
         'total': len(critico) + len(atencao) + len(recente),
-        'operadores': operadores,
+        'funcionarios': funcionarios,
+        # Mantem a chave antiga por compatibilidade (apenas nomes).
+        'operadores': [f['nome'] for f in funcionarios],
     })
 
 
@@ -1215,6 +1406,16 @@ def _build_pessoa_query(join_field, q, tipo):
         elif tipo == 'grupo_cota':
             where_parts.append("(c.grupo LIKE %s OR c.cota LIKE %s OR CONCAT(c.grupo, '/', c.cota) LIKE %s)")
             params.extend(['%' + q + '%', '%' + q + '%', '%' + q + '%'])
+        elif tipo == 'bem':
+            bem_join = _bem_join_clause('c', 'b')
+            bem_where, bem_params = _bem_where_clause(q, 'b')
+            if bem_join and bem_where:
+                sql += bem_join
+                where_parts.append(bem_where)
+                params.extend(bem_params)
+            else:
+                # Tabela de bens indisponivel -> nenhum resultado.
+                where_parts.append("1 = 0")
     elif q:
         where_parts.append("(p.nome_completo LIKE %s OR p.cpf_cnpj LIKE %s)")
         params.extend(['%' + q + '%', '%' + q + '%'])

@@ -41,6 +41,16 @@
             </div>
         </div>
         <div class="toolbar-right">
+            <div class="view-toggle" role="group" aria-label="Alternar layout">
+                <button type="button" class="view-toggle-btn active" data-view="analitico" id="btnViewAnalitico">
+                    <i class="fa-solid fa-list"></i>
+                    <span>Analítico</span>
+                </button>
+                <button type="button" class="view-toggle-btn" data-view="kanban" id="btnViewKanban">
+                    <i class="fa-solid fa-table-columns"></i>
+                    <span>Quadro Kanban</span>
+                </button>
+            </div>
             <div class="toolbar-kpi">
                 <i class="fa-solid fa-folder-open"></i>
                 Total em Cobrança: <span class="kpi-num" id="toolbarTotal">—</span>
@@ -54,8 +64,11 @@
         <p>Carregando contratos em cobrança...</p>
     </div>
 
-    <!-- Blocos de Prioridade (Gerados via JS) -->
+    <!-- Blocos de Prioridade - visão Analítica (gerados via JS) -->
     <div id="blocksContainer"></div>
+
+    <!-- Quadro Kanban - 3 colunas verticais (gerados via JS) -->
+    <div id="kanbanContainer" class="kanban-board" style="display:none;"></div>
 
     <!-- Rodapé com Totais -->
     <div class="cobranca-footer">

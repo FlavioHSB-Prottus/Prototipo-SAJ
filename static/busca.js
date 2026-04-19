@@ -26,6 +26,9 @@ document.addEventListener('DOMContentLoaded', function () {
         if (activeTipo === 'pessoa') {
             termoInput.placeholder = 'Digite o nome ou CPF...';
             statusGroup.classList.add('d-none');
+        } else if (activeTipo === 'bem') {
+            termoInput.placeholder = 'Digite a descrição do bem (modelo, marca, etc)...';
+            statusGroup.classList.remove('d-none');
         } else {
             termoInput.placeholder = 'Digite grupo/cota (ex: 001234/0012)';
             statusGroup.classList.remove('d-none');
@@ -52,7 +55,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         try {
             var url = '/api/busca?tipo=' + encodeURIComponent(activeTipo) + '&termo=' + encodeURIComponent(termo);
-            if (activeTipo === 'contrato' && statusFiltro.value) {
+            if ((activeTipo === 'contrato' || activeTipo === 'bem') && statusFiltro.value) {
                 url += '&status=' + encodeURIComponent(statusFiltro.value);
             }
             const resp = await fetch(url);
@@ -85,6 +88,19 @@ document.addEventListener('DOMContentLoaded', function () {
                     '<td>' + esc(p.cpf_cnpj) + '</td>' +
                     '<td>' + esc(p.profissao || '-') + '</td>' +
                     '<td class="text-right"><button class="action-btn" data-id="' + p.id + '" data-tipo="pessoa"><i class="fa-solid fa-file-lines"></i> Detalhes</button></td>';
+                resultsBody.appendChild(tr);
+            });
+        } else if (tipo === 'bem') {
+            resultsHead.innerHTML = '<th>Grupo / Cota</th><th>Bem</th><th>Nome Devedor</th><th>Status</th><th class="text-right">Acoes</th>';
+            results.forEach(function (c) {
+                var statusClass = getStatusClass(c.status);
+                var tr = document.createElement('tr');
+                tr.innerHTML =
+                    '<td class="fw-bold">' + esc(c.grupo) + ' / ' + esc(c.cota) + '</td>' +
+                    '<td>' + esc(c.bem_descricao || '-') + '</td>' +
+                    '<td>' + esc(c.nome_devedor || '-') + '</td>' +
+                    '<td><span class="status-badge ' + statusClass + '">' + esc(c.status || '-') + '</span></td>' +
+                    '<td class="text-right"><button class="action-btn" data-id="' + c.id + '" data-tipo="contrato"><i class="fa-solid fa-file-lines"></i> Detalhes</button></td>';
                 resultsBody.appendChild(tr);
             });
         } else {

@@ -22,7 +22,8 @@ document.addEventListener('DOMContentLoaded', function () {
     var placeholders = {
         nome: 'Buscar por Nome...',
         cpf: 'Buscar por CPF ou CNPJ...',
-        grupo_cota: 'Buscar por Grupo/Cota (ex: 084731/0737)...'
+        grupo_cota: 'Buscar por Grupo/Cota (ex: 084731/0737)...',
+        bem: 'Buscar por descrição do bem (modelo, marca)...'
     };
 
     filterTypeConsorciados.addEventListener('change', function () {
