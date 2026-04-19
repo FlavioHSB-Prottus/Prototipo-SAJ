@@ -30,104 +30,6 @@ OCORRENCIA_STATUS = frozenset(
 
 DIAS_INDENIZACAO_CONTRATO = 89
 
-OPERADORES = ["Arthur", "Bruna", "Silvania", "Giovanna"]
-
-
-def get_situacao(dias_atraso):
-    if dias_atraso >= 61:
-        return "critico"
-    elif dias_atraso >= 31:
-        return "atenção"
-    else:
-        return "recente"
-
-
-def distribuir_operadores(cursor, conn, arquivo_gm_id):
-    """
-    Distribui contratos abertos entre os operadores de forma equilibrada por situação.
-    Garante que contratos já atribuídos permaneçam com o mesmo operador.
-    """
-    print(f" -> Distribuindo operadores para o arquivo {arquivo_gm_id}...")
-    # 1. Obter data do arquivo
-    cursor.execute("SELECT data_arquivo FROM arquivos_gm WHERE id_arquivo_gm = %s", (arquivo_gm_id,))
-    row_da = cursor.fetchone()
-    if not row_da:
-        return
-    data_arquivo = row_da["data_arquivo"]
-
-    # 2. Garantir que o administrador existe (sem grupo/cota)
-    cursor.execute("SELECT 1 FROM operador WHERE perfil = 'administrador' LIMIT 1")
-    if not cursor.fetchone():
-        cursor.execute("INSERT INTO operador (nome, perfil) VALUES ('João Barbosa', 'administrador')")
-
-    # 3. Identificar contratos abertos que precisam de atribuição ou atualização
-    cursor.execute(
-        """
-        SELECT c.grupo, c.cota, 
-               DATEDIFF(%s, MIN(p.vencimento)) as dias_atraso
-        FROM contrato c
-        INNER JOIN parcela p ON p.id_contrato = c.id AND p.status = 'aberto'
-        WHERE c.status = 'aberto'
-        GROUP BY c.grupo, c.cota
-    """,
-        (data_arquivo,),
-    )
-    contratos_abertos = cursor.fetchall()
-
-    if not contratos_abertos:
-        print("    - Nenhum contrato aberto para classificar.")
-        return
-
-    # 4. Mapear quem já está atribuído
-    cursor.execute("SELECT grupo, cota, nome FROM operador WHERE perfil = 'operador'")
-    atribuicoes_existentes = {(r["grupo"], r["cota"]): r["nome"] for r in cursor.fetchall()}
-
-    # 5. Contagem atual para balanceamento
-    counts = {op: {"recente": 0, "atenção": 0, "critico": 0} for op in OPERADORES}
-
-    para_atribuir = []
-
-    for c in contratos_abertos:
-        g, cot = c["grupo"], c["cota"]
-        sit = get_situacao(c["dias_atraso"] or 0)
-
-        if (g, cot) in atribuicoes_existentes:
-            op_nome = atribuicoes_existentes[(g, cot)]
-            if op_nome in counts:
-                counts[op_nome][sit] += 1
-            # Atualizamos a situação e a data do arquivo no registro existente
-            cursor.execute(
-                """
-                UPDATE operador 
-                SET situacao = %s, data_arquivo = %s, updated_at = NOW()
-                WHERE grupo = %s AND cota = %s
-            """,
-                (sit, data_arquivo, g, cot),
-            )
-        else:
-            para_atribuir.append({"grupo": g, "cota": cot, "situacao": sit})
-
-    # 6. Atribuir os novos (para_atribuir) balanceando
-    inserted_count = 0
-    for item in para_atribuir:
-        sit = item["situacao"]
-        # Encontra o operador com menor contagem naquela situação
-        op_escolhido = min(OPERADORES, key=lambda op: counts[op][sit])
-
-        cursor.execute(
-            """
-            INSERT INTO operador (nome, perfil, grupo, cota, data_arquivo, situacao)
-            VALUES (%s, 'operador', %s, %s, %s, %s)
-        """,
-            (op_escolhido, item["grupo"], item["cota"], data_arquivo, sit),
-        )
-
-        counts[op_escolhido][sit] += 1
-        inserted_count += 1
-
-    conn.commit()
-    print(f"    - {len(contratos_abertos)} ativos processados ({inserted_count} novos atribuídos).")
-
 TYPE_TO_TABLE = {
     "1": "registro_1",
     "2": "registro2",
@@ -762,11 +664,6 @@ def main():
             print(
                 f" -> Tracking Delta Concluido: {n_miss} contratos ausentes no registro_1, {n_add} parcelas novas, {n_paid} parcelas pagas."
             )
-
-        # distribuir_operadores(cursor, conn, arquivo_gm_id)
-        # NOTA: a tabela 'operador' nao e mais usada neste projeto. A
-        # distribuicao passou para 'funcionario_cobranca' e e feita na
-        # Fase 3 da importacao, pelo script distribuir_funcionarios_cobranca.py.
 
         prev_r1_set = curr_r1_set
         prev_r2_set = curr_r2_set
