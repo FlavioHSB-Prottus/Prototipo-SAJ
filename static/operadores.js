@@ -342,6 +342,25 @@ document.addEventListener('DOMContentLoaded', function () {
                     </table>
                 </div>
             </div>
+            ${data.tramitacoes && data.tramitacoes.length > 0 ? `
+            <div class="detail-section tramitacao-section">
+                <h3 style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onclick="var c = this.nextElementSibling; var i = this.querySelector('i.fa-chevron-down'); if (c.classList.contains('d-none')) { c.classList.remove('d-none'); i.style.transform = 'rotate(180deg)'; } else { c.classList.add('d-none'); i.style.transform = 'rotate(0deg)'; }">
+                    <span style="pointer-events:none;"><i class="fa-solid fa-comments"></i> Tramitações (${data.tramitacoes.length})</span>
+                    <i class="fa-solid fa-chevron-down" style="pointer-events:none; transition: transform 0.3s ease;"></i>
+                </h3>
+                <div class="tramitacao-container d-none">
+                    <div class="table-responsive"><table class="styled-table modal-table"><thead><tr><th>Data</th><th>Tipo</th><th>CPC</th></tr></thead><tbody>
+                        ${data.tramitacoes.map(t => `
+                            <tr>
+                                <td>${formatDateTime(t.data)}</td>
+                                <td><span class="status-badge status-active">${esc(t.tipo)}</span></td>
+                                <td><span class="status-badge ${String(t.cpc).toLowerCase()==='sim'?'status-success':(String(t.cpc).toLowerCase()==='nao'?'status-danger':'status-warning')}">${esc(t.cpc)}</span></td>
+                            </tr>
+                        `).join('')}
+                    </tbody></table></div>
+                </div>
+            </div>
+            ` : ''}
         `;
         modalContent.innerHTML = html;
     }
@@ -367,5 +386,21 @@ document.addEventListener('DOMContentLoaded', function () {
         const d = new Date(val);
         if (isNaN(d.getTime())) return val;
         return d.toLocaleDateString('pt-BR');
+    }
+
+    function formatDateTime(val) {
+        if (!val) return '-';
+        var parts = String(val).split('T');
+        var dPart = parts[0];
+        var tPart = parts[1] || '';
+        if (parts.length === 1 && val.includes(' ')) {
+            var spaceParts = val.split(' ');
+            dPart = spaceParts[0];
+            tPart = spaceParts[1] || '';
+        }
+        var dSplit = dPart.split('-');
+        var fmtDate = dSplit.length === 3 ? dSplit[2] + '/' + dSplit[1] + '/' + dSplit[0] : dPart;
+        var fmtTime = tPart ? tPart.substring(0, 5) : '';
+        return fmtDate + (fmtTime ? ' ' + fmtTime : '');
     }
 });
