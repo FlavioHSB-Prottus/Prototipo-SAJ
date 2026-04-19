@@ -21,7 +21,7 @@ PYTHON_EXE = sys.executable
 _SUBPROCESS_ENV = {**os.environ, 'PYTHONUNBUFFERED': '1'}
 _POPEN_EXTRA = {}
 if sys.platform == 'win32':
-    _POPEN_EXTRA['creationflags'] = subprocess.CREATE_NO_WINDOW
+    _POPEN_EXTRA['creationflags'] = subprocess.CREATE_NO_WIND
 
 DB_CONFIG = {
     'host': 'localhost',
@@ -116,14 +116,43 @@ def _safe_txt_dest(temp_dir, upload_filename):
     return dest_abs
 
 
+def _validate_incoming_temp_dir(incoming):
+    """Aceita apenas pastas criadas por este endpoint (prefixo 'saj_import_' dentro do tempdir)."""
+    if not incoming:
+        return None
+    tmp_root = os.path.abspath(tempfile.gettempdir())
+    inc_abs = os.path.abspath(incoming)
+    base_name = os.path.basename(inc_abs)
+    if not os.path.isdir(inc_abs):
+        return None
+    if os.path.dirname(inc_abs) != tmp_root:
+        return None
+    if not base_name.startswith('saj_import_'):
+        return None
+    return inc_abs
+
+
 @app.route('/api/upload', methods=['POST'])
 def api_upload():
-    """Recebe multiplos arquivos TXT e salva em pasta temporaria (estrutura de subpastas preservada)."""
+    """Recebe multiplos arquivos TXT e salva em pasta temporaria (estrutura de subpastas preservada).
+
+    Suporta upload em lotes: se o cliente informar o campo 'temp_dir' de um lote
+    anterior, os novos arquivos sao acumulados na mesma pasta temporaria.
+    """
     files = request.files.getlist('files')
     if not files or all(f.filename == '' for f in files):
         return jsonify({'error': 'Nenhum arquivo enviado'}), 400
 
-    temp_dir = tempfile.mkdtemp(prefix='saj_import_')
+    incoming_temp = (request.form.get('temp_dir') or '').strip()
+    created_new = False
+    if incoming_temp:
+        temp_dir = _validate_incoming_temp_dir(incoming_temp)
+        if not temp_dir:
+            return jsonify({'error': 'temp_dir invalido ou expirado'}), 400
+    else:
+        temp_dir = tempfile.mkdtemp(prefix='saj_import_')
+        created_new = True
+
     saved = []
     for f in files:
         dest = _safe_txt_dest(temp_dir, f.filename)
@@ -135,7 +164,8 @@ def api_upload():
         saved.append({'name': rel_name, 'size': os.path.getsize(dest)})
 
     if not saved:
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        if created_new:
+            shutil.rmtree(temp_dir, ignore_errors=True)
         return jsonify({'error': 'Nenhum arquivo .txt valido enviado'}), 400
 
     return jsonify({'temp_dir': temp_dir, 'files': saved})
@@ -275,13 +305,44 @@ def api_processar():
             yield _sse_event({'type': 'log', 'level': level, 'text': line})
 
             line_count += 1
-            progress = 50 + min(int(line_count * 2), 45)
-            yield _sse_event({'type': 'progress', 'value': min(progress, 95)})
+            progress = 50 + min(int(line_count * 2), 40)
+            yield _sse_event({'type': 'progress', 'value': min(progress, 92)})
 
         proc2.wait()
 
         if proc2.returncode and proc2.returncode != 0:
             yield _sse_event({'type': 'log', 'level': 'alert', 'text': f'Script tracker finalizou com codigo {proc2.returncode}'})
+
+        # ------------------------------------------------------------------
+        # FASE 3: Distribuicao de funcionarios de cobranca
+        # ------------------------------------------------------------------
+        yield _sse_event({'type': 'status', 'text': 'Fase 3/3 - Distribuindo contratos entre os funcionarios de cobranca...'})
+        yield _sse_event({'type': 'progress', 'value': 96})
+
+        script3 = os.path.join(SCRIPTS_DIR, 'distribuir_funcionarios_cobranca.py')
+        proc3 = subprocess.Popen(
+            [PYTHON_EXE, '-u', script3],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            env=_SUBPROCESS_ENV,
+            **_POPEN_EXTRA,
+        )
+
+        for line in iter(proc3.stdout.readline, ''):
+            line = line.rstrip('\n\r')
+            if not line:
+                continue
+            level = _classify_log_level(line)
+            yield _sse_event({'type': 'log', 'level': level, 'text': line})
+
+        proc3.wait()
+        distribuicao_ok = (proc3.returncode == 0)
+
+        if not distribuicao_ok:
+            yield _sse_event({'type': 'log', 'level': 'alert', 'text': f'Script de distribuicao finalizou com codigo {proc3.returncode}'})
 
         # ------------------------------------------------------------------
         # Limpeza e finalizacao
@@ -290,9 +351,195 @@ def api_processar():
 
         yield _sse_event({'type': 'progress', 'value': 100})
         yield _sse_event({'type': 'status', 'text': 'Processamento Concluido com Sucesso!'})
-        yield _sse_event({'type': 'done', 'summary': f'{imported_count} arquivos importados e processados.'})
+        yield _sse_event({
+            'type': 'done',
+            'summary': f'{imported_count} arquivos importados e processados.',
+            'distribuicao_ready': distribuicao_ok,
+        })
 
     return Response(generate(), mimetype='text/event-stream')
+
+
+# ---------------------------------------------------------------------------
+# API: Distribuicao de funcionarios de cobranca (resumo pos-importacao)
+# ---------------------------------------------------------------------------
+#
+# A tabela `funcionario_cobranca` e puramente relacional:
+#
+#    funcionario_cobranca(id, id_funcionario FK funcionario, id_contrato FK contrato, ...)
+#
+# Situacao (critico/atencao/recente), valor_credito e dias_atraso NAO estao
+# nessa tabela - sao calculados on-the-fly via JOIN com contrato/parcela.
+
+
+def _sit_key(sit):
+    """Normaliza 'atenção' -> 'atencao' (chave JSON / atributo)."""
+    if sit == 'atenção':
+        return 'atencao'
+    return sit or ''
+
+
+def _situacao_from_dias(dias):
+    try:
+        d = int(dias or 0)
+    except (TypeError, ValueError):
+        d = 0
+    if d >= 61:
+        return 'critico'
+    if d >= 31:
+        return 'atenção'
+    return 'recente'
+
+
+def _empty_func_stats():
+    return {
+        'count': 0, 'value': 0.0,
+        'critico_count': 0, 'critico_value': 0.0,
+        'atencao_count': 0, 'atencao_value': 0.0,
+        'recente_count': 0, 'recente_value': 0.0,
+    }
+
+
+@app.route('/api/importacao/distribuicao')
+def api_distribuicao():
+    """Retorna a distribuicao atual gravada em funcionario_cobranca."""
+    conn = _get_db()
+    cursor = conn.cursor()
+
+    # Lista de funcionarios disponiveis (para popular o select de reatribuicao).
+    cursor.execute("SELECT id, nome FROM funcionario ORDER BY nome")
+    funcionarios_disponiveis = _clean_rows(cursor.fetchall())
+
+    # Contratos atribuidos, com valor/dias calculados via JOIN.
+    cursor.execute(
+        """
+        SELECT fc.id                              AS fc_id,
+               fc.id_funcionario,
+               fc.id_contrato,
+               f.nome                             AS nome_funcionario,
+               c.grupo, c.cota, c.numero_contrato,
+               c.valor_credito,
+               p.nome_completo                    AS nome_devedor,
+               p.cpf_cnpj,
+               (SELECT DATEDIFF(CURDATE(), MIN(vencimento))
+                  FROM parcela
+                 WHERE id_contrato = c.id AND status = 'aberto') AS dias_atraso
+        FROM funcionario_cobranca fc
+        INNER JOIN funcionario f ON f.id = fc.id_funcionario
+        INNER JOIN contrato c    ON c.id = fc.id_contrato
+        LEFT JOIN pessoa p       ON p.id = c.id_pessoa
+        WHERE c.status = 'aberto'
+        ORDER BY f.nome, c.valor_credito DESC
+        """
+    )
+    rows = _clean_rows(cursor.fetchall())
+
+    # Inicializa o mapa com todos os funcionarios (mesmo sem contratos).
+    funcionarios_map = {
+        int(f['id']): {
+            'id': int(f['id']),
+            'nome': f['nome'],
+            'stats': _empty_func_stats(),
+            'contratos': [],
+        }
+        for f in funcionarios_disponiveis
+    }
+    totais = _empty_func_stats()
+
+    for r in rows:
+        fid = int(r['id_funcionario'])
+        if fid not in funcionarios_map:
+            funcionarios_map[fid] = {
+                'id': fid,
+                'nome': r.get('nome_funcionario') or f'#{fid}',
+                'stats': _empty_func_stats(),
+                'contratos': [],
+            }
+
+        try:
+            v = float(r['valor_credito']) if r['valor_credito'] is not None else 0.0
+        except (TypeError, ValueError):
+            v = 0.0
+
+        situacao = _situacao_from_dias(r.get('dias_atraso'))
+        sk = _sit_key(situacao)
+        r['situacao'] = situacao  # injeta para o frontend exibir a badge
+
+        bucket = funcionarios_map[fid]
+        bucket['contratos'].append(r)
+        bucket['stats']['count'] += 1
+        bucket['stats']['value'] += v
+        if sk in ('critico', 'atencao', 'recente'):
+            bucket['stats'][f'{sk}_count'] += 1
+            bucket['stats'][f'{sk}_value'] += v
+
+        totais['count'] += 1
+        totais['value'] += v
+        if sk in ('critico', 'atencao', 'recente'):
+            totais[f'{sk}_count'] += 1
+            totais[f'{sk}_value'] += v
+
+    cursor.close()
+    conn.close()
+
+    return jsonify({
+        'funcionarios': list(funcionarios_map.values()),
+        'totais': totais,
+        'funcionarios_disponiveis': [
+            {'id': int(f['id']), 'nome': f['nome']}
+            for f in funcionarios_disponiveis
+        ],
+    })
+
+
+@app.route('/api/importacao/distribuicao/reassign', methods=['POST'])
+def api_distribuicao_reassign():
+    """Altera manualmente o funcionario responsavel por um contrato."""
+    data = request.get_json(silent=True) or {}
+    try:
+        fc_id = int(data.get('id'))
+        novo_fid = int(data.get('id_funcionario'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Parametros invalidos'}), 400
+
+    conn = _get_db()
+    cursor = conn.cursor()
+
+    # Garante que o novo funcionario existe (evita FK error silencioso).
+    cursor.execute("SELECT 1 FROM funcionario WHERE id = %s", (novo_fid,))
+    if not cursor.fetchone():
+        cursor.close()
+        conn.close()
+        return jsonify({'error': 'Funcionario nao encontrado'}), 404
+
+    cursor.execute(
+        "UPDATE funcionario_cobranca SET id_funcionario = %s WHERE id = %s",
+        (novo_fid, fc_id),
+    )
+    conn.commit()
+    affected = cursor.rowcount
+    cursor.close()
+    conn.close()
+
+    if affected == 0:
+        return jsonify({'error': 'Registro nao encontrado'}), 404
+    return jsonify({'ok': True})
+
+
+@app.route('/api/importacao/distribuicao/aprovar', methods=['POST'])
+def api_distribuicao_aprovar():
+    """No-op de aprovacao. A tabela funcionario_cobranca nao tem coluna de
+    status de aprovacao - qualquer linha presente JA e considerada efetiva.
+    O endpoint existe apenas para o frontend confirmar que o usuario revisou
+    e aceitou a distribuicao proposta."""
+    conn = _get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) AS total FROM funcionario_cobranca")
+    row = cursor.fetchone() or {}
+    total = int(row.get('total') or 0)
+    cursor.close()
+    conn.close()
+    return jsonify({'ok': True, 'total': total})
 
 
 # ---------------------------------------------------------------------------

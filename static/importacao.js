@@ -1,5 +1,12 @@
 document.addEventListener('DOMContentLoaded', () => {
 
+    const distribuicaoPanel = document.getElementById('distribuicaoPanel');
+    const distribuicaoTotais = document.getElementById('distribuicaoTotais');
+    const distribuicaoFuncionarios = document.getElementById('distribuicaoFuncionarios');
+    const distribuicaoSubtitle = document.getElementById('distribuicaoSubtitle');
+    const btnAprovarDistribuicao = document.getElementById('btnAprovarDistribuicao');
+    const btnRecarregarDistribuicao = document.getElementById('btnRecarregarDistribuicao');
+
     const dropZone = document.getElementById('dropZone');
     const dropContent = document.getElementById('dropContent');
     const fileLoadedState = document.getElementById('fileLoadedState');
@@ -153,6 +160,71 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Limites por lote: envia no maximo N arquivos OU ~80 MB por POST.
+    // Valores conservadores para nao estourar o dev server do Flask e dar
+    // feedback granular de progresso ao usuario.
+    const UPLOAD_BATCH_MAX_FILES = 25;
+    const UPLOAD_BATCH_MAX_BYTES = 80 * 1024 * 1024; // 80 MB
+
+    // Fase de upload ocupa 0 - UPLOAD_PHASE_CAP% na barra; o SSE leva o resto.
+    const UPLOAD_PHASE_CAP = 45;
+
+    let highestProgress = 0;
+
+    function buildUploadBatches(files) {
+        const batches = [];
+        let current = [];
+        let currentSize = 0;
+        for (const f of files) {
+            const wouldExceed = current.length >= UPLOAD_BATCH_MAX_FILES
+                || (current.length > 0 && currentSize + f.size > UPLOAD_BATCH_MAX_BYTES);
+            if (wouldExceed) {
+                batches.push(current);
+                current = [];
+                currentSize = 0;
+            }
+            current.push(f);
+            currentSize += f.size;
+        }
+        if (current.length > 0) batches.push(current);
+        return batches;
+    }
+
+    function uploadBatch(files, tempDir, onProgress) {
+        return new Promise((resolve, reject) => {
+            const formData = new FormData();
+            files.forEach((f) => {
+                const rel = f.webkitRelativePath || f.name;
+                formData.append('files', f, rel);
+            });
+            if (tempDir) formData.append('temp_dir', tempDir);
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/api/upload');
+            xhr.upload.addEventListener('progress', (e) => {
+                if (e.lengthComputable && typeof onProgress === 'function') {
+                    onProgress(e.loaded);
+                }
+            });
+            xhr.onload = () => {
+                let data;
+                try {
+                    data = JSON.parse(xhr.responseText);
+                } catch {
+                    reject(new Error('Resposta invalida do servidor'));
+                    return;
+                }
+                if (xhr.status >= 200 && xhr.status < 300 && !data.error) {
+                    resolve(data);
+                } else {
+                    reject(new Error(data.error || ('HTTP ' + xhr.status)));
+                }
+            };
+            xhr.onerror = () => reject(new Error('Erro de rede ao enviar lote'));
+            xhr.send(formData);
+        });
+    }
+
     btnProcessar.addEventListener('click', async () => {
         if (selectedFiles.length === 0) return;
 
@@ -162,34 +234,49 @@ document.addEventListener('DOMContentLoaded', () => {
 
         processingPanel.classList.remove('d-none');
         terminalBody.innerHTML = '';
+        highestProgress = 0;
         progressBarFill.style.width = '0%';
         progressPercentage.textContent = '0%';
         progressStatusText.textContent = 'Enviando arquivos ao servidor...';
         progressStatusText.style.color = '';
 
-        const formData = new FormData();
-        selectedFiles.forEach((f) => {
-            const rel = f.webkitRelativePath || f.name;
-            formData.append('files', f, rel);
-        });
+        const batches = buildUploadBatches(selectedFiles);
+        const totalBytes = selectedFiles.reduce((s, f) => s + f.size, 0) || 1;
+        let bytesUploadedSoFar = 0;
+        let totalSentCount = 0;
+        let tempDir = null;
+
+        addLog('> [SYSTEM] Iniciando envio de ' + selectedFiles.length + ' arquivo(s) em ' + batches.length + ' lote(s)...', 'info');
 
         try {
-            const uploadResp = await fetch('/api/upload', { method: 'POST', body: formData });
-            const uploadData = await uploadResp.json();
+            for (let i = 0; i < batches.length; i++) {
+                const batch = batches[i];
+                const batchBytes = batch.reduce((s, f) => s + f.size, 0);
 
-            if (!uploadResp.ok || uploadData.error) {
-                addLog('> [ERRO] ' + (uploadData.error || 'Falha no upload'), 'alert');
-                resetButton();
-                return;
+                progressStatusText.textContent = 'Enviando lote ' + (i + 1) + '/' + batches.length
+                    + ' (' + formatFileSize(bytesUploadedSoFar) + ' / ' + formatFileSize(totalBytes) + ')';
+
+                const data = await uploadBatch(batch, tempDir, (batchLoaded) => {
+                    const uploaded = bytesUploadedSoFar + Math.min(batchLoaded, batchBytes);
+                    const pct = Math.floor((uploaded / totalBytes) * UPLOAD_PHASE_CAP);
+                    setProgress(pct);
+                });
+
+                tempDir = data.temp_dir;
+                totalSentCount += data.files.length;
+                bytesUploadedSoFar += batchBytes;
+                addLog('> [SYSTEM] Lote ' + (i + 1) + '/' + batches.length + ' recebido (' + data.files.length + ' arquivo(s)).', 'info');
             }
 
-            addLog('> [SYSTEM] ' + uploadData.files.length + ' arquivo(s) enviados ao servidor com sucesso.', 'success');
+            setProgress(UPLOAD_PHASE_CAP);
+            addLog('> [SYSTEM] ' + totalSentCount + ' arquivo(s) enviados ao servidor com sucesso.', 'success');
 
             btnProcessar.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Processando Lote...';
-            startSSE(uploadData.temp_dir);
+            progressStatusText.textContent = 'Upload concluido. Aguardando processamento...';
+            startSSE(tempDir);
 
         } catch (err) {
-            addLog('> [ERRO] Falha na comunicacao com o servidor: ' + err.message, 'alert');
+            addLog('> [ERRO] Falha no envio: ' + err.message, 'alert');
             resetButton();
         }
     });
@@ -222,6 +309,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     addLog('> [SUCCESS] ' + (data.summary || 'Concluido.'), 'success');
                     btnProcessar.innerHTML = '<i class="fa-solid fa-check-double"></i> Tarefa Finalizada';
                     evtSource.close();
+                    if (data.distribuicao_ready !== false) {
+                        loadDistribuicao();
+                    }
                     break;
                 case 'error':
                     addLog('> [ERRO] ' + data.text, 'alert');
@@ -252,8 +342,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function setProgress(value) {
-        progressBarFill.style.width = value + '%';
-        progressPercentage.textContent = value + '%';
+        const v = Math.max(0, Math.min(100, Math.floor(value)));
+        if (v < highestProgress) return;
+        highestProgress = v;
+        progressBarFill.style.width = v + '%';
+        progressPercentage.textContent = v + '%';
     }
 
     function resetButton() {
@@ -261,5 +354,241 @@ document.addEventListener('DOMContentLoaded', () => {
         btnProcessar.removeAttribute('disabled');
         btnProcessar.innerHTML = '<i class="fa-solid fa-gears"></i> Iniciar Processamento e Classificação';
     }
+
+    // =====================================================================
+    // Painel de Distribuicao de Funcionarios (pos-importacao)
+    // =====================================================================
+
+    const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+    const fmtInt = (n) => (n || 0).toLocaleString('pt-BR');
+    const fmtMoney = (n) => BRL.format(Number(n) || 0);
+    const fmtPct = (part, total) => {
+        if (!total) return '0%';
+        return ((Number(part) / Number(total)) * 100).toFixed(1).replace('.', ',') + '%';
+    };
+    const escHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (m) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[m]));
+
+    let distribuicaoData = null;
+    let distribuicaoAprovadaNaSessao = false;
+
+    async function loadDistribuicao() {
+        try {
+            distribuicaoPanel.classList.remove('d-none');
+            distribuicaoTotais.innerHTML = '<div class="dist-loading"><i class="fa-solid fa-spinner fa-spin"></i> Carregando distribuição...</div>';
+            distribuicaoFuncionarios.innerHTML = '';
+
+            const resp = await fetch('/api/importacao/distribuicao');
+            const data = await resp.json();
+            if (!resp.ok || data.error) {
+                distribuicaoTotais.innerHTML = '<div class="dist-error">Falha ao carregar distribuição: ' + escHtml(data.error || ('HTTP ' + resp.status)) + '</div>';
+                return;
+            }
+            distribuicaoData = data;
+            renderDistribuicao();
+            distribuicaoPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } catch (err) {
+            distribuicaoTotais.innerHTML = '<div class="dist-error">Erro: ' + escHtml(err.message) + '</div>';
+        }
+    }
+
+    function renderDistribuicao() {
+        const data = distribuicaoData;
+        if (!data) return;
+
+        const totals = data.totais || { count: 0, value: 0 };
+        // O backend nao possui flag de aprovacao persistente (a propria
+        // presenca em funcionario_cobranca ja significa "distribuido").
+        // O botao "Aprovar" e um OK visual de revisao do usuario.
+        if (distribuicaoAprovadaNaSessao) {
+            distribuicaoSubtitle.textContent = 'Distribuição revisada. Ajustes manuais permanecem editáveis.';
+            btnAprovarDistribuicao.disabled = false;
+            btnAprovarDistribuicao.classList.add('approved');
+            btnAprovarDistribuicao.innerHTML = '<i class="fa-solid fa-circle-check"></i> Revisada';
+        } else {
+            distribuicaoSubtitle.textContent = 'Revise a proposta e ajuste manualmente antes de aprovar.';
+            btnAprovarDistribuicao.disabled = !totals.count;
+            btnAprovarDistribuicao.classList.remove('approved');
+            btnAprovarDistribuicao.innerHTML = '<i class="fa-solid fa-check"></i> Aprovar Distribuição';
+        }
+
+        distribuicaoTotais.innerHTML = `
+            <div class="dist-kpi total">
+                <span class="dist-kpi-label"><i class="fa-solid fa-folder-open"></i> Total em Cobrança</span>
+                <span class="dist-kpi-value">${fmtInt(totals.count)} contratos</span>
+                <span class="dist-kpi-sub">${fmtMoney(totals.value)}</span>
+            </div>
+            <div class="dist-kpi critico">
+                <span class="dist-kpi-label"><i class="fa-solid fa-fire"></i> Crítico</span>
+                <span class="dist-kpi-value">${fmtInt(totals.critico_count)} contratos</span>
+                <span class="dist-kpi-sub">${fmtMoney(totals.critico_value)}</span>
+            </div>
+            <div class="dist-kpi atencao">
+                <span class="dist-kpi-label"><i class="fa-solid fa-triangle-exclamation"></i> Atenção</span>
+                <span class="dist-kpi-value">${fmtInt(totals.atencao_count)} contratos</span>
+                <span class="dist-kpi-sub">${fmtMoney(totals.atencao_value)}</span>
+            </div>
+            <div class="dist-kpi recente">
+                <span class="dist-kpi-label"><i class="fa-solid fa-clock"></i> Recente</span>
+                <span class="dist-kpi-value">${fmtInt(totals.recente_count)} contratos</span>
+                <span class="dist-kpi-sub">${fmtMoney(totals.recente_value)}</span>
+            </div>
+        `;
+
+        distribuicaoFuncionarios.innerHTML = '';
+        (data.funcionarios || []).forEach((f, idx) => {
+            distribuicaoFuncionarios.appendChild(buildFuncionarioCard(f, totals, idx));
+        });
+    }
+
+    function buildFuncionarioCard(f, totals, idx) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'func-card collapsed';
+        wrapper.setAttribute('data-color-index', String(idx % 4));
+
+        const s = f.stats || {};
+        const iniciais = (f.nome || '?').split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
+
+        wrapper.innerHTML = `
+            <div class="func-header">
+                <div class="func-header-left">
+                    <div class="func-avatar">${escHtml(iniciais)}</div>
+                    <div>
+                        <h4>${escHtml(f.nome)}</h4>
+                        <span class="func-subtitle">Funcionário de Cobrança</span>
+                    </div>
+                </div>
+                <div class="func-header-right">
+                    <div class="func-badge total">${fmtInt(s.count)} <small>ctr</small></div>
+                    <div class="func-badge value">${fmtMoney(s.value)}</div>
+                    <div class="func-badge pct">${fmtPct(s.value, totals.value)} valor</div>
+                    <i class="fa-solid fa-chevron-down func-chevron"></i>
+                </div>
+            </div>
+            <div class="func-body">
+                <div class="func-stats-grid">
+                    <div class="func-stat critico">
+                        <span class="label"><i class="fa-solid fa-fire"></i> Crítico</span>
+                        <span class="value">${fmtInt(s.critico_count)} ctr • ${fmtMoney(s.critico_value)}</span>
+                        <span class="pcts">${fmtPct(s.critico_count, totals.critico_count)} qtd • ${fmtPct(s.critico_value, totals.critico_value)} valor</span>
+                    </div>
+                    <div class="func-stat atencao">
+                        <span class="label"><i class="fa-solid fa-triangle-exclamation"></i> Atenção</span>
+                        <span class="value">${fmtInt(s.atencao_count)} ctr • ${fmtMoney(s.atencao_value)}</span>
+                        <span class="pcts">${fmtPct(s.atencao_count, totals.atencao_count)} qtd • ${fmtPct(s.atencao_value, totals.atencao_value)} valor</span>
+                    </div>
+                    <div class="func-stat recente">
+                        <span class="label"><i class="fa-solid fa-clock"></i> Recente</span>
+                        <span class="value">${fmtInt(s.recente_count)} ctr • ${fmtMoney(s.recente_value)}</span>
+                        <span class="pcts">${fmtPct(s.recente_count, totals.recente_count)} qtd • ${fmtPct(s.recente_value, totals.recente_value)} valor</span>
+                    </div>
+                </div>
+                <div class="func-contracts">
+                    <table class="func-table">
+                        <thead>
+                            <tr>
+                                <th>Grupo / Cota</th>
+                                <th>Devedor</th>
+                                <th>Situação</th>
+                                <th>Atraso</th>
+                                <th>Valor</th>
+                                <th>Responsável</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+
+        const tbody = wrapper.querySelector('tbody');
+        (f.contratos || []).forEach((c) => tbody.appendChild(buildContractRow(c)));
+
+        wrapper.querySelector('.func-header').addEventListener('click', () => {
+            wrapper.classList.toggle('collapsed');
+        });
+
+        return wrapper;
+    }
+
+    function buildContractRow(c) {
+        const tr = document.createElement('tr');
+        tr.setAttribute('data-fc-id', c.fc_id);
+        const sitKey = (c.situacao === 'atenção') ? 'atencao' : (c.situacao || '');
+        tr.innerHTML = `
+            <td class="bold">${escHtml(c.grupo)} / ${escHtml(c.cota)}</td>
+            <td>
+                <div>${escHtml(c.nome_devedor || '-')}</div>
+                <div class="muted">${escHtml(c.cpf_cnpj || '')}</div>
+            </td>
+            <td><span class="sit-badge sit-${escHtml(sitKey)}">${escHtml(c.situacao || '-')}</span></td>
+            <td>${fmtInt(c.dias_atraso)}d</td>
+            <td>${fmtMoney(c.valor_credito)}</td>
+            <td></td>
+        `;
+
+        const tdSelect = tr.lastElementChild;
+        const select = document.createElement('select');
+        select.className = 'reassign-select';
+        select.dataset.previous = String(c.id_funcionario ?? '');
+        (distribuicaoData.funcionarios_disponiveis || []).forEach((f) => {
+            const opt = document.createElement('option');
+            opt.value = String(f.id);
+            opt.textContent = f.nome;
+            if (Number(f.id) === Number(c.id_funcionario)) opt.selected = true;
+            select.appendChild(opt);
+        });
+        select.addEventListener('change', (e) => reassignContract(c.fc_id, e.target.value, tr));
+        tdSelect.appendChild(select);
+
+        return tr;
+    }
+
+    async function reassignContract(fcId, novoFuncionarioId, tr) {
+        const select = tr.querySelector('select');
+        const previous = select.dataset.previous || '';
+        select.disabled = true;
+        try {
+            const resp = await fetch('/api/importacao/distribuicao/reassign', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: Number(fcId),
+                    id_funcionario: Number(novoFuncionarioId),
+                }),
+            });
+            const data = await resp.json();
+            if (!resp.ok || data.error) throw new Error(data.error || ('HTTP ' + resp.status));
+            // Recarrega tudo para recalcular KPIs.
+            distribuicaoAprovadaNaSessao = false;
+            await loadDistribuicao();
+        } catch (err) {
+            alert('Falha ao reatribuir: ' + err.message);
+            if (previous) select.value = previous;
+        } finally {
+            select.disabled = false;
+        }
+    }
+
+    async function aprovarDistribuicao() {
+        if (!confirm('Confirmar a distribuição atual?')) return;
+        btnAprovarDistribuicao.disabled = true;
+        btnAprovarDistribuicao.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Confirmando...';
+        try {
+            const resp = await fetch('/api/importacao/distribuicao/aprovar', { method: 'POST' });
+            const data = await resp.json();
+            if (!resp.ok || data.error) throw new Error(data.error || ('HTTP ' + resp.status));
+            distribuicaoAprovadaNaSessao = true;
+            renderDistribuicao();
+        } catch (err) {
+            alert('Falha ao aprovar: ' + err.message);
+            btnAprovarDistribuicao.disabled = false;
+            btnAprovarDistribuicao.innerHTML = '<i class="fa-solid fa-check"></i> Aprovar Distribuição';
+        }
+    }
+
+    if (btnAprovarDistribuicao) btnAprovarDistribuicao.addEventListener('click', aprovarDistribuicao);
+    if (btnRecarregarDistribuicao) btnRecarregarDistribuicao.addEventListener('click', loadDistribuicao);
 
 });

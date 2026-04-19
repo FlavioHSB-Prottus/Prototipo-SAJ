@@ -45,6 +45,31 @@
     </div>
 
 
+    <!-- Painel de Resumo da Distribuicao de Funcionarios (Oculto inicialmente) -->
+    <div class="distribuicao-panel d-none" id="distribuicaoPanel">
+        <div class="distribuicao-header">
+            <div>
+                <h3><i class="fa-solid fa-users-gear"></i> Distribuição por Funcionário de Cobrança</h3>
+                <p class="subtitle" id="distribuicaoSubtitle">Revise a proposta e ajuste manualmente antes de aprovar.</p>
+            </div>
+            <div class="distribuicao-actions">
+                <button type="button" class="btn-secondary-dist" id="btnRecarregarDistribuicao" title="Recarregar proposta">
+                    <i class="fa-solid fa-rotate"></i> Recarregar
+                </button>
+                <button type="button" class="btn-aprovar-dist" id="btnAprovarDistribuicao">
+                    <i class="fa-solid fa-check"></i> Aprovar Distribuição
+                </button>
+            </div>
+        </div>
+
+        <!-- Totais Gerais -->
+        <div class="distribuicao-totais" id="distribuicaoTotais"></div>
+
+        <!-- Blocos por funcionario -->
+        <div class="distribuicao-funcionarios" id="distribuicaoFuncionarios"></div>
+    </div>
+
+
     <!-- Painel de Progresso e Console (Oculto inicialmente) -->
     <div class="processing-panel d-none" id="processingPanel">
         
