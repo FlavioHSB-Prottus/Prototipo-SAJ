@@ -713,7 +713,10 @@ def main():
                 f" -> Tracking Delta Concluido: {n_miss} contratos ausentes no registro_1, {n_add} parcelas novas, {n_paid} parcelas pagas."
             )
 
-        distribuir_operadores(cursor, conn, arquivo_gm_id)
+        # distribuir_operadores(cursor, conn, arquivo_gm_id)
+        # NOTA: a tabela 'operador' nao e mais usada neste projeto. A
+        # distribuicao passou para 'funcionario_cobranca' e e feita na
+        # Fase 3 da importacao, pelo script distribuir_funcionarios_cobranca.py.
 
         prev_r1_set = curr_r1_set
         prev_r2_set = curr_r2_set
