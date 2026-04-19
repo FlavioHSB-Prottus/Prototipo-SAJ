@@ -251,6 +251,26 @@ document.addEventListener('DOMContentLoaded', function () {
             html += '</tbody></table></div></div>';
         }
 
+        // Tramitacoes (com toggle ocultar/exibir)
+        if (data.tramitacoes && data.tramitacoes.length > 0) {
+            html += '<div class="detail-section tramitacao-section">';
+            html += '<h3 style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onclick="var c = this.nextElementSibling; var i = this.querySelector(\'i.fa-chevron-down\'); if (c.classList.contains(\'d-none\')) { c.classList.remove(\'d-none\'); i.style.transform = \'rotate(180deg)\'; } else { c.classList.add(\'d-none\'); i.style.transform = \'rotate(0deg)\'; }">';
+            html += '<span style="pointer-events:none;"><i class="fa-solid fa-comments"></i> Tramitações (' + data.tramitacoes.length + ')</span>';
+            html += '<i class="fa-solid fa-chevron-down" style="pointer-events:none; transition: transform 0.3s ease;"></i></h3>';
+            html += '<div class="tramitacao-container d-none">'; // inicialmente oculto
+            html += '<div class="table-responsive"><table class="styled-table modal-table"><thead><tr>';
+            html += '<th>Data</th><th>Tipo</th><th>CPC</th>';
+            html += '</tr></thead><tbody>';
+            data.tramitacoes.forEach(function (t) {
+                html += '<tr>';
+                html += '<td>' + formatDateTime(t.data) + '</td>';
+                html += '<td><span class="status-badge status-active">' + esc(t.tipo) + '</span></td>';
+                html += '<td><span class="status-badge ' + (String(t.cpc).toLowerCase()==='sim'?'status-success':(String(t.cpc).toLowerCase()==='nao'?'status-danger':'status-warning')) + '">' + esc(t.cpc) + '</span></td>';
+                html += '</tr>';
+            });
+            html += '</tbody></table></div></div></div>';
+        }
+
         modalContent.innerHTML = html;
     }
 
@@ -334,6 +354,22 @@ document.addEventListener('DOMContentLoaded', function () {
         var parts = String(val).split('T')[0].split('-');
         if (parts.length === 3) return parts[2] + '/' + parts[1] + '/' + parts[0];
         return val;
+    }
+
+    function formatDateTime(val) {
+        if (!val) return '-';
+        var parts = String(val).split('T');
+        var dPart = parts[0];
+        var tPart = parts[1] || '';
+        if (parts.length === 1 && val.includes(' ')) {
+            var spaceParts = val.split(' ');
+            dPart = spaceParts[0];
+            tPart = spaceParts[1] || '';
+        }
+        var dSplit = dPart.split('-');
+        var fmtDate = dSplit.length === 3 ? dSplit[2] + '/' + dSplit[1] + '/' + dSplit[0] : dPart;
+        var fmtTime = tPart ? tPart.substring(0, 5) : '';
+        return fmtDate + (fmtTime ? ' ' + fmtTime : '');
     }
 
     function formatCurrency(val) {
