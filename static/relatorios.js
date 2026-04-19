@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var dataInicial = document.getElementById('data_inicial');
     var dataFinal = document.getElementById('data_final');
     var dataInicialGroup = document.getElementById('dataInicialGroup');
+    var dataFinalGroup = document.getElementById('dataFinalGroup');
     var btnVisualizar = document.getElementById('btnVisualizar');
     var btnExcel = document.getElementById('btnExcel');
     var btnPdf = document.getElementById('btnPdf');
@@ -24,26 +25,36 @@ document.addEventListener('DOMContentLoaded', function () {
     var hoje = new Date().toISOString().split('T')[0];
     dataFinal.value = hoje;
 
-    // --- Toggle Data Inicial conforme tipo ---
-    function toggleDataInicial() {
+    // --- Toggle Datas conforme tipo (Contratos Abertos desativa ambas as datas) ---
+    function toggleDatasPorTipo() {
         var isAbertos = tipoSelect.value === 'abertos';
+
         dataInicial.disabled = isAbertos;
+        dataFinal.disabled = isAbertos;
+
         if (isAbertos) {
             dataInicial.value = '';
             dataInicialGroup.classList.add('field-disabled');
+            dataFinalGroup.classList.add('field-disabled');
         } else {
             dataInicialGroup.classList.remove('field-disabled');
+            dataFinalGroup.classList.remove('field-disabled');
+            if (!dataFinal.value) {
+                dataFinal.value = hoje;
+            }
         }
     }
 
-    tipoSelect.addEventListener('change', toggleDataInicial);
-    toggleDataInicial(); // executar na carga
+    tipoSelect.addEventListener('change', toggleDatasPorTipo);
+    toggleDatasPorTipo(); // executar na carga
 
     function getParams() {
         var params = {
-            tipo: tipoSelect.value,
-            data_final: dataFinal.value
+            tipo: tipoSelect.value
         };
+        if (!dataFinal.disabled && dataFinal.value) {
+            params.data_final = dataFinal.value;
+        }
         if (!dataInicial.disabled && dataInicial.value) {
             params.data_inicial = dataInicial.value;
         }
@@ -60,7 +71,7 @@ document.addEventListener('DOMContentLoaded', function () {
             alert('Informe a Data Inicial.');
             return false;
         }
-        if (!dataFinal.value) {
+        if (!isAbertos && !dataFinal.value) {
             alert('Informe a Data Final.');
             return false;
         }
