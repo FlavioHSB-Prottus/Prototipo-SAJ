@@ -6,6 +6,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const distribuicaoSubtitle = document.getElementById('distribuicaoSubtitle');
     const btnAprovarDistribuicao = document.getElementById('btnAprovarDistribuicao');
     const btnRecarregarDistribuicao = document.getElementById('btnRecarregarDistribuicao');
+    const distribuicaoToggle = document.getElementById('distribuicaoToggle');
+
+    function setDistribuicaoExpandido(expandido) {
+        if (!distribuicaoPanel || !distribuicaoToggle) return;
+        distribuicaoPanel.classList.toggle('collapsed', !expandido);
+        distribuicaoToggle.setAttribute('aria-expanded', expandido ? 'true' : 'false');
+    }
+
+    if (distribuicaoToggle) {
+        distribuicaoToggle.addEventListener('click', function () {
+            const jaExpandido = !distribuicaoPanel.classList.contains('collapsed');
+            setDistribuicaoExpandido(!jaExpandido);
+        });
+        distribuicaoToggle.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                const jaExpandido = !distribuicaoPanel.classList.contains('collapsed');
+                setDistribuicaoExpandido(!jaExpandido);
+            }
+        });
+    }
 
     const dropZone = document.getElementById('dropZone');
     const dropContent = document.getElementById('dropContent');
@@ -310,7 +331,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     btnProcessar.innerHTML = '<i class="fa-solid fa-check-double"></i> Tarefa Finalizada';
                     evtSource.close();
                     if (data.distribuicao_ready !== false) {
-                        loadDistribuicao();
+                        loadDistribuicao(true);
                     }
                     break;
                 case 'error':
@@ -373,7 +394,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let distribuicaoData = null;
     let distribuicaoAprovadaNaSessao = false;
 
-    async function loadDistribuicao() {
+    async function loadDistribuicao(scrollIntoView = false) {
         try {
             distribuicaoPanel.classList.remove('d-none');
             distribuicaoTotais.innerHTML = '<div class="dist-loading"><i class="fa-solid fa-spinner fa-spin"></i> Carregando distribuição...</div>';
@@ -387,7 +408,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             distribuicaoData = data;
             renderDistribuicao();
-            distribuicaoPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            if (scrollIntoView) {
+                setDistribuicaoExpandido(true);
+                distribuicaoPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
         } catch (err) {
             distribuicaoTotais.innerHTML = '<div class="dist-error">Erro: ' + escHtml(err.message) + '</div>';
         }
@@ -437,7 +461,19 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
 
         distribuicaoFuncionarios.innerHTML = '';
-        (data.funcionarios || []).forEach((f, idx) => {
+        const funcionarios = data.funcionarios || [];
+        if (funcionarios.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'dist-empty';
+            empty.innerHTML = `
+                <i class="fa-solid fa-inbox"></i>
+                <h4>Nenhuma distribuição registrada ainda</h4>
+                <p>Assim que a próxima importação for concluída, a distribuição por funcionário de cobrança será gerada automaticamente e exibida aqui.</p>
+            `;
+            distribuicaoFuncionarios.appendChild(empty);
+            return;
+        }
+        funcionarios.forEach((f, idx) => {
             distribuicaoFuncionarios.appendChild(buildFuncionarioCard(f, totals, idx));
         });
     }
@@ -517,7 +553,7 @@ document.addEventListener('DOMContentLoaded', () => {
         tr.setAttribute('data-fc-id', c.fc_id);
         const sitKey = (c.situacao === 'atenção') ? 'atencao' : (c.situacao || '');
         tr.innerHTML = `
-            <td class="bold">${escHtml(c.grupo)} / ${escHtml(c.cota)}</td>
+            <td class="bold">${escHtml(c.grupo)}/${escHtml(c.cota)}</td>
             <td>
                 <div>${escHtml(c.nome_devedor || '-')}</div>
                 <div class="muted">${escHtml(c.cpf_cnpj || '')}</div>
@@ -589,6 +625,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (btnAprovarDistribuicao) btnAprovarDistribuicao.addEventListener('click', aprovarDistribuicao);
-    if (btnRecarregarDistribuicao) btnRecarregarDistribuicao.addEventListener('click', loadDistribuicao);
+    if (btnRecarregarDistribuicao) btnRecarregarDistribuicao.addEventListener('click', () => loadDistribuicao(false));
+
+    // Carrega a distribuicao atual assim que a pagina abre, mostrando o
+    // estado vigente da tabela funcionario_cobranca (ou o empty-state).
+    loadDistribuicao(false);
 
 });

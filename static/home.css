@@ -227,6 +227,142 @@ body {
     gap: 24px;
 }
 
+/* Seletor de Departamento */
+.departamento-selector {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 14px;
+    background-color: #f8fafc;
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    cursor: pointer;
+    transition: var(--transition);
+    user-select: none;
+    z-index: 50;
+}
+
+.departamento-selector:hover {
+    background-color: #eef2f7;
+    border-color: #cbd5e1;
+}
+
+.departamento-selector > i:first-child {
+    color: var(--primary-color);
+    font-size: 1rem;
+}
+
+.dep-info {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.1;
+}
+
+.dep-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.dep-current {
+    font-size: 0.9rem;
+    color: var(--text-main);
+    font-weight: 600;
+}
+
+.dep-chevron {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    transition: transform 0.2s ease;
+}
+
+.departamento-selector.active .dep-chevron {
+    transform: rotate(180deg);
+}
+
+.departamento-dropdown {
+    position: absolute;
+    top: calc(100% + 12px);
+    left: 0;
+    background-color: #ffffff;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-lg);
+    width: 260px;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-10px);
+    transition: var(--transition);
+    cursor: default;
+}
+
+.departamento-dropdown.show {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.dep-list {
+    list-style: none;
+    padding: 8px;
+    margin: 0;
+}
+
+.dep-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+
+.dep-item:hover:not(.disabled) {
+    background-color: #f1f5f9;
+}
+
+.dep-item.active {
+    background-color: #eff6ff;
+}
+
+.dep-item.active .dep-check {
+    color: #2563eb;
+}
+
+.dep-item:not(.active) .dep-check {
+    color: #cbd5e1;
+}
+
+.dep-item.disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.dep-item.disabled i {
+    color: #94a3b8;
+}
+
+.dep-item > div {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+}
+
+.dep-item strong {
+    font-size: 0.9rem;
+    color: var(--text-main);
+    font-weight: 600;
+}
+
+.dep-item span {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
 /* Componente de Data e Hora */
 .datetime-display {
     display: flex;

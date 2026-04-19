@@ -356,7 +356,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         card.innerHTML =
             '<div class="kanban-card-top">' +
-            '  <span class="kanban-grupo">' + esc(c.grupo) + ' / ' + esc(c.cota) + '</span>' +
+            '  <span class="kanban-grupo">' + esc(c.grupo) + '/' + esc(c.cota) + '</span>' +
             '  <span class="dias-badge dias-' + level + '">' +
             '    <i class="fa-solid fa-clock"></i> ' + dias + 'd' +
             '  </span>' +
@@ -502,7 +502,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (typeof dias === 'string') dias = parseInt(dias);
 
                 tr.innerHTML =
-                    '<td class="fw-bold">' + esc(c.grupo) + ' / ' + esc(c.cota) + '</td>' +
+                    '<td class="fw-bold">' + esc(c.grupo) + '/' + esc(c.cota) + '</td>' +
                     '<td>' + esc(c.nome_devedor || '-') + '</td>' +
                     '<td>' + esc(c.cpf_cnpj || '-') + '</td>' +
                     '<td>' + esc(c.parcelas_abertas || 0) + '</td>' +
@@ -552,7 +552,7 @@ document.addEventListener('DOMContentLoaded', function () {
             '  <div class="expand-grid">' +
             '    <div class="expand-item">' +
             '      <span class="expand-label">Grupo / Cota</span>' +
-            '      <span class="expand-value">' + esc(contract.grupo) + ' / ' + esc(contract.cota) + '</span>' +
+            '      <span class="expand-value">' + esc(contract.grupo) + '/' + esc(contract.cota) + '</span>' +
             '    </div>' +
             '    <div class="expand-item">' +
             '      <span class="expand-label">Nome do Devedor</span>' +
@@ -676,7 +676,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // Dados do contrato
         html += '<div class="detail-section"><h3><i class="fa-solid fa-file-contract"></i> Dados do Contrato</h3>';
         html += '<div class="detail-grid">';
-        html += dataItem('Grupo / Cota', c.grupo + ' / ' + c.cota);
+        html += dataItem('Grupo / Cota', c.grupo + '/' + c.cota);
         html += dataItem('Nro Contrato', c.numero_contrato);
         html += dataItem('Versao', c.versao);
         html += dataItem('Status', c.status || c.status_txt, true, c.status);

@@ -45,14 +45,25 @@
     </div>
 
 
-    <!-- Painel de Resumo da Distribuicao de Funcionarios (Oculto inicialmente) -->
-    <div class="distribuicao-panel d-none" id="distribuicaoPanel">
-        <div class="distribuicao-header">
+    <!-- Painel de Controle da Distribuicao de Funcionarios (sempre visivel, recolhido por padrao) -->
+    <div class="distribuicao-panel collapsed" id="distribuicaoPanel">
+        <div class="distribuicao-header" id="distribuicaoToggle" role="button" tabindex="0" aria-expanded="false" aria-controls="distribuicaoBody">
             <div>
                 <h3><i class="fa-solid fa-users-gear"></i> Distribuição por Funcionário de Cobrança</h3>
                 <p class="subtitle" id="distribuicaoSubtitle">Revise a proposta e ajuste manualmente antes de aprovar.</p>
             </div>
-            <div class="distribuicao-actions">
+            <i class="fa-solid fa-chevron-down distribuicao-chevron" aria-hidden="true"></i>
+        </div>
+
+        <div class="distribuicao-body" id="distribuicaoBody">
+            <!-- Totais Gerais -->
+            <div class="distribuicao-totais" id="distribuicaoTotais"></div>
+
+            <!-- Blocos por funcionario -->
+            <div class="distribuicao-funcionarios" id="distribuicaoFuncionarios"></div>
+
+            <!-- Acoes: Recarregar / Aprovar (rodape do painel) -->
+            <div class="distribuicao-actions distribuicao-actions-footer">
                 <button type="button" class="btn-secondary-dist" id="btnRecarregarDistribuicao" title="Recarregar proposta">
                     <i class="fa-solid fa-rotate"></i> Recarregar
                 </button>
@@ -61,12 +72,6 @@
                 </button>
             </div>
         </div>
-
-        <!-- Totais Gerais -->
-        <div class="distribuicao-totais" id="distribuicaoTotais"></div>
-
-        <!-- Blocos por funcionario -->
-        <div class="distribuicao-funcionarios" id="distribuicaoFuncionarios"></div>
     </div>
 
 
@@ -102,7 +107,7 @@
 </div>
 
 <script>
-    document.querySelector('.module-title').textContent = 'Importação TXT';
+    document.querySelector('.module-title').textContent = 'Importação e Distribuição';
 </script>
 {% endblock %}
 

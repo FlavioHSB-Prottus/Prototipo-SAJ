@@ -93,11 +93,38 @@
 
 /* Neutral Card (Retomados) */
 .kpi-card.neutral {
-    border-left: 5px solid #64748b; /* Cinza */
+    border-left: 5px solid #8b5cf6; /* Roxo */
 }
 .kpi-card.neutral .kpi-icon {
-    background-color: #f1f5f9;
-    color: #64748b;
+    background-color: #f5f3ff;
+    color: #8b5cf6;
+}
+
+/* Info Card (Novos) */
+.kpi-card.info {
+    border-left: 5px solid #0ea5e9;
+}
+.kpi-card.info .kpi-icon {
+    background-color: #e0f2fe;
+    color: #0ea5e9;
+}
+
+/* KPI dim (quando a serie nao esta selecionada no painel) */
+.kpi-card.dimmed {
+    opacity: 0.45;
+    filter: saturate(0.6);
+}
+.kpi-card.dimmed:hover {
+    opacity: 0.85;
+}
+
+.kpi-hint {
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    margin-left: 4px;
 }
 
 /* Charts Area */
@@ -297,6 +324,13 @@
     width: 16px;
     height: 16px;
 }
+.filter-range-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-left: auto;
+    padding-left: 12px;
+    white-space: nowrap;
+}
 
 /* Table Header Actions (Performance page) */
 .table-header-actions {
@@ -349,4 +383,437 @@
     color: white;
     border-color: #3b82f6;
     box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.3);
+}
+
+/* =============================================
+   PAINEL DE CONTROLE INTERATIVO
+   ============================================= */
+.control-panel {
+    background-color: var(--card-bg);
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-color);
+    padding: 24px 28px 28px;
+}
+
+.control-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-color);
+    flex-wrap: wrap;
+}
+
+.control-panel-header h3 {
+    font-size: 1.1rem;
+    color: var(--primary-color);
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+
+.control-panel-header h3 i {
+    color: #3b82f6;
+    margin-right: 6px;
+}
+
+.control-panel-header .subtitle {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.btn-ghost {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: var(--transition);
+}
+.btn-ghost:hover {
+    background: #f8fafc;
+    color: var(--primary-color);
+    border-color: #94a3b8;
+}
+
+.control-panel-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 20px;
+}
+
+.control-card {
+    background: #f8fafc;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px 18px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.control-card-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    color: var(--primary-color);
+    font-size: 0.95rem;
+}
+.control-card-title i { color: #3b82f6; }
+
+.control-card-desc {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin: -4px 0 4px;
+}
+
+.control-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.chip-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: #fff;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.88rem;
+    color: var(--text-main);
+    transition: var(--transition);
+}
+.chip-option:hover {
+    border-color: #94a3b8;
+    background: #f1f5f9;
+}
+.chip-option input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: #3b82f6;
+}
+.chip-option:has(input:checked) {
+    background: #eff6ff;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.08);
+}
+.chip-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+}
+
+.period-body {
+    gap: 12px;
+}
+
+.period-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.period-field label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.period-field select {
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: #fff;
+    font-size: 0.9rem;
+    color: var(--text-main);
+    cursor: pointer;
+    font-family: inherit;
+    transition: var(--transition);
+}
+.period-field select:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.period-presets {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+}
+
+.preset-btn {
+    flex: 1;
+    min-width: 70px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: #fff;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition);
+}
+.preset-btn:hover {
+    background: #eff6ff;
+    border-color: #3b82f6;
+    color: #3b82f6;
+}
+.preset-btn.active {
+    background: #3b82f6;
+    border-color: #3b82f6;
+    color: #fff;
+}
+
+@media (max-width: 768px) {
+    .control-panel {
+        padding: 18px;
+    }
+    .control-panel-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Card largo (ocupa duas colunas no grid) */
+.control-card-wide {
+    grid-column: span 2;
+}
+@media (max-width: 900px) {
+    .control-card-wide { grid-column: span 1; }
+}
+
+/* Lista de safras (radio) dentro do painel de controle */
+.safra-list {
+    gap: 10px;
+}
+
+.safra-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+    background: #fff;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: var(--transition);
+}
+.safra-option:hover {
+    border-color: #94a3b8;
+    background: #f8fafc;
+}
+.safra-option input[type="radio"] {
+    margin-top: 4px;
+    width: 16px;
+    height: 16px;
+    accent-color: #3b82f6;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.safra-option:has(input:checked) {
+    background: #eff6ff;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.08);
+}
+
+.safra-option-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.safra-option-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9rem;
+    color: var(--text-main);
+}
+.safra-option-title i {
+    color: #3b82f6;
+    font-size: 0.85rem;
+}
+
+.safra-option-tag {
+    font-size: 0.7rem;
+    background: #e0e7ff;
+    color: #4338ca;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 500;
+}
+
+.safra-option-metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.metric-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 0.72rem;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    color: var(--text-muted);
+}
+.metric-pill .metric-label {
+    font-weight: 500;
+    opacity: 0.85;
+}
+.metric-pill .metric-value {
+    font-weight: 700;
+    color: var(--text-main);
+}
+.metric-pill.metric-volume {
+    background: #eff6ff;
+    border-color: #bfdbfe;
+    color: #1d4ed8;
+}
+.metric-pill.metric-volume .metric-value { color: #1e3a8a; }
+
+.metric-pill.metric-success {
+    background: #ecfdf5;
+    border-color: #bbf7d0;
+    color: #047857;
+}
+.metric-pill.metric-success .metric-value { color: #065f46; }
+
+.metric-pill.metric-warning {
+    background: #fffbeb;
+    border-color: #fde68a;
+    color: #b45309;
+}
+.metric-pill.metric-warning .metric-value { color: #92400e; }
+
+.metric-pill.metric-danger {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: #b91c1c;
+}
+.metric-pill.metric-danger .metric-value { color: #7f1d1d; }
+
+/* =============================================
+   CARD DE EXPORTACAO (Performance JB)
+   ============================================= */
+.control-card-export {
+    grid-column: span 2;
+}
+@media (max-width: 900px) {
+    .control-card-export { grid-column: span 1; }
+}
+
+.export-buttons {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+}
+
+.export-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 12px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: #fff;
+    cursor: pointer;
+    font-family: inherit;
+    text-align: left;
+    transition: var(--transition);
+    position: relative;
+}
+.export-btn i {
+    font-size: 1.15rem;
+    margin-bottom: 2px;
+}
+.export-btn span {
+    font-weight: 600;
+    font-size: 0.92rem;
+    color: var(--text-main);
+}
+.export-btn small {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 500;
+}
+.export-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+}
+.export-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.export-btn-xls {
+    border-color: #10b981;
+    background: #ecfdf5;
+}
+.export-btn-xls i { color: #059669; }
+.export-btn-xls:hover { background: #d1fae5; }
+
+.export-btn-pdf {
+    border-color: #ef4444;
+    background: #fef2f2;
+}
+.export-btn-pdf i { color: #dc2626; }
+.export-btn-pdf:hover { background: #fee2e2; }
+
+.export-btn-pbi {
+    border-color: #f59e0b;
+    background: #fffbeb;
+}
+.export-btn-pbi i { color: #d97706; }
+.export-btn-pbi:hover { background: #fef3c7; }
+
+.export-feedback {
+    margin-top: 10px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-weight: 500;
+    border: 1px solid transparent;
+}
+.export-feedback.info {
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-color: #bfdbfe;
+}
+.export-feedback.ok {
+    background: #ecfdf5;
+    color: #065f46;
+    border-color: #bbf7d0;
+}
+.export-feedback.err {
+    background: #fef2f2;
+    color: #b91c1c;
+    border-color: #fecaca;
 }

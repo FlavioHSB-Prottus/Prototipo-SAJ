@@ -143,7 +143,7 @@ document.addEventListener('DOMContentLoaded', function () {
         results.forEach(function (c) {
             var tr = document.createElement('tr');
             tr.innerHTML =
-                '<td class="fw-bold">' + esc(c.grupo) + ' / ' + esc(c.cota) + '</td>' +
+                '<td class="fw-bold">' + esc(c.grupo) + '/' + esc(c.cota) + '</td>' +
                 '<td>' + esc(c.cpf_cnpj || '-') + '</td>' +
                 '<td>' + esc(c.nome_devedor || '-') + '</td>' +
                 '<td><span class="status-badge ' + getStatusClass(c.status) + '">' + esc(c.status || '-') + '</span></td>' +
@@ -262,7 +262,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         html += '<div class="detail-section"><h3><i class="fa-solid fa-file-contract"></i> Dados do Contrato</h3>';
         html += '<div class="detail-grid">';
-        html += dataItem('Grupo / Cota', c.grupo + ' / ' + c.cota);
+        html += dataItem('Grupo / Cota', c.grupo + '/' + c.cota);
         html += dataItem('Nro Contrato', c.numero_contrato);
         html += dataItem('Versao', c.versao);
         html += dataItem('Status', c.status || c.status_txt, true, c.status);

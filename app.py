@@ -1024,12 +1024,12 @@ def _validate_relatorio_params():
 
     if not tipo:
         return None, None, None, None, 'Parametro tipo e obrigatorio.'
-    # Para 'abertos', data_inicial é opcional
+    # Para 'abertos', data_inicial e data_final sao opcionais (o relatorio
+    # usa toda a base ate a data atual por padrao). Para os demais tipos,
+    # ambas datas continuam sendo obrigatorias.
     if tipo != 'abertos' and (not data_inicial or not data_final):
         return None, None, None, None, 'Parametros data_inicial e data_final sao obrigatorios.'
-    if tipo == 'abertos' and not data_final:
-        return None, None, None, None, 'Parametro data_final e obrigatorio.'
-    return tipo, data_inicial or None, data_final, prioridade or None, None
+    return tipo, data_inicial or None, data_final or None, prioridade or None, None
 
 
 _TIPO_LABELS = {
@@ -1177,115 +1177,78 @@ def api_relatorios_pdf():
 
 @app.route('/api/dashboard')
 def api_dashboard():
+    """Dashboard totalmente reativo.
+
+    Retorna, para os ultimos 12 meses, series mensais com contagens de:
+      - pagos       (ocorrencia.status = 'fechado')
+      - indenizados (ocorrencia.status = 'indenizado')
+      - novos       (ocorrencia.descricao = 'contrato novo')
+      - retomados   (ocorrencia.descricao = 'contrato voltou')
+
+    Todo o recorte (periodo / series) e feito no front-end sobre esse payload,
+    sem novas requisicoes.
+    """
     conn = _get_db()
     cursor = conn.cursor()
 
-    # --- KPIs ---
-    cursor.execute("SELECT COUNT(*) AS total FROM contrato WHERE status = 'aberto'")
-    kpi_abertos = cursor.fetchone()['total']
-
     now = datetime.date.today()
-    mes_inicio = now.replace(day=1).isoformat()
-    mes_fim = now.isoformat()
 
-    cursor.execute(
-        "SELECT COUNT(DISTINCT o.id_contrato) AS total FROM ocorrencia o "
-        "INNER JOIN contrato c ON c.id = o.id_contrato "
-        "WHERE c.status = 'fechado' AND o.status = 'fechado' "
-        "AND o.data_arquivo >= %s AND o.data_arquivo <= %s",
-        (mes_inicio, mes_fim),
-    )
-    kpi_pagos = cursor.fetchone()['total']
+    # --- Gera lista continua de 12 meses (mais antigo -> mais recente) ---
+    start_month = now.replace(day=1)
+    for _ in range(11):
+        start_month = (start_month - datetime.timedelta(days=1)).replace(day=1)
+    window_start = start_month.isoformat()
 
-    cursor.execute("SELECT COUNT(*) AS total FROM contrato WHERE status = 'indenizado'")
-    kpi_indenizados = cursor.fetchone()['total']
+    all_months = []
+    cursor_d = start_month
+    while cursor_d <= now:
+        all_months.append(cursor_d.strftime('%Y-%m'))
+        if cursor_d.month == 12:
+            cursor_d = cursor_d.replace(year=cursor_d.year + 1, month=1)
+        else:
+            cursor_d = cursor_d.replace(month=cursor_d.month + 1)
 
-    cursor.execute(
-        "SELECT COUNT(DISTINCT o.id_contrato) AS total FROM ocorrencia o "
-        "WHERE o.status = 'aberto' AND o.descricao = 'contrato voltou' "
-        "AND o.data_arquivo >= %s AND o.data_arquivo <= %s",
-        (mes_inicio, mes_fim),
-    )
-    kpi_retomados = cursor.fetchone()['total']
+    def _series(where_clause, params):
+        cursor.execute(
+            "SELECT DATE_FORMAT(o.data_arquivo, '%%Y-%%m') AS mes, "
+            "       COUNT(DISTINCT o.id_contrato) AS total "
+            "FROM ocorrencia o "
+            + where_clause +
+            " AND o.data_arquivo >= %s "
+            "GROUP BY mes ORDER BY mes",
+            tuple(params) + (window_start,),
+        )
+        by_month = {r['mes']: int(r['total']) for r in cursor.fetchall()}
+        return [by_month.get(m, 0) for m in all_months]
 
-    # --- Grafico de linhas: pagos vs indenizados (ultimos 6 meses) ---
-    six_months_ago = (now.replace(day=1) - datetime.timedelta(days=1)).replace(day=1)
-    for _ in range(4):
-        six_months_ago = (six_months_ago - datetime.timedelta(days=1)).replace(day=1)
-    six_start = six_months_ago.isoformat()
+    serie_pagos = _series("WHERE o.status = 'fechado'", [])
+    serie_indenizados = _series("WHERE o.status = 'indenizado'", [])
+    serie_novos = _series("WHERE o.descricao = 'contrato novo'", [])
+    serie_retomados = _series("WHERE o.descricao = 'contrato voltou'", [])
 
-    cursor.execute(
-        "SELECT DATE_FORMAT(o.data_arquivo, '%%Y-%%m') AS mes, "
-        "       COUNT(DISTINCT o.id_contrato) AS total "
-        "FROM ocorrencia o WHERE o.status = 'fechado' "
-        "AND o.data_arquivo >= %s "
-        "GROUP BY mes ORDER BY mes",
-        (six_start,),
-    )
-    pagos_by_month = {r['mes']: r['total'] for r in cursor.fetchall()}
-
-    cursor.execute(
-        "SELECT DATE_FORMAT(o.data_arquivo, '%%Y-%%m') AS mes, "
-        "       COUNT(DISTINCT o.id_contrato) AS total "
-        "FROM ocorrencia o WHERE o.status = 'indenizado' "
-        "AND o.data_arquivo >= %s "
-        "GROUP BY mes ORDER BY mes",
-        (six_start,),
-    )
-    inden_by_month = {r['mes']: r['total'] for r in cursor.fetchall()}
-
-    all_months = sorted(set(list(pagos_by_month.keys()) + list(inden_by_month.keys())))
-    if not all_months:
-        d = six_months_ago
-        all_months = []
-        while d <= now:
-            all_months.append(d.strftime('%Y-%m'))
-            if d.month == 12:
-                d = d.replace(year=d.year + 1, month=1)
-            else:
-                d = d.replace(month=d.month + 1)
-
-    line_labels = all_months
-    line_pagos = [pagos_by_month.get(m, 0) for m in all_months]
-    line_inden = [inden_by_month.get(m, 0) for m in all_months]
+    # --- KPIs snapshot (nao dependem do periodo) ---
+    cursor.execute("SELECT COUNT(*) AS total FROM contrato WHERE status = 'aberto'")
+    kpi_em_cobranca = int(cursor.fetchone()['total'])
 
     # --- Grafico doughnut: distribuicao da carteira ---
     cursor.execute("SELECT status, COUNT(*) AS total FROM contrato GROUP BY status")
-    pie_raw = {r['status']: r['total'] for r in cursor.fetchall()}
-
-    # --- Tabela de prioridade ---
-    cursor.execute(
-        "SELECT c.id, c.grupo, c.cota, c.numero_contrato, "
-        "       p.nome_completo AS nome_devedor, "
-        "       COUNT(par.id) AS parcelas_abertas, "
-        "       MIN(par.vencimento) AS vencimento_mais_antigo "
-        "FROM contrato c "
-        "INNER JOIN parcela par ON par.id_contrato = c.id AND par.status = 'aberto' "
-        "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
-        "WHERE c.status = 'aberto' "
-        "GROUP BY c.id, c.grupo, c.cota, c.numero_contrato, p.nome_completo "
-        "ORDER BY vencimento_mais_antigo ASC "
-        "LIMIT 20"
-    )
-    prioridade = _clean_rows(cursor.fetchall())
+    pie_raw = {r['status']: int(r['total']) for r in cursor.fetchall()}
 
     cursor.close()
     conn.close()
 
     return jsonify({
-        'kpis': {
-            'abertos': kpi_abertos,
-            'pagos': kpi_pagos,
-            'indenizados': kpi_indenizados,
-            'retomados': kpi_retomados,
+        'meses': all_months,
+        'series': {
+            'pagos': serie_pagos,
+            'indenizados': serie_indenizados,
+            'novos': serie_novos,
+            'retomados': serie_retomados,
         },
-        'line_chart': {
-            'labels': line_labels,
-            'pagos': line_pagos,
-            'indenizados': line_inden,
+        'snapshot': {
+            'em_cobranca': kpi_em_cobranca,
         },
         'pie_chart': pie_raw,
-        'prioridade': prioridade,
     })
 
 
@@ -1504,73 +1467,115 @@ def api_avalistas():
 
 @app.route('/api/operadores/dashboard')
 def api_operadores_dashboard():
-    """Retorna estatísticas e lista de contratos agrupados por operador."""
+    """Retorna estatisticas e lista de contratos agrupados por operador.
+
+    Adaptado para o schema atual:
+      - 'operador' <=> registro em `funcionario`
+      - vinculo operador <-> contrato <=> `funcionario_cobranca`
+      - situacao (critico/atencao/recente), valor_credito e dias_atraso sao
+        calculados on-the-fly via JOIN com contrato/parcela.
+      - status_operador vem do campo `ativo` (tinyint) em `funcionario`
+        (1 -> 'ativo', 0 -> 'inativo'). Os rotulos 'afastado'/'ferias' ficam
+        disponiveis no filtro para uso futuro, caso novas colunas surjam.
+    """
     conn = _get_db()
     cursor = conn.cursor()
 
-    # Query principal: dados dos operadores e seus contratos abertos
-    sql = """
-        SELECT o.nome as operador_nome, o.situacao, c.id, c.grupo, c.cota, 
-               c.numero_contrato, c.valor_credito, p.nome_completo as nome_devedor, p.cpf_cnpj,
-               (SELECT DATEDIFF(CURDATE(), MIN(vencimento)) FROM parcela WHERE id_contrato = c.id AND status = 'aberto') as dias_atraso,
-               (SELECT COUNT(*) FROM parcela WHERE id_contrato = c.id AND status = 'aberto') as parcelas_abertas,
-               (SELECT MIN(vencimento) FROM parcela WHERE id_contrato = c.id AND status = 'aberto') as vencimento_mais_antigo
-        FROM operador o
-        INNER JOIN contrato c ON o.grupo = c.grupo AND o.cota = c.cota
-        LEFT JOIN pessoa p ON c.id_pessoa = p.id
-        WHERE c.status = 'aberto' AND o.perfil = 'operador'
-        ORDER BY o.nome, o.situacao, o.id DESC
-    """
-    cursor.execute(sql)
+    # 1) Lista todos os funcionarios (para que operadores sem contratos ainda
+    #    apareçam no <select> de filtros e no bloco do dashboard).
+    cursor.execute(
+        """
+        SELECT id, nome, COALESCE(ativo, 1) AS ativo
+        FROM funcionario
+        ORDER BY nome
+        """
+    )
+    funcionarios = _clean_rows(cursor.fetchall())
+
+    def _status_from_ativo(val):
+        try:
+            return 'ativo' if int(val or 0) == 1 else 'inativo'
+        except (TypeError, ValueError):
+            return 'ativo'
+
+    operators_map = {}
+    for f in funcionarios:
+        fid = int(f['id'])
+        operators_map[fid] = {
+            'id': fid,
+            'nome': f['nome'],
+            'status_operador': _status_from_ativo(f.get('ativo')),
+            'contratos': [],
+            'stats': {'total': 0, 'critico': 0, 'atencao': 0, 'recente': 0},
+        }
+
+    # 2) Contratos atribuidos em funcionario_cobranca (apenas contratos abertos),
+    #    com situacao/dias_atraso calculados a partir da parcela mais antiga em aberto.
+    cursor.execute(
+        """
+        SELECT fc.id_funcionario,
+               c.id, c.grupo, c.cota, c.numero_contrato, c.valor_credito,
+               p.nome_completo AS nome_devedor, p.cpf_cnpj,
+               (SELECT DATEDIFF(CURDATE(), MIN(vencimento))
+                  FROM parcela
+                 WHERE id_contrato = c.id AND status = 'aberto') AS dias_atraso,
+               (SELECT COUNT(*)
+                  FROM parcela
+                 WHERE id_contrato = c.id AND status = 'aberto') AS parcelas_abertas,
+               (SELECT MIN(vencimento)
+                  FROM parcela
+                 WHERE id_contrato = c.id AND status = 'aberto') AS vencimento_mais_antigo
+        FROM funcionario_cobranca fc
+        INNER JOIN contrato c ON c.id = fc.id_contrato
+        LEFT JOIN pessoa p    ON p.id = c.id_pessoa
+        WHERE c.status = 'aberto'
+        ORDER BY fc.id_funcionario, c.valor_credito DESC
+        """
+    )
     rows = _clean_rows(cursor.fetchall())
 
-    # Agrupar por operador
-    # Observação: 'status_operador' representa a situação de trabalho do operador
-    # (ativo, inativo, afastado, ferias). Enquanto a coluna não existir na tabela
-    # operador, todos são considerados 'ativo' por padrão. Quando a coluna for
-    # adicionada, basta ler r.get('status_operador') aqui.
-    operators_map = {}
-    for r in rows:
-        name = r['operador_nome']
-        if name not in operators_map:
-            operators_map[name] = {
-                'nome': name,
-                'status_operador': r.get('status_operador') or 'ativo',
-                'contratos': [],
-                'stats': {'total': 0, 'critico': 0, 'atencao': 0, 'recente': 0}
-            }
-        
-        operators_map[name]['contratos'].append(r)
-        operators_map[name]['stats']['total'] += 1
-        sit = r['situacao']
-        if sit == 'critico': operators_map[name]['stats']['critico'] += 1
-        elif sit == 'atenção': operators_map[name]['stats']['atencao'] += 1
-        elif sit == 'recente': operators_map[name]['stats']['recente'] += 1
-
-    # KPIs Gerais baseados nos contratos abertos atuais
-    cursor.execute("""
-        SELECT o.situacao, COUNT(*) as total 
-        FROM operador o
-        INNER JOIN contrato c ON o.grupo = c.grupo AND o.cota = c.cota
-        WHERE c.status = 'aberto' AND o.perfil = 'operador'
-        GROUP BY o.situacao
-    """)
-    kpi_rows = cursor.fetchall()
     kpis = {'total': 0, 'critico': 0, 'atencao': 0, 'recente': 0}
-    for kr in kpi_rows:
-        sit = kr['situacao']
-        val = kr['total']
-        if sit == 'critico': kpis['critico'] = val
-        elif sit == 'atenção': kpis['atencao'] = val
-        elif sit == 'recente': kpis['recente'] = val
-        kpis['total'] += val
+
+    for r in rows:
+        fid = int(r['id_funcionario'])
+        if fid not in operators_map:
+            # Funcionario que nao esta mais na tabela `funcionario` mas ainda
+            # tem vinculo na tabela `funcionario_cobranca` (edge case).
+            operators_map[fid] = {
+                'id': fid,
+                'nome': f'#{fid}',
+                'status_operador': 'inativo',
+                'contratos': [],
+                'stats': {'total': 0, 'critico': 0, 'atencao': 0, 'recente': 0},
+            }
+
+        situacao = _situacao_from_dias(r.get('dias_atraso'))
+        r['situacao'] = situacao  # o frontend usa essa chave para pintar badges
+        # Normaliza campos exibidos pelo frontend
+        if r.get('dias_atraso') is None:
+            r['dias_atraso'] = 0
+        if r.get('parcelas_abertas') is None:
+            r['parcelas_abertas'] = 0
+
+        bucket = operators_map[fid]
+        bucket['contratos'].append(r)
+        bucket['stats']['total'] += 1
+        kpis['total'] += 1
+
+        sk = _sit_key(situacao)
+        if sk in ('critico', 'atencao', 'recente'):
+            bucket['stats'][sk] += 1
+            kpis[sk] += 1
 
     cursor.close()
     conn.close()
 
+    # Preserva ordem alfabetica por nome.
+    operadores = sorted(operators_map.values(), key=lambda x: (x['nome'] or '').lower())
+
     return jsonify({
-        'operadores': list(operators_map.values()),
-        'kpis': kpis
+        'operadores': operadores,
+        'kpis': kpis,
     })
 
 
@@ -1614,40 +1619,49 @@ def _count_distinct_ocorrencias(cursor, date_ranges, status_filter=None, desc_no
     return int(row['n'] or 0)
 
 
-def _split_range_weeks(d1, d2, num_buckets=4):
-    """Divide [d1,d2] em num_buckets intervalos consecutivos (datas inclusive)."""
-    n_days = (d2 - d1).days + 1
-    if n_days <= 0:
-        return [(d1, d2)] * num_buckets
-    buckets = []
-    for i in range(num_buckets):
-        start_off = (i * n_days) // num_buckets
-        end_off = ((i + 1) * n_days + num_buckets - 1) // num_buckets - 1
-        b_start = d1 + datetime.timedelta(days=start_off)
-        b_end = d1 + datetime.timedelta(days=min(end_off, n_days - 1))
-        if b_end > d2:
-            b_end = d2
-        buckets.append((b_start, b_end))
-    return buckets
+def _daily_series(cursor, d1, d2):
+    """Retorna series com UMA barra por dia entre d1 e d2 (inclusive).
 
+    Labels vem no formato 'dd/mm' e as 3 series sao:
+      - novos       : ocorrencias com descricao 'contrato novo' (status=aberto)
+      - pagos       : ocorrencias com status='fechado'
+      - indenizados : ocorrencias com status='indenizado'
+    """
+    if d2 < d1:
+        return {'barLabels': [], 'novos': [], 'pagos': [], 'indenizados': []}
 
-def _bucket_entrada_recuperacao(cursor, buckets):
-    entrada = []
-    recuperacao = []
     labels = []
-    for i, (b1, b2) in enumerate(buckets):
-        labels.append(f'P{i + 1}')
-        entrada.append(
-            _count_distinct_ocorrencias(
-                cursor, [(b1, b2)], None, desc_novo_only=True
-            )
+    day_keys = []
+    cursor_d = d1
+    while cursor_d <= d2:
+        day_keys.append(cursor_d.isoformat())
+        labels.append(cursor_d.strftime('%d/%m'))
+        cursor_d = cursor_d + datetime.timedelta(days=1)
+
+    def _group_by_day(sql_where, params):
+        cursor.execute(
+            "SELECT DATE(o.data_arquivo) AS dia, "
+            "       COUNT(DISTINCT o.id_contrato) AS n "
+            "FROM ocorrencia o "
+            "WHERE o.data_arquivo >= %s AND o.data_arquivo <= %s "
+            + sql_where +
+            " GROUP BY DATE(o.data_arquivo)",
+            (d1.isoformat(), d2.isoformat()) + tuple(params),
         )
-        recuperacao.append(
-            _count_distinct_ocorrencias(
-                cursor, [(b1, b2)], ['fechado', 'indenizado'], False
-            )
-        )
-    return {'barLabels': labels, 'entrada': entrada, 'recuperacao': recuperacao}
+        return {str(r['dia']): int(r['n'] or 0) for r in cursor.fetchall()}
+
+    novos_map = _group_by_day(
+        " AND o.status = 'aberto' AND o.descricao LIKE '%%novo%%'", []
+    )
+    pagos_map = _group_by_day(" AND o.status = 'fechado'", [])
+    inden_map = _group_by_day(" AND o.status = 'indenizado'", [])
+
+    return {
+        'barLabels': labels,
+        'novos': [novos_map.get(k, 0) for k in day_keys],
+        'pagos': [pagos_map.get(k, 0) for k in day_keys],
+        'indenizados': [inden_map.get(k, 0) for k in day_keys],
+    }
 
 
 @app.route('/api/performance')
@@ -1716,8 +1730,9 @@ def api_performance():
     kpi_parcelas_crit = int(cursor.fetchone()['n'] or 0)
 
     safras_out = []
-    bar_entrada = []
-    bar_recuperacao = []
+    bar_novos = []
+    bar_pagos = []
+    bar_indenizados = []
 
     for parte in range(4):
         d_m0a, d_m0b = _safra_bounds(y, m, parte)
@@ -1735,8 +1750,7 @@ def api_performance():
         d60 = _count_distinct_ocorrencias(cursor, ranges_m_m1, ['fechado', 'indenizado'], False)
         d90 = _count_distinct_ocorrencias(cursor, ranges_m_m2, ['fechado', 'indenizado'], False)
 
-        buckets = _split_range_weeks(d_m0a, d_m0b, 4)
-        detail = _bucket_entrada_recuperacao(cursor, buckets)
+        detail = _daily_series(cursor, d_m0a, d_m0b)
         doughnut_safra = [d30, max(0, d60 - d30), max(0, d90 - d60)]
 
         safras_out.append({
@@ -1750,9 +1764,11 @@ def api_performance():
         })
 
         novos_safra = _count_distinct_ocorrencias(cursor, ranges_m, None, desc_novo_only=True)
-        rec_safra = _count_distinct_ocorrencias(cursor, ranges_m, ['fechado', 'indenizado'], False)
-        bar_entrada.append(novos_safra)
-        bar_recuperacao.append(rec_safra)
+        pagos_safra = _count_distinct_ocorrencias(cursor, ranges_m, ['fechado'], False)
+        inden_safra = _count_distinct_ocorrencias(cursor, ranges_m, ['indenizado'], False)
+        bar_novos.append(novos_safra)
+        bar_pagos.append(pagos_safra)
+        bar_indenizados.append(inden_safra)
 
     # Doughnut global: contratos abertos com parcela vencida, por dias de atraso (min vencimento)
     cursor.execute(
@@ -1794,11 +1810,518 @@ def api_performance():
         'safras': safras_out,
         'chart_all': {
             'barLabels': safra_labels,
-            'entrada': bar_entrada,
-            'recuperacao': bar_recuperacao,
+            'novos': bar_novos,
+            'pagos': bar_pagos,
+            'indenizados': bar_indenizados,
             'doughnut': doughnut_global,
         },
     })
+
+
+# ---------------------------------------------------------------------------
+# API: Performance — exportacao (xlsx / pdf / powerbi)
+# ---------------------------------------------------------------------------
+
+_SERIES_LABELS_EXPORT = {
+    'novos': 'Contratos Novos',
+    'pagos': 'Contratos Pagos',
+    'indenizados': 'Contratos Indenizados',
+}
+_FAIXA_LABELS_EXPORT = {
+    'd30': 'Ate 30 dias',
+    'd60': '31 a 60 dias',
+    'd90': 'Acima de 60 dias',
+}
+_SAFRA_LABELS_EXPORT = [
+    'Safra 1 (01 - 09)',
+    'Safra 2 (10 - 12)',
+    'Safra 3 (13 - 19)',
+    'Safra 4 (20 - fim)',
+]
+
+
+def _resolve_export_payload():
+    """Le o JSON do POST de exportacao e valida / normaliza o conteudo."""
+    payload = request.get_json(silent=True) or {}
+    mes = str(payload.get('mes', '')).strip()
+    if not mes or len(mes) < 7:
+        return None, 'Parametro mes obrigatorio (YYYY-MM)'
+    try:
+        y, m = int(mes[:4]), int(mes[5:7])
+        datetime.date(y, m, 1)
+    except ValueError:
+        return None, 'mes invalido'
+
+    raw_idx = payload.get('safra_index')
+    if raw_idx in (None, '', 'all'):
+        safra_index = None
+    else:
+        try:
+            safra_index = int(raw_idx)
+            if safra_index < 0 or safra_index > 3:
+                safra_index = None
+        except (TypeError, ValueError):
+            safra_index = None
+
+    series = [s for s in (payload.get('series') or []) if s in _SERIES_LABELS_EXPORT]
+    if not series:
+        series = list(_SERIES_LABELS_EXPORT.keys())
+    faixas = [f for f in (payload.get('faixas') or []) if f in _FAIXA_LABELS_EXPORT]
+    if not faixas:
+        faixas = list(_FAIXA_LABELS_EXPORT.keys())
+
+    return {
+        'mes': mes,
+        'y': y,
+        'm': m,
+        'safra_index': safra_index,
+        'series': series,
+        'faixas': faixas,
+        'bar_image': payload.get('bar_image') or '',
+        'pie_image': payload.get('pie_image') or '',
+    }, None
+
+
+def _fetch_export_dataset(cursor, ctx):
+    """Monta os tres blocos de dados que sao usados em qualquer formato."""
+    y, m = ctx['y'], ctx['m']
+    safra_index = ctx['safra_index']
+    series = ctx['series']
+
+    # --- Resumo por safra (sempre as 4, para contexto) ---
+    safras_summary = []
+    for parte in range(4):
+        d_a, d_b = _safra_bounds(y, m, parte)
+        y1, m1 = _shift_month(y, m, 1)
+        y2, m2 = _shift_month(y, m, 2)
+        d_a1, d_b1 = _safra_bounds(y1, m1, parte)
+        d_a2, d_b2 = _safra_bounds(y2, m2, parte)
+        ranges_m = [(d_a, d_b)]
+        ranges_m1 = [(d_a, d_b), (d_a1, d_b1)]
+        ranges_m2 = [(d_a, d_b), (d_a1, d_b1), (d_a2, d_b2)]
+        safras_summary.append({
+            'label': _SAFRA_LABELS_EXPORT[parte],
+            'inicio': d_a.isoformat(),
+            'fim': d_b.isoformat(),
+            'volume': _count_distinct_ocorrencias(cursor, ranges_m, None, False),
+            'd30': _count_distinct_ocorrencias(cursor, ranges_m, ['fechado', 'indenizado'], False),
+            'd60': _count_distinct_ocorrencias(cursor, ranges_m1, ['fechado', 'indenizado'], False),
+            'd90': _count_distinct_ocorrencias(cursor, ranges_m2, ['fechado', 'indenizado'], False),
+        })
+
+    # --- Serie para o grafico de barras ---
+    series_rows = []
+    if safra_index is None:
+        # Visao geral: uma linha por safra, uma entrada por serie
+        for parte in range(4):
+            d_a, d_b = _safra_bounds(y, m, parte)
+            ranges_m = [(d_a, d_b)]
+            values = {
+                'novos': _count_distinct_ocorrencias(cursor, ranges_m, None, desc_novo_only=True),
+                'pagos': _count_distinct_ocorrencias(cursor, ranges_m, ['fechado'], False),
+                'indenizados': _count_distinct_ocorrencias(cursor, ranges_m, ['indenizado'], False),
+            }
+            for s in series:
+                series_rows.append({
+                    'safra': _SAFRA_LABELS_EXPORT[parte],
+                    'data': d_a.isoformat(),
+                    'serie': _SERIES_LABELS_EXPORT[s],
+                    'valor': values[s],
+                })
+    else:
+        d_a, d_b = _safra_bounds(y, m, safra_index)
+        daily = _daily_series(cursor, d_a, d_b)
+        for i, label in enumerate(daily['barLabels']):
+            for s in series:
+                series_rows.append({
+                    'safra': _SAFRA_LABELS_EXPORT[safra_index],
+                    'data': label,
+                    'serie': _SERIES_LABELS_EXPORT[s],
+                    'valor': daily[s][i],
+                })
+
+    # --- Distribuicao (doughnut global) ---
+    cursor.execute(
+        """
+        SELECT CASE
+            WHEN DATEDIFF(CURDATE(), v.min_v) BETWEEN 1 AND 30 THEN 'd30'
+            WHEN DATEDIFF(CURDATE(), v.min_v) BETWEEN 31 AND 60 THEN 'd60'
+            WHEN DATEDIFF(CURDATE(), v.min_v) > 60 THEN 'd90'
+            ELSE 'out'
+        END AS faixa, COUNT(*) AS n
+        FROM (
+            SELECT c.id, MIN(par.vencimento) AS min_v
+            FROM contrato c
+            INNER JOIN parcela par ON par.id_contrato = c.id AND par.status = 'aberto'
+            WHERE c.status = 'aberto'
+            GROUP BY c.id
+            HAVING min_v < CURDATE()
+        ) v
+        GROUP BY faixa
+        """
+    )
+    dg = {'d30': 0, 'd60': 0, 'd90': 0}
+    for r in cursor.fetchall():
+        if r['faixa'] in dg:
+            dg[r['faixa']] = int(r['n'] or 0)
+    faixas_rows = [
+        {'faixa': _FAIXA_LABELS_EXPORT[k], 'total': dg[k]}
+        for k in ctx['faixas']
+    ]
+
+    # --- Contratos envolvidos na selecao ---
+    # Monta filtro de datas conforme safra selecionada (ou uniao das 4)
+    if safra_index is None:
+        date_ranges = [_safra_bounds(y, m, p) for p in range(4)]
+    else:
+        date_ranges = [_safra_bounds(y, m, safra_index)]
+
+    date_parts = []
+    date_params = []
+    for d1, d2 in date_ranges:
+        date_parts.append('(o.data_arquivo >= %s AND o.data_arquivo <= %s)')
+        date_params += [d1.isoformat(), d2.isoformat()]
+    where_date = '(' + ' OR '.join(date_parts) + ')'
+
+    status_filters = []
+    serie_params = []
+    if 'pagos' in series or 'indenizados' in series:
+        status_set = []
+        if 'pagos' in series: status_set.append('fechado')
+        if 'indenizados' in series: status_set.append('indenizado')
+        ph = ','.join(['%s'] * len(status_set))
+        status_filters.append('(o.status IN (' + ph + '))')
+        serie_params += status_set
+    if 'novos' in series:
+        status_filters.append("(o.status = 'aberto' AND o.descricao LIKE '%%novo%%')")
+    where_series = '(' + ' OR '.join(status_filters) + ')' if status_filters else '1=1'
+
+    sql = (
+        "SELECT DISTINCT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
+        "       c.valor_credito, c.data_adesao, "
+        "       p.nome_completo AS devedor, p.cpf_cnpj AS devedor_cpf_cnpj "
+        "FROM ocorrencia o "
+        "INNER JOIN contrato c ON c.id = o.id_contrato "
+        "LEFT JOIN pessoa p ON p.id = c.id_pessoa "
+        f"WHERE {where_date} AND {where_series} "
+        "ORDER BY c.grupo, c.cota"
+    )
+    cursor.execute(sql, tuple(date_params) + tuple(serie_params))
+    contratos = _clean_rows(cursor.fetchall())
+
+    return {
+        'resumo': safras_summary,
+        'series': series_rows,
+        'faixas': faixas_rows,
+        'contratos': contratos,
+    }
+
+
+def _export_context_labels(ctx):
+    safra_lbl = 'Visao geral (todas as safras)' if ctx['safra_index'] is None else _SAFRA_LABELS_EXPORT[ctx['safra_index']]
+    series_lbl = ', '.join(_SERIES_LABELS_EXPORT[s] for s in ctx['series'])
+    faixas_lbl = ', '.join(_FAIXA_LABELS_EXPORT[f] for f in ctx['faixas'])
+    return safra_lbl, series_lbl, faixas_lbl
+
+
+def _export_to_xlsx(ctx, dataset):
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    wb = Workbook()
+    header_font = Font(bold=True, color='FFFFFF', size=11)
+    header_fill = PatternFill(start_color='3B82F6', end_color='3B82F6', fill_type='solid')
+    header_align = Alignment(horizontal='center', vertical='center')
+    thin = Side(style='thin', color='D1D5DB')
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    def _write_sheet(ws, headers, rows):
+        for col_idx, h in enumerate(headers, start=1):
+            cell = ws.cell(row=1, column=col_idx, value=h)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+            cell.border = border
+        for row_idx, r in enumerate(rows, start=2):
+            for col_idx, val in enumerate(r, start=1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=val)
+                cell.border = border
+        for col_idx, h in enumerate(headers, start=1):
+            max_len = len(str(h))
+            for row_idx in range(2, 2 + len(rows)):
+                v = ws.cell(row=row_idx, column=col_idx).value
+                max_len = max(max_len, len(str(v)) if v is not None else 0)
+            ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = min(max_len + 4, 40)
+
+    # Aba 1: Contexto
+    ws0 = wb.active
+    ws0.title = 'Parametros'
+    safra_lbl, series_lbl, faixas_lbl = _export_context_labels(ctx)
+    ws0['A1'] = 'Parametros da exportacao'
+    ws0['A1'].font = Font(bold=True, size=13)
+    info = [
+        ('Mes/Ano', ctx['mes']),
+        ('Safra em analise', safra_lbl),
+        ('Series selecionadas', series_lbl),
+        ('Faixas de atraso', faixas_lbl),
+        ('Gerado em', datetime.datetime.now().strftime('%d/%m/%Y %H:%M')),
+    ]
+    for i, (k, v) in enumerate(info, start=3):
+        ws0.cell(row=i, column=1, value=k).font = Font(bold=True)
+        ws0.cell(row=i, column=2, value=v)
+    ws0.column_dimensions['A'].width = 24
+    ws0.column_dimensions['B'].width = 60
+
+    # Aba 2: Resumo das safras
+    ws1 = wb.create_sheet('Resumo Safras')
+    _write_sheet(
+        ws1,
+        ['Safra', 'Inicio', 'Fim', 'Volume', 'Ate 30 dias', 'Ate 60 dias', 'Ate 90 dias'],
+        [[r['label'], r['inicio'], r['fim'], r['volume'], r['d30'], r['d60'], r['d90']]
+         for r in dataset['resumo']],
+    )
+
+    # Aba 3: Series (tidy long-format, ideal para PowerBI tambem)
+    ws2 = wb.create_sheet('Series Graficas')
+    _write_sheet(
+        ws2,
+        ['Safra', 'Data/Dia', 'Serie', 'Valor'],
+        [[r['safra'], r['data'], r['serie'], r['valor']] for r in dataset['series']],
+    )
+
+    # Aba 4: Distribuicao
+    ws3 = wb.create_sheet('Faixas de Atraso')
+    _write_sheet(
+        ws3,
+        ['Faixa', 'Total de contratos'],
+        [[r['faixa'], r['total']] for r in dataset['faixas']],
+    )
+
+    # Aba 5: Contratos selecionados
+    ws4 = wb.create_sheet('Contratos')
+    contratos = dataset['contratos']
+    headers = ['ID', 'Grupo', 'Cota', 'Nro Contrato', 'Status', 'Valor do Credito',
+               'Data de Adesao', 'Devedor', 'CPF/CNPJ']
+    keys = ['id', 'grupo', 'cota', 'numero_contrato', 'status', 'valor_credito',
+            'data_adesao', 'devedor', 'devedor_cpf_cnpj']
+    _write_sheet(ws4, headers, [[c.get(k, '') for k in keys] for c in contratos])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+def _export_to_csv_powerbi(ctx, dataset):
+    """Gera um .csv tidy long-format otimizado para 'Get Data -> Text/CSV' no Power BI.
+
+    Cada linha descreve uma observacao unica com as dimensoes necessarias.
+    """
+    import csv
+
+    buf = io.StringIO()
+    writer = csv.writer(buf, delimiter=';')
+    # Cabecalho com metadados (PowerBI ignora e o usuario entende)
+    safra_lbl, series_lbl, faixas_lbl = _export_context_labels(ctx)
+    writer.writerow(['# Performance JB - export Power BI'])
+    writer.writerow(['# Mes/Ano', ctx['mes']])
+    writer.writerow(['# Safra', safra_lbl])
+    writer.writerow(['# Series', series_lbl])
+    writer.writerow(['# Faixas', faixas_lbl])
+    writer.writerow(['# Gerado em', datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')])
+    writer.writerow([])
+
+    # Tabela 1 - Series (tidy)
+    writer.writerow(['tabela', 'safra', 'data', 'serie', 'valor'])
+    for r in dataset['series']:
+        writer.writerow(['series', r['safra'], r['data'], r['serie'], r['valor']])
+
+    # Tabela 2 - Resumo safras
+    for r in dataset['resumo']:
+        writer.writerow(['resumo_safra', r['label'], r['inicio'], 'volume', r['volume']])
+        writer.writerow(['resumo_safra', r['label'], r['inicio'], 'd30', r['d30']])
+        writer.writerow(['resumo_safra', r['label'], r['inicio'], 'd60', r['d60']])
+        writer.writerow(['resumo_safra', r['label'], r['inicio'], 'd90', r['d90']])
+
+    # Tabela 3 - Faixas
+    for r in dataset['faixas']:
+        writer.writerow(['faixas', '-', '-', r['faixa'], r['total']])
+
+    # Tabela 4 - Contratos
+    for c in dataset['contratos']:
+        writer.writerow([
+            'contratos',
+            str(c.get('grupo') or '') + '/' + str(c.get('cota') or ''),
+            c.get('data_adesao') or '',
+            c.get('status') or '',
+            c.get('valor_credito') or 0,
+            c.get('devedor') or '',
+            c.get('devedor_cpf_cnpj') or '',
+            c.get('numero_contrato') or '',
+        ])
+
+    data = buf.getvalue().encode('utf-8-sig')  # BOM para Power BI detectar UTF-8
+    out = io.BytesIO(data)
+    out.seek(0)
+    return out
+
+
+def _decode_data_url_png(data_url):
+    """Aceita 'data:image/png;base64,xxxx' -> bytes. Retorna None se invalido."""
+    import base64
+    if not data_url or ',' not in data_url:
+        return None
+    try:
+        _, b64 = data_url.split(',', 1)
+        return base64.b64decode(b64)
+    except Exception:
+        return None
+
+
+def _export_to_pdf(ctx, dataset):
+    from fpdf import FPDF
+
+    pdf = FPDF(orientation='L', unit='mm', format='A4')
+    pdf.set_auto_page_break(auto=True, margin=12)
+    pdf.add_page()
+
+    safra_lbl, series_lbl, faixas_lbl = _export_context_labels(ctx)
+
+    # Cabecalho
+    pdf.set_font('Helvetica', 'B', 16)
+    pdf.cell(0, 10, 'Performance JB - Relatorio Exportado', ln=True, align='C')
+    pdf.set_font('Helvetica', '', 10)
+    pdf.cell(0, 6, 'Mes/Ano: ' + ctx['mes'] + '   |   Safra: ' + safra_lbl, ln=True, align='C')
+    pdf.cell(0, 6, 'Series: ' + series_lbl, ln=True, align='C')
+    pdf.cell(0, 6, 'Faixas: ' + faixas_lbl, ln=True, align='C')
+    pdf.cell(0, 6, 'Gerado em ' + datetime.datetime.now().strftime('%d/%m/%Y %H:%M'), ln=True, align='C')
+    pdf.ln(4)
+
+    # Graficos (imagens vindas do client)
+    tmp_files = []
+    try:
+        bar_bytes = _decode_data_url_png(ctx['bar_image'])
+        pie_bytes = _decode_data_url_png(ctx['pie_image'])
+
+        page_w = pdf.w - 2 * pdf.l_margin
+        if bar_bytes and pie_bytes:
+            tf_bar = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+            tf_bar.write(bar_bytes); tf_bar.close(); tmp_files.append(tf_bar.name)
+            tf_pie = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+            tf_pie.write(pie_bytes); tf_pie.close(); tmp_files.append(tf_pie.name)
+            img_h = 75
+            col_w = (page_w - 6) / 2
+            y0 = pdf.get_y()
+            pdf.image(tf_bar.name, x=pdf.l_margin, y=y0, w=col_w, h=img_h)
+            pdf.image(tf_pie.name, x=pdf.l_margin + col_w + 6, y=y0, w=col_w, h=img_h)
+            pdf.set_y(y0 + img_h + 6)
+        elif bar_bytes:
+            tf_bar = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+            tf_bar.write(bar_bytes); tf_bar.close(); tmp_files.append(tf_bar.name)
+            pdf.image(tf_bar.name, x=pdf.l_margin, w=page_w, h=90)
+            pdf.ln(4)
+
+        # Tabela: Resumo das safras
+        pdf.set_font('Helvetica', 'B', 11)
+        pdf.cell(0, 7, 'Resumo das safras', ln=True)
+        pdf.set_font('Helvetica', 'B', 9)
+        pdf.set_fill_color(59, 130, 246); pdf.set_text_color(255, 255, 255)
+        headers = ['Safra', 'Inicio', 'Fim', 'Volume', 'Ate 30d', 'Ate 60d', 'Ate 90d']
+        col_w = [70, 30, 30, 25, 30, 30, 30]
+        for i, h in enumerate(headers):
+            pdf.cell(col_w[i], 7, h, border=1, align='C', fill=True)
+        pdf.ln()
+        pdf.set_font('Helvetica', '', 9)
+        pdf.set_text_color(30, 41, 59)
+        for idx, r in enumerate(dataset['resumo']):
+            fill = idx % 2 == 1
+            if fill: pdf.set_fill_color(248, 250, 252)
+            else: pdf.set_fill_color(255, 255, 255)
+            vals = [r['label'], r['inicio'], r['fim'], r['volume'], r['d30'], r['d60'], r['d90']]
+            for i, v in enumerate(vals):
+                pdf.cell(col_w[i], 7, str(v), border=1, align='C', fill=True)
+            pdf.ln()
+        pdf.ln(4)
+
+        # Tabela: Contratos (ate 300)
+        contratos = dataset['contratos'][:300]
+        pdf.set_font('Helvetica', 'B', 11)
+        pdf.cell(0, 7, 'Contratos selecionados (' + str(len(dataset['contratos'])) + ' total, mostrando ' + str(len(contratos)) + ')', ln=True)
+        pdf.set_font('Helvetica', 'B', 8)
+        pdf.set_fill_color(59, 130, 246); pdf.set_text_color(255, 255, 255)
+        ch = ['Grupo/Cota', 'Nro Contrato', 'Status', 'Valor Credito', 'Adesao', 'Devedor', 'CPF/CNPJ']
+        cw = [28, 32, 22, 32, 24, 90, 40]
+        for i, h in enumerate(ch):
+            pdf.cell(cw[i], 6, h, border=1, align='C', fill=True)
+        pdf.ln()
+        pdf.set_font('Helvetica', '', 7)
+        pdf.set_text_color(30, 41, 59)
+        for idx, c in enumerate(contratos):
+            fill = idx % 2 == 1
+            if fill: pdf.set_fill_color(248, 250, 252)
+            else: pdf.set_fill_color(255, 255, 255)
+            valor = c.get('valor_credito')
+            try:
+                valor_fmt = 'R$ ' + f"{float(valor):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            except Exception:
+                valor_fmt = str(valor or '-')
+            row = [
+                str(c.get('grupo') or '') + '/' + str(c.get('cota') or ''),
+                str(c.get('numero_contrato') or '-'),
+                str(c.get('status') or '-'),
+                valor_fmt,
+                str(c.get('data_adesao') or '-'),
+                (str(c.get('devedor') or '-'))[:50],
+                str(c.get('devedor_cpf_cnpj') or '-'),
+            ]
+            for i, v in enumerate(row):
+                pdf.cell(cw[i], 6, v, border=1, align='C', fill=True)
+            pdf.ln()
+
+        buf = io.BytesIO()
+        pdf.output(buf)
+        buf.seek(0)
+        return buf
+    finally:
+        for p in tmp_files:
+            try: os.unlink(p)
+            except Exception: pass
+
+
+@app.route('/api/performance/export/<formato>', methods=['POST'])
+def api_performance_export(formato):
+    formato = (formato or '').lower()
+    if formato not in ('xlsx', 'pdf', 'powerbi'):
+        return jsonify({'error': 'formato invalido'}), 400
+
+    ctx, err = _resolve_export_payload()
+    if err:
+        return jsonify({'error': err}), 400
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        dataset = _fetch_export_dataset(cursor, ctx)
+    finally:
+        cursor.close()
+        conn.close()
+
+    ts = datetime.datetime.now().strftime('%Y%m%d_%H%M')
+    safra_slug = 'geral' if ctx['safra_index'] is None else 'safra' + str(ctx['safra_index'] + 1)
+    base = f'performance_{ctx["mes"]}_{safra_slug}_{ts}'
+
+    if formato == 'xlsx':
+        buf = _export_to_xlsx(ctx, dataset)
+        return send_file(buf, as_attachment=True, download_name=base + '.xlsx',
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    if formato == 'pdf':
+        buf = _export_to_pdf(ctx, dataset)
+        return send_file(buf, as_attachment=True, download_name=base + '.pdf',
+                         mimetype='application/pdf')
+    # powerbi -> csv
+    buf = _export_to_csv_powerbi(ctx, dataset)
+    return send_file(buf, as_attachment=True, download_name=base + '_powerbi.csv',
+                     mimetype='text/csv')
 
 
 if __name__ == '__main__':

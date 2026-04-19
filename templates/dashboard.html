@@ -3,42 +3,51 @@
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='busca.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='relatorios.css') }}">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 {% endblock %}
 
 {% block content %}
 <div class="dashboard-wrapper">
-    
+
     <!-- Resumo / KPIs -->
-    <div class="kpi-row">
-        <div class="kpi-card priority">
+    <div class="kpi-row" id="kpiRow">
+        <div class="kpi-card priority" data-kpi="em_cobranca">
             <div class="kpi-icon"><i class="fa-solid fa-folder-open"></i></div>
             <div class="kpi-content">
-                <p class="kpi-title">Em Cobrança</p>
+                <p class="kpi-title">Em Cobrança <span class="kpi-hint">(hoje)</span></p>
                 <h2 class="kpi-value" id="kpiAbertos">--</h2>
             </div>
         </div>
 
-        <div class="kpi-card success">
+        <div class="kpi-card success" data-kpi="pagos">
             <div class="kpi-icon"><i class="fa-solid fa-check-double"></i></div>
             <div class="kpi-content">
-                <p class="kpi-title">Pagos (Mês)</p>
+                <p class="kpi-title">Pagos <span class="kpi-hint" id="kpiPagosPeriodo">(período)</span></p>
                 <h2 class="kpi-value" id="kpiPagos">--</h2>
             </div>
         </div>
 
-        <div class="kpi-card warning">
+        <div class="kpi-card warning" data-kpi="indenizados">
             <div class="kpi-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
             <div class="kpi-content">
-                <p class="kpi-title">Indenizados</p>
+                <p class="kpi-title">Indenizados <span class="kpi-hint" id="kpiIndenizadosPeriodo">(período)</span></p>
                 <h2 class="kpi-value" id="kpiIndenizados">--</h2>
             </div>
         </div>
 
-        <div class="kpi-card neutral">
+        <div class="kpi-card info" data-kpi="novos">
+            <div class="kpi-icon"><i class="fa-solid fa-file-circle-plus"></i></div>
+            <div class="kpi-content">
+                <p class="kpi-title">Novos <span class="kpi-hint" id="kpiNovosPeriodo">(período)</span></p>
+                <h2 class="kpi-value" id="kpiNovos">--</h2>
+            </div>
+        </div>
+
+        <div class="kpi-card neutral" data-kpi="retomados">
             <div class="kpi-icon"><i class="fa-solid fa-rotate-left"></i></div>
             <div class="kpi-content">
-                <p class="kpi-title">Retomados (Mês)</p>
+                <p class="kpi-title">Retomados <span class="kpi-hint" id="kpiRetomadosPeriodo">(período)</span></p>
                 <h2 class="kpi-value" id="kpiRetomados">--</h2>
             </div>
         </div>
@@ -48,17 +57,18 @@
     <div class="charts-row">
         <div class="chart-container line-chart-container">
             <div class="card-header-slim">
-                <h3>Evolução: Pagos vs Indenizados</h3>
-                <span class="subtitle">Últimos meses</span>
+                <h3 id="lineChartTitle">Evolução</h3>
+                <span class="subtitle" id="lineChartSubtitle">Selecione o período abaixo</span>
             </div>
             <div class="chart-wrapper">
                 <canvas id="lineChart"></canvas>
             </div>
         </div>
-        
+
         <div class="chart-container pie-chart-container">
             <div class="card-header-slim">
                 <h3>Distribuição da Carteira</h3>
+                <span class="subtitle" id="pieChartSubtitle">Status atuais</span>
             </div>
             <div class="chart-wrapper">
                 <canvas id="pieChart"></canvas>
@@ -66,35 +76,87 @@
         </div>
     </div>
 
-    <!-- Tabela de Prioridade -->
-    <div class="table-section">
-        <div class="table-header">
-            <h3>Prioridade de Cobrança - Contratos Abertos</h3>
-            <div class="filter-dropdown-container" style="position: relative;">
-                <button class="primary-btn btn-sm" id="btn-filter"><i class="fa-solid fa-filter"></i> Filtrar</button>
-                <div class="filter-dropdown-menu" id="filter-dropdown" style="display: none;">
-                    <div class="filter-dropdown-header">Filtrar por Status</div>
-                    <label class="filter-option"><input type="checkbox" value="Crítico" checked> <span class="status-badge status-danger">Crítico</span></label>
-                    <label class="filter-option"><input type="checkbox" value="Atenção" checked> <span class="status-badge status-warning">Atenção</span></label>
-                    <label class="filter-option"><input type="checkbox" value="Recente" checked> <span class="status-badge status-active">Recente</span></label>
+    <!-- Painel de Controle Interativo -->
+    <div class="control-panel" id="controlPanel">
+        <div class="control-panel-header">
+            <div>
+                <h3><i class="fa-solid fa-sliders"></i> Painel de Controle</h3>
+                <span class="subtitle">Manipule as séries, o período e a carteira plotados nos gráficos acima</span>
+            </div>
+            <button class="btn-ghost" id="btnResetControles" type="button">
+                <i class="fa-solid fa-rotate-right"></i> Restaurar padrão
+            </button>
+        </div>
+
+        <div class="control-panel-grid">
+
+            <!-- 1. Series do grafico de linhas -->
+            <div class="control-card">
+                <div class="control-card-title">
+                    <i class="fa-solid fa-chart-line"></i>
+                    <span>Séries comparadas</span>
+                </div>
+                <p class="control-card-desc">O que plotar no gráfico de evolução</p>
+                <div class="control-card-body" id="seriesSelector">
+                    <label class="chip-option chip-pagos">
+                        <input type="checkbox" data-serie="pagos" checked>
+                        <span class="chip-dot" style="background:#10b981"></span>
+                        <span>Contratos pagos</span>
+                    </label>
+                    <label class="chip-option chip-indenizados">
+                        <input type="checkbox" data-serie="indenizados" checked>
+                        <span class="chip-dot" style="background:#f59e0b"></span>
+                        <span>Contratos indenizados</span>
+                    </label>
+                    <label class="chip-option chip-novos">
+                        <input type="checkbox" data-serie="novos">
+                        <span class="chip-dot" style="background:#3b82f6"></span>
+                        <span>Contratos novos</span>
+                    </label>
+                    <label class="chip-option chip-retomados">
+                        <input type="checkbox" data-serie="retomados">
+                        <span class="chip-dot" style="background:#8b5cf6"></span>
+                        <span>Contratos que voltaram</span>
+                    </label>
                 </div>
             </div>
-        </div>
-        <div class="table-responsive">
-            <table class="styled-table">
-                <thead>
-                    <tr>
-                        <th>Grupo / Cota</th>
-                        <th>Devedor</th>
-                        <th>Parcelas em Aberto</th>
-                        <th>Vencimento Mais Antigo</th>
-                        <th>Status</th>
-                        <th class="text-right">Ação</th>
-                    </tr>
-                </thead>
-                <tbody id="prioridadeBody">
-                </tbody>
-            </table>
+
+            <!-- 2. Periodo -->
+            <div class="control-card">
+                <div class="control-card-title">
+                    <i class="fa-regular fa-calendar-days"></i>
+                    <span>Período exibido</span>
+                </div>
+                <p class="control-card-desc">Meses que aparecem nos gráficos e nos KPIs</p>
+                <div class="control-card-body period-body">
+                    <div class="period-field">
+                        <label for="periodoInicio">Mês inicial</label>
+                        <select id="periodoInicio"></select>
+                    </div>
+                    <div class="period-field">
+                        <label for="periodoFim">Mês final</label>
+                        <select id="periodoFim"></select>
+                    </div>
+                    <div class="period-presets">
+                        <button type="button" class="preset-btn" data-preset="3">3 meses</button>
+                        <button type="button" class="preset-btn" data-preset="6">6 meses</button>
+                        <button type="button" class="preset-btn" data-preset="12">12 meses</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. Distribuicao da carteira (pie) -->
+            <div class="control-card">
+                <div class="control-card-title">
+                    <i class="fa-solid fa-chart-pie"></i>
+                    <span>Distribuição da carteira</span>
+                </div>
+                <p class="control-card-desc">Fatias exibidas no gráfico de distribuição</p>
+                <div class="control-card-body" id="pieSelector">
+                    <!-- preenchido dinamicamente -->
+                </div>
+            </div>
+
         </div>
     </div>
 
