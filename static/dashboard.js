@@ -334,6 +334,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                     html += '<li><i class="fa-solid fa-phone"></i> ' + esc(t.numero || '-');
                     if (t.ramal) html += ' (ramal ' + esc(t.ramal) + ')';
                     html += '<button class="btn-ligar" title="Ligar"><i class="fa-solid fa-phone-volume"></i></button>';
+                    html += '<button class="btn-mensagem" title="Enviar Mensagem"><i class="fa-solid fa-comment-dots"></i></button>';
                     html += '<span class="contact-tipo">' + esc(t.tipo) + '</span></li>';
                 });
                 html += '</ul></div>';
@@ -342,6 +343,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 html += '<div><ul class="contact-list">';
                 emails.forEach(function (em) {
                     html += '<li><i class="fa-solid fa-envelope"></i> ' + esc(em.email || '-');
+                    html += '<button class="btn-mensagem" title="Enviar Mensagem"><i class="fa-solid fa-comment-dots"></i></button>';
                     html += '<span class="contact-tipo">' + esc(em.tipo) + '</span></li>';
                 });
                 html += '</ul></div>';
