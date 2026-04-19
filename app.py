@@ -21,7 +21,7 @@ PYTHON_EXE = sys.executable
 _SUBPROCESS_ENV = {**os.environ, 'PYTHONUNBUFFERED': '1'}
 _POPEN_EXTRA = {}
 if sys.platform == 'win32':
-    _POPEN_EXTRA['creationflags'] = subprocess.CREATE_NO_WIND
+    _POPEN_EXTRA['creationflags'] = subprocess.CREATE_NO_WINDOW
 
 DB_CONFIG = {
     'host': 'localhost',
