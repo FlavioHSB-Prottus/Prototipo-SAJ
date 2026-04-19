@@ -6,8 +6,16 @@ document.addEventListener('DOMContentLoaded', function () {
     
     const filterOperador = document.getElementById('filterOperador');
     const filterSituacao = document.getElementById('filterSituacao');
+    const filterStatusOperador = document.getElementById('filterStatusOperador');
     const filterSearch = document.getElementById('filterSearch');
     const btnSearchClear = document.getElementById('btnSearchClear');
+
+    const STATUS_OPERADOR_LABELS = {
+        ativo:    { label: 'Ativo',    icon: 'fa-circle-check' },
+        inativo:  { label: 'Inativo',  icon: 'fa-circle-xmark' },
+        afastado: { label: 'Afastado', icon: 'fa-user-clock' },
+        ferias:   { label: 'Férias',   icon: 'fa-umbrella-beach' }
+    };
 
     const kpiTotal = document.getElementById('kpiTotal');
     const kpiCritico = document.getElementById('kpiCritico');
@@ -34,6 +42,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     filterOperador.addEventListener('change', applyFilters);
     filterSituacao.addEventListener('change', applyFilters);
+    filterStatusOperador.addEventListener('change', applyFilters);
     
     filterSearch.addEventListener('input', function() {
         btnSearchClear.classList.toggle('visible', this.value.length > 0);
@@ -93,11 +102,16 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const selOp = filterOperador.value;
         const selSit = filterSituacao.value;
+        const selStatusOp = filterStatusOperador.value;
         const search = filterSearch.value.trim().toLowerCase();
 
         let filteredOperators = currentData.operadores.map(op => {
             // Se filtramos por um operador específico
             if (selOp && op.nome !== selOp) return null;
+
+            // Filtro de status do operador (ativo / inativo / afastado / ferias)
+            const opStatus = (op.status_operador || 'ativo').toLowerCase();
+            if (selStatusOp && opStatus !== selStatusOp) return null;
 
             // Filtrar os contratos deste operador
             const filteredContracts = op.contratos.filter(c => {
@@ -146,17 +160,25 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function createOperatorBlock(op, color) {
         const div = document.createElement('div');
-        div.className = 'operador-block';
+        div.className = 'operador-block collapsed';
         div.setAttribute('data-color', color);
 
         const initials = op.nome.split(' ').map(n => n[0]).join('').substring(0, 2);
+
+        const statusKey = (op.status_operador || 'ativo').toLowerCase();
+        const statusInfo = STATUS_OPERADOR_LABELS[statusKey] || STATUS_OPERADOR_LABELS.ativo;
 
         div.innerHTML = `
             <div class="operador-header">
                 <div class="operador-header-left">
                     <div class="operador-avatar">${initials}</div>
                     <div class="operador-name-area">
-                        <h4>${esc(op.nome)}</h4>
+                        <h4>
+                            ${esc(op.nome)}
+                            <span class="status-operador-pill status-${esc(statusKey)}" title="Status do operador">
+                                <i class="fa-solid ${statusInfo.icon}"></i> ${statusInfo.label}
+                            </span>
+                        </h4>
                         <span class="operador-subtitle">Operador de Cobrança</span>
                     </div>
                 </div>
