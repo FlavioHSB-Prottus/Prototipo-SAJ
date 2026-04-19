@@ -474,6 +474,12 @@ def api_contrato_detalhe(contrato_id):
     )
     ocorrencias = _clean_rows(cursor.fetchall())
 
+    cursor.execute(
+        "SELECT * FROM tramitacao WHERE id_contrato = %s ORDER BY data DESC",
+        (contrato_id,),
+    )
+    tramitacoes = _clean_rows(cursor.fetchall())
+
     cursor.close()
     conn.close()
     return jsonify({
@@ -488,6 +494,7 @@ def api_contrato_detalhe(contrato_id):
         'avalista_emails': avalista_email,
         'parcelas': parcelas,
         'ocorrencias': ocorrencias,
+        'tramitacoes': tramitacoes,
     })
 
 
