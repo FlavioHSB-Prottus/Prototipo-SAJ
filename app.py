@@ -1047,12 +1047,17 @@ def api_operadores_dashboard():
     rows = _clean_rows(cursor.fetchall())
 
     # Agrupar por operador
+    # Observação: 'status_operador' representa a situação de trabalho do operador
+    # (ativo, inativo, afastado, ferias). Enquanto a coluna não existir na tabela
+    # operador, todos são considerados 'ativo' por padrão. Quando a coluna for
+    # adicionada, basta ler r.get('status_operador') aqui.
     operators_map = {}
     for r in rows:
         name = r['operador_nome']
         if name not in operators_map:
             operators_map[name] = {
                 'nome': name,
+                'status_operador': r.get('status_operador') or 'ativo',
                 'contratos': [],
                 'stats': {'total': 0, 'critico': 0, 'atencao': 0, 'recente': 0}
             }

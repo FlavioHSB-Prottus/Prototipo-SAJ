@@ -295,12 +295,59 @@
     font-weight: 600;
     color: var(--primary-color);
     margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
 }
 
 .operador-name-area .operador-subtitle {
     font-size: 0.8rem;
     color: var(--text-muted);
     margin-top: 2px;
+}
+
+/* Pílula de Status do Operador (Ativo / Inativo / Afastado / Férias) */
+.status-operador-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    line-height: 1.4;
+    border: 1px solid transparent;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.status-operador-pill i {
+    font-size: 0.7rem;
+}
+
+.status-operador-pill.status-ativo {
+    background-color: #ecfdf5;
+    color: #059669;
+    border-color: #a7f3d0;
+}
+
+.status-operador-pill.status-inativo {
+    background-color: #f1f5f9;
+    color: #64748b;
+    border-color: #cbd5e1;
+}
+
+.status-operador-pill.status-afastado {
+    background-color: #fef2f2;
+    color: #dc2626;
+    border-color: #fecaca;
+}
+
+.status-operador-pill.status-ferias {
+    background-color: #eff6ff;
+    color: #2563eb;
+    border-color: #bfdbfe;
 }
 
 .operador-header-right {
