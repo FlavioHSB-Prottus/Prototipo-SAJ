@@ -327,13 +327,14 @@ document.addEventListener('DOMContentLoaded', function () {
             html += '<i class="fa-solid fa-chevron-down" style="pointer-events:none; transition: transform 0.3s ease;"></i></h3>';
             html += '<div class="tramitacao-container d-none">'; // inicialmente oculto
             html += '<div class="table-responsive"><table class="styled-table modal-table"><thead><tr>';
-            html += '<th>Data</th><th>Tipo</th><th>CPC</th>';
+            html += '<th>Data</th><th>Tipo</th><th>CPC</th><th>Descrição</th>';
             html += '</tr></thead><tbody>';
             data.tramitacoes.forEach(function (t) {
                 html += '<tr>';
                 html += '<td>' + formatDateTime(t.data) + '</td>';
                 html += '<td><span class="status-badge status-active">' + esc(t.tipo) + '</span></td>';
                 html += '<td><span class="status-badge ' + (String(t.cpc).toLowerCase()==='sim'?'status-success':(String(t.cpc).toLowerCase()==='nao'?'status-danger':'status-warning')) + '">' + esc(t.cpc) + '</span></td>';
+                html += '<td>' + esc(t.descricao) + '</td>';
                 html += '</tr>';
             });
             html += '</tbody></table></div></div></div>';
