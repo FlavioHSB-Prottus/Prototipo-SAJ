@@ -349,12 +349,13 @@ document.addEventListener('DOMContentLoaded', function () {
                     <i class="fa-solid fa-chevron-down" style="pointer-events:none; transition: transform 0.3s ease;"></i>
                 </h3>
                 <div class="tramitacao-container d-none">
-                    <div class="table-responsive"><table class="styled-table modal-table"><thead><tr><th>Data</th><th>Tipo</th><th>CPC</th></tr></thead><tbody>
+                    <div class="table-responsive"><table class="styled-table modal-table"><thead><tr><th>Data</th><th>Tipo</th><th>CPC</th><th>Descrição</th></tr></thead><tbody>
                         ${data.tramitacoes.map(t => `
                             <tr>
                                 <td>${formatDateTime(t.data)}</td>
                                 <td><span class="status-badge status-active">${esc(t.tipo)}</span></td>
                                 <td><span class="status-badge ${String(t.cpc).toLowerCase()==='sim'?'status-success':(String(t.cpc).toLowerCase()==='nao'?'status-danger':'status-warning')}">${esc(t.cpc)}</span></td>
+                                <td>${esc(t.descricao)}</td>
                             </tr>
                         `).join('')}
                     </tbody></table></div>
