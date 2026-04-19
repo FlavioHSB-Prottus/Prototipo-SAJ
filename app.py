@@ -689,6 +689,33 @@ def _bem_concat_expr(alias_bem='b'):
     return f"CONCAT_WS(' / ', {cols})"
 
 
+def _fetch_bens_para_contrato(cursor, contrato):
+    """Retorna lista de bens (dicts) ligados ao contrato informado.
+
+    Usa a chave de join detectada automaticamente (id_contrato ou grupo+cota).
+    Devolve lista vazia quando a tabela nao existe ou nao possui chave de join.
+    """
+    info = _get_bem_schema()
+    if not info['table'] or not info['join_on']:
+        return []
+
+    table = info['table']
+    try:
+        if info['join_on'] == 'id_contrato':
+            cursor.execute(
+                f"SELECT * FROM `{table}` WHERE id_contrato = %s",
+                (contrato['id'],),
+            )
+        else:
+            cursor.execute(
+                f"SELECT * FROM `{table}` WHERE grupo = %s AND cota = %s",
+                (contrato.get('grupo'), contrato.get('cota')),
+            )
+        return _clean_rows(cursor.fetchall())
+    except Exception:
+        return []
+
+
 # ---------------------------------------------------------------------------
 # API: Busca por Pessoa / Contrato
 # ---------------------------------------------------------------------------
@@ -878,6 +905,8 @@ def api_contrato_detalhe(contrato_id):
     )
     tramitacoes = _clean_rows(cursor.fetchall())
 
+    bens = _fetch_bens_para_contrato(cursor, contrato)
+
     cursor.close()
     conn.close()
     return jsonify({
@@ -893,6 +922,7 @@ def api_contrato_detalhe(contrato_id):
         'parcelas': parcelas,
         'ocorrencias': ocorrencias,
         'tramitacoes': tramitacoes,
+        'bens': bens,
     })
 
 

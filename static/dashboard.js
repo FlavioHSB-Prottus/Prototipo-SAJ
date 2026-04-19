@@ -253,6 +253,8 @@ document.addEventListener('DOMContentLoaded', async function () {
             html += renderPessoaSection('Avalista', data.avalista, data.avalista_enderecos, data.avalista_telefones, data.avalista_emails);
         }
 
+        html += renderBemSection(data.bens);
+
         if (data.parcelas && data.parcelas.length > 0) {
             html += '<div class="detail-section"><h3><i class="fa-solid fa-list-ol"></i> Parcelas (' + data.parcelas.length + ')</h3>';
             html += '<div class="table-responsive"><table class="styled-table modal-table"><thead><tr>';
@@ -305,6 +307,60 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
 
         modalContent.innerHTML = html;
+    }
+
+    function renderBemSection(bens) {
+        if (!bens || bens.length === 0) return '';
+        var skipFields = { id: 1, id_contrato: 1, grupo: 1, cota: 1, created_at: 1, updated_at: 1 };
+        var titulo = bens.length > 1 ? ('Bem (' + bens.length + ')') : 'Bem';
+        var html = '<div class="detail-section"><h3><i class="fa-solid fa-box"></i> ' + titulo + '</h3>';
+        bens.forEach(function (bem, idx) {
+            if (bens.length > 1) {
+                html += '<h4 style="margin:16px 0 8px;color:#6b7280;font-size:0.95rem;">Item ' + (idx + 1) + '</h4>';
+            }
+            html += '<div class="detail-grid">';
+            var anyField = false;
+            Object.keys(bem).forEach(function (key) {
+                if (skipFields[key]) return;
+                var value = bem[key];
+                if (value === null || value === undefined || value === '') return;
+                anyField = true;
+                html += dataItem(humanizeBemField(key), formatBemValue(key, value));
+            });
+            if (!anyField) {
+                html += '<div style="color:#9ca3af;">Sem informações adicionais.</div>';
+            }
+            html += '</div>';
+        });
+        html += '</div>';
+        return html;
+    }
+
+    function humanizeBemField(key) {
+        var map = {
+            descricao: 'Descrição', descricao_bem: 'Descrição',
+            modelo: 'Modelo', marca: 'Marca', categoria: 'Categoria',
+            codigo: 'Código', codigo_bem: 'Código do Bem',
+            valor: 'Valor', valor_bem: 'Valor do Bem', valor_avaliacao: 'Valor de Avaliação',
+            nome: 'Nome', ano: 'Ano', ano_fabricacao: 'Ano de Fabricação',
+            ano_modelo: 'Ano Modelo', placa: 'Placa', chassi: 'Chassi',
+            renavam: 'Renavam', cor: 'Cor', tipo: 'Tipo', status: 'Status',
+            combustivel: 'Combustível', observacao: 'Observação', observacoes: 'Observações'
+        };
+        if (map[key]) return map[key];
+        return String(key).replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+    }
+
+    function formatBemValue(key, value) {
+        var k = String(key).toLowerCase();
+        if (k.indexOf('valor') !== -1 || k.indexOf('preco') !== -1) {
+            var n = Number(value);
+            if (!isNaN(n) && isFinite(n)) return formatCurrency(n);
+        }
+        if (k === 'data' || k.indexOf('data_') === 0 || k.indexOf('_data') !== -1) {
+            return formatDate(value);
+        }
+        return value;
     }
 
     function renderPessoaSection(titulo, pessoa, enderecos, telefones, emails) {
