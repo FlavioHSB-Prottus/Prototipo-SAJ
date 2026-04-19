@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // ---- Referências DOM ----
     const blocksContainer = document.getElementById('blocksContainer');
+    const kanbanContainer = document.getElementById('kanbanContainer');
     const operadorSelect = document.getElementById('operadorSelect');
     const totalDisplay = document.getElementById('totalDisplay');
     const footerCritico = document.getElementById('footerCritico');
@@ -9,6 +10,11 @@ document.addEventListener('DOMContentLoaded', function () {
     const footerRecente = document.getElementById('footerRecente');
     const toolbarTotal = document.getElementById('toolbarTotal');
     const loadingState = document.getElementById('loadingState');
+
+    // Toggle de layout
+    const viewToggleButtons = document.querySelectorAll('.view-toggle-btn');
+    const VIEW_STORAGE_KEY = 'cobrancaViewMode';
+    let currentView = localStorage.getItem(VIEW_STORAGE_KEY) || 'analitico'; // 'analitico' | 'kanban'
 
     // Pesquisa
     const searchInput = document.getElementById('searchInput');
@@ -41,11 +47,37 @@ document.addEventListener('DOMContentLoaded', function () {
     };
 
     // ---- Carregamento Inicial ----
+    applyViewMode(currentView);
     loadCobranca();
 
     operadorSelect.addEventListener('change', function () {
         loadCobranca();
     });
+
+    // ---- Toggle Analitico / Kanban ----
+    viewToggleButtons.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var v = this.getAttribute('data-view');
+            if (v === currentView) return;
+            currentView = v;
+            localStorage.setItem(VIEW_STORAGE_KEY, v);
+            applyViewMode(v);
+            applyFilter(); // re-renderiza no layout correspondente
+        });
+    });
+
+    function applyViewMode(mode) {
+        viewToggleButtons.forEach(function (b) {
+            b.classList.toggle('active', b.getAttribute('data-view') === mode);
+        });
+        if (mode === 'kanban') {
+            blocksContainer.style.display = 'none';
+            kanbanContainer.style.display = 'grid';
+        } else {
+            blocksContainer.style.display = '';
+            kanbanContainer.style.display = 'none';
+        }
+    }
 
     // ---- Pesquisa ----
     searchType.addEventListener('change', function () {
@@ -86,18 +118,18 @@ document.addEventListener('DOMContentLoaded', function () {
         const tipo = searchType.value;
 
         if (!termo) {
-            renderBlocks(currentData);
+            renderView(currentData);
             return;
         }
 
-        // Filtrar cada bloco
         const filtered = {
             critico: filterContracts(currentData.critico, termo, tipo),
             atencao: filterContracts(currentData.atencao, termo, tipo),
             recente: filterContracts(currentData.recente, termo, tipo),
+            funcionarios: currentData.funcionarios,
         };
 
-        renderBlocks(filtered);
+        renderView(filtered);
     }
 
     function filterContracts(contracts, termo, tipo) {
@@ -114,14 +146,15 @@ document.addEventListener('DOMContentLoaded', function () {
                 case 'grupo_cota':
                     return grupoCota.indexOf(termo) !== -1 || grupoCotaCompact.indexOf(termo) !== -1;
                 case 'bem':
-                    // Campo "bem" ainda não existe no banco, mas já preparamos
-                    return matchField(c.bem, termo);
+                    // Vem populado pelo backend via JOIN na tabela bem/bens
+                    // (ou string vazia se ainda nao houver bens cadastrados).
+                    return matchField(c.bem_descricao, termo);
                 default: // 'all'
                     return matchField(c.cpf_cnpj, termo) ||
                         matchField(c.nome_devedor, termo) ||
                         grupoCota.indexOf(termo) !== -1 ||
                         grupoCotaCompact.indexOf(termo) !== -1 ||
-                        matchField(c.bem, termo) ||
+                        matchField(c.bem_descricao, termo) ||
                         matchField(c.numero_contrato, termo);
             }
         });
@@ -138,9 +171,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
         try {
             let url = '/api/cobranca';
-            const operador = operadorSelect.value;
-            if (operador) {
-                url += '?operador=' + encodeURIComponent(operador);
+            const funcId = operadorSelect.value;
+            if (funcId) {
+                url += '?funcionario_id=' + encodeURIComponent(funcId);
             }
 
             const resp = await fetch(url);
@@ -154,22 +187,22 @@ document.addEventListener('DOMContentLoaded', function () {
                 recente: { column: null, order: 'asc' }
             };
 
-            // Preencher dropdown de operadores (apenas 1 vez ou se lista mudou)
-            if (data.operadores && data.operadores.length > 0) {
+            // Preencher dropdown de funcionarios (apenas 1 vez ou se lista mudou)
+            if (data.funcionarios && data.funcionarios.length > 0) {
                 const currentVal = operadorSelect.value;
                 const hasOptions = operadorSelect.options.length > 1;
                 if (!hasOptions) {
-                    data.operadores.forEach(function (op) {
+                    data.funcionarios.forEach(function (f) {
                         const opt = document.createElement('option');
-                        opt.value = op;
-                        opt.textContent = op;
+                        opt.value = String(f.id);
+                        opt.textContent = f.nome;
                         operadorSelect.appendChild(opt);
                     });
                     if (currentVal) operadorSelect.value = currentVal;
                 }
             }
 
-            renderBlocks(data);
+            renderView(data);
         } catch (err) {
             blocksContainer.innerHTML =
                 '<div class="empty-block"><i class="fa-solid fa-triangle-exclamation"></i>' +
@@ -177,12 +210,34 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    // Roteador de renderizacao (respeita o layout selecionado).
+    function renderView(data) {
+        if (currentView === 'kanban') {
+            renderKanban(data);
+        } else {
+            renderBlocks(data);
+        }
+        updateCounters(data);
+    }
+
+    function updateCounters(data) {
+        var total = (data.critico ? data.critico.length : 0) +
+            (data.atencao ? data.atencao.length : 0) +
+            (data.recente ? data.recente.length : 0);
+        if (totalDisplay) totalDisplay.textContent = total.toLocaleString('pt-BR');
+        if (toolbarTotal) toolbarTotal.textContent = total.toLocaleString('pt-BR');
+        if (footerCritico) footerCritico.textContent = (data.critico ? data.critico.length : 0).toLocaleString('pt-BR');
+        if (footerAtencao) footerAtencao.textContent = (data.atencao ? data.atencao.length : 0).toLocaleString('pt-BR');
+        if (footerRecente) footerRecente.textContent = (data.recente ? data.recente.length : 0).toLocaleString('pt-BR');
+    }
+
     function showLoading() {
         if (loadingState) loadingState.style.display = 'flex';
         blocksContainer.innerHTML = '';
+        if (kanbanContainer) kanbanContainer.innerHTML = '';
     }
 
-    // ---- Renderização ----
+    // ---- Renderização: visão Analítica ----
     function renderBlocks(data) {
         if (loadingState) loadingState.style.display = 'none';
         blocksContainer.innerHTML = '';
@@ -204,17 +259,145 @@ document.addEventListener('DOMContentLoaded', function () {
             buildPriorityBlock('recente', 'Recente', '1 – 30 dias de atraso',
                 'fa-solid fa-clock', sortLevelData(data.recente, 'recente'))
         );
+    }
 
-        // Atualizar contagens
-        const total = (data.critico ? data.critico.length : 0) +
-            (data.atencao ? data.atencao.length : 0) +
-            (data.recente ? data.recente.length : 0);
+    // ---- Renderização: visão Kanban (3 colunas verticais) ----
+    function renderKanban(data) {
+        if (loadingState) loadingState.style.display = 'none';
+        kanbanContainer.innerHTML = '';
 
-        if (totalDisplay) totalDisplay.textContent = total.toLocaleString('pt-BR');
-        if (toolbarTotal) toolbarTotal.textContent = total.toLocaleString('pt-BR');
-        if (footerCritico) footerCritico.textContent = (data.critico ? data.critico.length : 0).toLocaleString('pt-BR');
-        if (footerAtencao) footerAtencao.textContent = (data.atencao ? data.atencao.length : 0).toLocaleString('pt-BR');
-        if (footerRecente) footerRecente.textContent = (data.recente ? data.recente.length : 0).toLocaleString('pt-BR');
+        kanbanContainer.appendChild(
+            buildKanbanColumn('critico', 'Crítico', '60 – 90+ dias de atraso',
+                'fa-solid fa-fire', sortLevelData(data.critico, 'critico'))
+        );
+        kanbanContainer.appendChild(
+            buildKanbanColumn('atencao', 'Atenção', '30 – 60 dias de atraso',
+                'fa-solid fa-exclamation-triangle', sortLevelData(data.atencao, 'atencao'))
+        );
+        kanbanContainer.appendChild(
+            buildKanbanColumn('recente', 'Recente', '1 – 30 dias de atraso',
+                'fa-solid fa-clock', sortLevelData(data.recente, 'recente'))
+        );
+    }
+
+    function buildKanbanColumn(level, title, desc, iconClass, contracts) {
+        var col = document.createElement('div');
+        col.className = 'kanban-col kanban-' + level + ' collapsed';
+
+        var count = contracts ? contracts.length : 0;
+
+        // Header da coluna (clicavel para expandir/recolher)
+        var header = document.createElement('div');
+        header.className = 'kanban-col-header';
+        header.innerHTML =
+            '<div class="kanban-col-title">' +
+            '  <div class="kanban-col-icon"><i class="' + iconClass + '"></i></div>' +
+            '  <div>' +
+            '    <h4>' + esc(title) + '</h4>' +
+            '    <span class="kanban-col-desc">' + esc(desc) + '</span>' +
+            '  </div>' +
+            '</div>' +
+            '<div class="kanban-col-header-right">' +
+            '  <span class="kanban-col-count">' + count + '</span>' +
+            '  <i class="fa-solid fa-chevron-down kanban-col-chevron"></i>' +
+            '</div>';
+        header.addEventListener('click', function () {
+            col.classList.toggle('collapsed');
+        });
+        col.appendChild(header);
+
+        // Corpo: cards rolaveis
+        var body = document.createElement('div');
+        body.className = 'kanban-col-body';
+
+        if (!contracts || contracts.length === 0) {
+            body.innerHTML =
+                '<div class="kanban-empty">' +
+                '<i class="fa-regular fa-circle-check"></i>' +
+                '<span>Nenhum contrato nesta faixa.</span>' +
+                '</div>';
+        } else {
+            contracts.forEach(function (c) {
+                body.appendChild(buildKanbanCard(level, c));
+            });
+        }
+
+        col.appendChild(body);
+        return col;
+    }
+
+    function buildKanbanCard(level, c) {
+        var card = document.createElement('div');
+        card.className = 'kanban-card kanban-card-' + level;
+        card.setAttribute('data-id', c.id);
+
+        var dias = c.dias_atraso || 0;
+        if (typeof dias === 'string') dias = parseInt(dias) || 0;
+
+        var funcHTML = '';
+        if (c.nome_funcionario) {
+            funcHTML =
+                '<div class="kanban-card-func" title="Funcionário responsável">' +
+                '  <i class="fa-solid fa-user-tie"></i> ' + esc(c.nome_funcionario) +
+                '</div>';
+        } else {
+            funcHTML =
+                '<div class="kanban-card-func func-unassigned" title="Sem funcionário atribuído">' +
+                '  <i class="fa-solid fa-user-slash"></i> Não atribuído' +
+                '</div>';
+        }
+
+        var bemLine = '';
+        if (c.bem_descricao) {
+            bemLine = '<div class="kanban-card-bem" title="' + esc(c.bem_descricao) + '">' +
+                '  <i class="fa-solid fa-car-side"></i> ' + esc(c.bem_descricao) +
+                '</div>';
+        }
+
+        card.innerHTML =
+            '<div class="kanban-card-top">' +
+            '  <span class="kanban-grupo">' + esc(c.grupo) + ' / ' + esc(c.cota) + '</span>' +
+            '  <span class="dias-badge dias-' + level + '">' +
+            '    <i class="fa-solid fa-clock"></i> ' + dias + 'd' +
+            '  </span>' +
+            '</div>' +
+            '<div class="kanban-card-nome">' + esc(c.nome_devedor || '—') + '</div>' +
+            '<div class="kanban-card-cpf">' + esc(c.cpf_cnpj || '—') + '</div>' +
+            bemLine +
+            '<div class="kanban-card-meta">' +
+            '  <span><i class="fa-solid fa-layer-group"></i> ' + (c.parcelas_abertas || 0) + ' parc. abertas</span>' +
+            '  <span><i class="fa-solid fa-calendar-day"></i> ' + formatDate(c.vencimento_mais_antigo) + '</span>' +
+            '</div>' +
+            '<div class="kanban-card-valor">' + formatCurrency(c.valor_credito) + '</div>' +
+            funcHTML +
+            '<div class="kanban-card-actions">' +
+            '  <button class="btn-cobrar btn-kanban-cobrar" data-id="' + c.id + '"' +
+            '    data-nome="' + esc(c.nome_devedor || '') + '"' +
+            '    data-cpf="' + esc(c.cpf_cnpj || '') + '"' +
+            '    data-grupo="' + esc(c.grupo || '') + '"' +
+            '    data-cota="' + esc(c.cota || '') + '">' +
+            '    <i class="fa-solid fa-phone"></i> Cobrar' +
+            '  </button>' +
+            '  <button class="btn-detalhes btn-kanban-detalhes" data-id="' + c.id + '">' +
+            '    <i class="fa-solid fa-file-lines"></i> Detalhes' +
+            '  </button>' +
+            '</div>';
+
+        // Handlers
+        card.querySelector('.btn-kanban-detalhes').addEventListener('click', function (e) {
+            e.stopPropagation();
+            openContractDetails(this.getAttribute('data-id'));
+        });
+        card.querySelector('.btn-kanban-cobrar').addEventListener('click', function (e) {
+            e.stopPropagation();
+            iniciarCobranca(this);
+        });
+        // Clicar no card tambem abre detalhes (igual tabela do analitico).
+        card.addEventListener('click', function () {
+            openContractDetails(c.id);
+        });
+
+        return card;
     }
 
     function buildPriorityBlock(level, title, desc, iconClass, contracts) {
@@ -381,7 +564,7 @@ document.addEventListener('DOMContentLoaded', function () {
             '    </div>' +
             '    <div class="expand-item">' +
             '      <span class="expand-label">Bem</span>' +
-            '      <span class="expand-value">—</span>' +
+            '      <span class="expand-value">' + esc(contract.bem_descricao || '—') + '</span>' +
             '    </div>' +
             '    <div class="expand-item">' +
             '      <span class="expand-label">Nro Contrato</span>' +
@@ -516,6 +699,9 @@ document.addEventListener('DOMContentLoaded', function () {
             html += renderPessoaSection('Avalista', data.avalista, data.avalista_enderecos, data.avalista_telefones, data.avalista_emails);
         }
 
+        // Bem
+        html += renderBemSection(data.bens);
+
         // Parcelas
         if (data.parcelas && data.parcelas.length > 0) {
             html += '<div class="detail-section"><h3><i class="fa-solid fa-list-ol"></i> Parcelas (' + data.parcelas.length + ')</h3>';
@@ -570,6 +756,60 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         modalContent.innerHTML = html;
+    }
+
+    function renderBemSection(bens) {
+        if (!bens || bens.length === 0) return '';
+        var skipFields = { id: 1, id_contrato: 1, grupo: 1, cota: 1, created_at: 1, updated_at: 1 };
+        var titulo = bens.length > 1 ? ('Bem (' + bens.length + ')') : 'Bem';
+        var html = '<div class="detail-section"><h3><i class="fa-solid fa-box"></i> ' + titulo + '</h3>';
+        bens.forEach(function (bem, idx) {
+            if (bens.length > 1) {
+                html += '<h4 style="margin:16px 0 8px;color:#6b7280;font-size:0.95rem;">Item ' + (idx + 1) + '</h4>';
+            }
+            html += '<div class="detail-grid">';
+            var anyField = false;
+            Object.keys(bem).forEach(function (key) {
+                if (skipFields[key]) return;
+                var value = bem[key];
+                if (value === null || value === undefined || value === '') return;
+                anyField = true;
+                html += dataItem(humanizeBemField(key), formatBemValue(key, value));
+            });
+            if (!anyField) {
+                html += '<div style="color:#9ca3af;">Sem informações adicionais.</div>';
+            }
+            html += '</div>';
+        });
+        html += '</div>';
+        return html;
+    }
+
+    function humanizeBemField(key) {
+        var map = {
+            descricao: 'Descrição', descricao_bem: 'Descrição',
+            modelo: 'Modelo', marca: 'Marca', categoria: 'Categoria',
+            codigo: 'Código', codigo_bem: 'Código do Bem',
+            valor: 'Valor', valor_bem: 'Valor do Bem', valor_avaliacao: 'Valor de Avaliação',
+            nome: 'Nome', ano: 'Ano', ano_fabricacao: 'Ano de Fabricação',
+            ano_modelo: 'Ano Modelo', placa: 'Placa', chassi: 'Chassi',
+            renavam: 'Renavam', cor: 'Cor', tipo: 'Tipo', status: 'Status',
+            combustivel: 'Combustível', observacao: 'Observação', observacoes: 'Observações'
+        };
+        if (map[key]) return map[key];
+        return String(key).replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+    }
+
+    function formatBemValue(key, value) {
+        var k = String(key).toLowerCase();
+        if (k.indexOf('valor') !== -1 || k.indexOf('preco') !== -1) {
+            var n = Number(value);
+            if (!isNaN(n) && isFinite(n)) return formatCurrency(n);
+        }
+        if (k === 'data' || k.indexOf('data_') === 0 || k.indexOf('_data') !== -1) {
+            return formatDate(value);
+        }
+        return value;
     }
 
     function renderPessoaSection(titulo, pessoa, enderecos, telefones, emails) {
