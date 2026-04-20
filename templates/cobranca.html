@@ -106,11 +106,62 @@
     </div>
 </div>
 
+<!-- =============================================================== -->
+<!-- Modais das automações (SMS / E-mail / Ligação)                  -->
+<!-- =============================================================== -->
+
+<!-- Confirmação inicial -->
+<div class="auto-overlay" id="autoConfirmOverlay" role="dialog" aria-modal="true">
+    <div class="auto-modal">
+        <header class="auto-modal-header">
+            <div class="auto-modal-title-wrap">
+                <div class="auto-modal-icon" id="autoConfirmIcon"><i class="fa-solid fa-bolt"></i></div>
+                <h3 class="auto-modal-title" id="autoConfirmTitle">Confirmar disparo</h3>
+            </div>
+            <button type="button" class="auto-close-btn" data-close-auto title="Fechar">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </header>
+        <div class="auto-modal-body" id="autoConfirmBody">
+            <!-- Conteudo populado via JS -->
+        </div>
+        <footer class="auto-modal-footer">
+            <button type="button" class="auto-btn-secondary" data-close-auto>Cancelar</button>
+            <button type="button" class="auto-btn-primary" id="autoConfirmGo">
+                <i class="fa-solid fa-paper-plane"></i>
+                <span class="auto-confirm-go-label">Confirmar e disparar</span>
+            </button>
+        </footer>
+    </div>
+</div>
+
+<!-- Status / Progresso (lote ou ligação sequencial) -->
+<div class="auto-overlay" id="autoStatusOverlay" role="dialog" aria-modal="true">
+    <div class="auto-modal auto-modal-status">
+        <header class="auto-modal-header">
+            <div class="auto-modal-title-wrap">
+                <div class="auto-modal-icon" id="autoStatusIcon"><i class="fa-solid fa-tower-broadcast"></i></div>
+                <h3 class="auto-modal-title" id="autoStatusTitle">Disparando...</h3>
+            </div>
+            <button type="button" class="auto-close-btn" id="autoStatusCloseX" title="Fechar">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </header>
+        <div class="auto-modal-body" id="autoStatusBody">
+            <!-- Conteudo populado via JS -->
+        </div>
+        <footer class="auto-modal-footer" id="autoStatusFooter">
+            <!-- Botoes populados via JS -->
+        </footer>
+    </div>
+</div>
+
 <script>
     document.querySelector('.module-title').textContent = 'Cobrança';
 </script>
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='cobranca_automacoes.js') }}"></script>
 <script src="{{ url_for('static', filename='cobranca.js') }}"></script>
 {% endblock %}
