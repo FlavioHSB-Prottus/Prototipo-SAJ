@@ -12,7 +12,7 @@
         <div class="card-body">
             <p class="lead-text">O sistema centralizado para gestão e cobrança de consórcios.</p>
             <p>Esta plataforma foi projetada para otimizar fluxos de trabalho, facilitar o acompanhamento de carteiras e garantir alta produtividade na recuperação de ativos. Utilize o menu lateral para acessar os módulos de Importação, Relatórios e Cadastro.</p>
-            <button class="primary-btn mt-3">Ver Tutoriais <i class="fa-solid fa-arrow-right"></i></button>
+            <button class="primary-btn mt-3" id="btnVerTutoriais" type="button">Ver Tutoriais <i class="fa-solid fa-arrow-right"></i></button>
         </div>
     </div>
 
@@ -21,35 +21,116 @@
         <div class="card-header">
             <div class="card-icon"><i class="fa-solid fa-bullhorn"></i></div>
             <h3>Mural de Avisos</h3>
+            <button class="aviso-add-btn" id="btnNovoAviso" type="button" title="Adicionar novo aviso">
+                <i class="fa-solid fa-plus"></i>
+                <span>Novo</span>
+            </button>
         </div>
         <div class="card-body">
-            <ul class="bulletin-board">
-                <li class="bulletin-item new">
-                    <span class="bulletin-date">Hoje</span>
-                    <div class="bulletin-content">
-                        <h4>Nova Política de Juros</h4>
-                        <p>Atualização nas planilhas de cálculo exigidas para grupos GM.</p>
-                    </div>
-                </li>
-                <li class="bulletin-item">
-                    <span class="bulletin-date">Ontem</span>
-                    <div class="bulletin-content">
-                        <h4>Manutenção no Servidor</h4>
-                        <p>Agendada uma breve pausa no servidor neste domingo, às 02h.</p>
-                    </div>
-                </li>
-                <li class="bulletin-item">
-                    <span class="bulletin-date">10/Abr</span>
-                    <div class="bulletin-content">
-                        <h4>Fechamento Mensal</h4>
-                        <p>Lembrete: Os arquivos de repasse devem ser consolidados até o dia 15.</p>
-                    </div>
-                </li>
+            <ul class="bulletin-board" id="bulletinBoardHome" data-editable="true">
+                <li class="bulletin-empty"><i class="fa-regular fa-hourglass-half"></i> Carregando avisos...</li>
             </ul>
         </div>
     </div>
 
 </div>
+
+<!-- ==================================================================== -->
+<!-- Modal: Criar / Editar aviso                                          -->
+<!-- ==================================================================== -->
+<div class="aviso-overlay" id="avisoOverlay" role="dialog" aria-modal="true" aria-labelledby="avisoModalTitle">
+    <div class="aviso-modal">
+        <header class="aviso-modal-header">
+            <h3 class="aviso-modal-title" id="avisoModalTitle">Novo aviso</h3>
+            <button class="aviso-close-btn" type="button" data-close-aviso title="Fechar">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </header>
+        <form class="aviso-form" id="avisoForm">
+            <input type="hidden" name="id" id="avisoId" value="">
+            <div class="aviso-field">
+                <label for="avisoTitulo">Título <span class="req">*</span></label>
+                <input type="text" id="avisoTitulo" name="titulo" maxlength="120" required
+                       placeholder="Ex.: Atualização de política de cobrança">
+            </div>
+            <div class="aviso-field">
+                <label for="avisoData">Data <span class="req">*</span></label>
+                <input type="date" id="avisoData" name="data_iso" required>
+            </div>
+            <div class="aviso-field">
+                <label for="avisoDescricao">Descrição</label>
+                <textarea id="avisoDescricao" name="descricao" rows="4"
+                          placeholder="Texto completo do aviso..." maxlength="500"></textarea>
+            </div>
+            <div class="aviso-modal-footer">
+                <button type="button" class="aviso-btn-secondary" data-close-aviso>Cancelar</button>
+                <button type="submit" class="aviso-btn-primary">
+                    <i class="fa-solid fa-check"></i>
+                    <span class="aviso-submit-label">Salvar</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Confirmacao de exclusao -->
+<div class="aviso-confirm-overlay" id="avisoConfirmOverlay" role="dialog" aria-modal="true">
+    <div class="aviso-confirm-modal">
+        <div class="aviso-confirm-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+        <h3>Excluir aviso</h3>
+        <p>Tem certeza que deseja excluir este aviso? Essa ação não pode ser desfeita.</p>
+        <div class="aviso-confirm-actions">
+            <button type="button" class="aviso-btn-secondary" data-close-confirm>Cancelar</button>
+            <button type="button" class="aviso-btn-danger" id="btnConfirmarExclusao">
+                <i class="fa-solid fa-trash"></i> Excluir
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- ==================================================================== -->
+<!-- Modal: Central de Tutoriais                                          -->
+<!-- ==================================================================== -->
+<div class="tutorial-overlay" id="tutorialOverlay" role="dialog" aria-modal="true" aria-labelledby="tutorialModalTitle">
+    <div class="tutorial-modal">
+        <header class="tutorial-modal-header">
+            <div class="tutorial-modal-left">
+                <button class="tutorial-back-btn" type="button" title="Voltar">
+                    <i class="fa-solid fa-arrow-left"></i>
+                </button>
+                <h3 class="tutorial-modal-title" id="tutorialModalTitle">Central de Tutoriais</h3>
+            </div>
+            <button class="tutorial-close-btn" type="button" data-close-tutorial title="Fechar">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </header>
+
+        <div class="tutorial-modal-body">
+            <!-- View: lista de modulos -->
+            <section class="tutorial-list-view show">
+                <div class="tutorial-list-intro">
+                    <p>Escolha um módulo abaixo para ver o passo a passo de uso, para que ele serve e como aproveitar melhor cada recurso.</p>
+                </div>
+                <div class="tutorial-modules-grid"></div>
+            </section>
+
+            <!-- View: detalhe/passo a passo -->
+            <section class="tutorial-detail-view">
+                <div class="tutorial-detail-header"></div>
+                <div class="tutorial-detail-intro"></div>
+                <ol class="tutorial-steps"></ol>
+                <div class="tutorial-detail-footer">
+                    <button class="tutorial-back-link" type="button" onclick="document.querySelector('.tutorial-back-btn').click()">
+                        <i class="fa-solid fa-arrow-left"></i> Ver outros tutoriais
+                    </button>
+                    <button class="tutorial-go-btn" type="button"></button>
+                </div>
+            </section>
+        </div>
+    </div>
+</div>
+
+<script src="{{ url_for('static', filename='tutoriais.js') }}"></script>
 <script>
     // Atualiza o título do módulo no header via JS para não precisar duplicar a estrutura
     document.querySelector('.module-title').textContent = 'Início';

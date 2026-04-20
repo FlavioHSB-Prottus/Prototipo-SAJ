@@ -3102,5 +3102,142 @@ def api_agenda_item(id_agenda):
         cursor.close()
         conn.close()
 
+
+# =============================================================================
+# Mural de Avisos (persistencia em JSON, pasta data/)
+# =============================================================================
+
+_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+_AVISOS_FILE = os.path.join(_DATA_DIR, 'avisos.json')
+
+
+def _avisos_load():
+    """Le a lista de avisos do arquivo JSON. Cria seed na 1a execucao."""
+    if not os.path.isdir(_DATA_DIR):
+        os.makedirs(_DATA_DIR, exist_ok=True)
+    if not os.path.isfile(_AVISOS_FILE):
+        hoje = datetime.date.today()
+        seed = [
+            {
+                'id': 1,
+                'titulo': 'Nova Politica de Juros',
+                'descricao': 'Atualizacao nas planilhas de calculo exigidas para grupos GM.',
+                'data_iso': hoje.isoformat(),
+            },
+            {
+                'id': 2,
+                'titulo': 'Manutencao no Servidor',
+                'descricao': 'Agendada uma breve pausa no servidor neste domingo, as 02h.',
+                'data_iso': (hoje - datetime.timedelta(days=1)).isoformat(),
+            },
+            {
+                'id': 3,
+                'titulo': 'Fechamento Mensal',
+                'descricao': 'Lembrete: Os arquivos de repasse devem ser consolidados ate o dia 15.',
+                'data_iso': (hoje - datetime.timedelta(days=10)).isoformat(),
+            },
+        ]
+        _avisos_save(seed)
+        return seed
+    try:
+        with open(_AVISOS_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            return data
+        return []
+    except Exception:
+        return []
+
+
+def _avisos_save(lista):
+    os.makedirs(_DATA_DIR, exist_ok=True)
+    tmp = _AVISOS_FILE + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(lista, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, _AVISOS_FILE)
+
+
+def _avisos_next_id(lista):
+    if not lista:
+        return 1
+    return max(int(a.get('id') or 0) for a in lista) + 1
+
+
+def _avisos_sorted(lista):
+    """Ordena por data_iso desc (mais recentes primeiro)."""
+    return sorted(
+        lista,
+        key=lambda a: (a.get('data_iso') or '', a.get('id') or 0),
+        reverse=True,
+    )
+
+
+@app.route('/api/avisos', methods=['GET', 'POST'])
+def api_avisos_collection():
+    if request.method == 'GET':
+        return jsonify(_avisos_sorted(_avisos_load()))
+
+    payload = request.get_json(silent=True) or {}
+    titulo = (payload.get('titulo') or '').strip()
+    descricao = (payload.get('descricao') or '').strip()
+    data_iso = (payload.get('data_iso') or '').strip()
+
+    if not titulo:
+        return jsonify({'error': 'titulo obrigatorio'}), 400
+    if not data_iso:
+        data_iso = datetime.date.today().isoformat()
+    try:
+        datetime.date.fromisoformat(data_iso)
+    except ValueError:
+        return jsonify({'error': 'data_iso invalida (formato YYYY-MM-DD)'}), 400
+
+    lista = _avisos_load()
+    novo = {
+        'id': _avisos_next_id(lista),
+        'titulo': titulo,
+        'descricao': descricao,
+        'data_iso': data_iso,
+        'created_at': datetime.datetime.now().isoformat(timespec='seconds'),
+        'updated_at': datetime.datetime.now().isoformat(timespec='seconds'),
+    }
+    lista.append(novo)
+    _avisos_save(lista)
+    return jsonify(novo), 201
+
+
+@app.route('/api/avisos/<int:aviso_id>', methods=['PUT', 'DELETE'])
+def api_avisos_item(aviso_id):
+    lista = _avisos_load()
+    idx = next((i for i, a in enumerate(lista) if int(a.get('id') or 0) == aviso_id), -1)
+    if idx < 0:
+        return jsonify({'error': 'aviso nao encontrado'}), 404
+
+    if request.method == 'DELETE':
+        removido = lista.pop(idx)
+        _avisos_save(lista)
+        return jsonify({'success': True, 'removed': removido})
+
+    payload = request.get_json(silent=True) or {}
+    atual = lista[idx]
+    if 'titulo' in payload:
+        titulo = (payload.get('titulo') or '').strip()
+        if not titulo:
+            return jsonify({'error': 'titulo obrigatorio'}), 400
+        atual['titulo'] = titulo
+    if 'descricao' in payload:
+        atual['descricao'] = (payload.get('descricao') or '').strip()
+    if 'data_iso' in payload:
+        data_iso = (payload.get('data_iso') or '').strip()
+        try:
+            datetime.date.fromisoformat(data_iso)
+        except ValueError:
+            return jsonify({'error': 'data_iso invalida (formato YYYY-MM-DD)'}), 400
+        atual['data_iso'] = data_iso
+    atual['updated_at'] = datetime.datetime.now().isoformat(timespec='seconds')
+    lista[idx] = atual
+    _avisos_save(lista)
+    return jsonify(atual)
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True, port=5000)
