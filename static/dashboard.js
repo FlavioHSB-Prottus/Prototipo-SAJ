@@ -380,6 +380,23 @@ document.addEventListener('DOMContentLoaded', async function () {
         if (data.avalista) html += renderPessoaSection('Avalista', data.avalista, data.avalista_enderecos, data.avalista_telefones, data.avalista_emails);
         html += renderBemSection(data.bens);
 
+        if (data.tramitacoes && data.tramitacoes.length > 0) {
+            html += '<div class="detail-section"><h3><i class="fa-solid fa-clock-rotate-left"></i> Tramitações (' + data.tramitacoes.length + ')</h3>';
+            html += '<div class="table-responsive"><table class="styled-table modal-table tramitacao-table"><thead><tr>';
+            html += '<th>Data</th><th>Tipo</th><th>CPC</th><th>Funcionário</th>';
+            html += '</tr></thead><tbody>';
+            data.tramitacoes.forEach(function (t) {
+                html += '<tr class="tramitacao-row-main">';
+                html += '<td>' + formatDateTime(t.data) + '</td>';
+                html += '<td><span class="status-badge status-active">' + esc(t.tipo) + '</span></td>';
+                html += '<td><span class="status-badge ' + (String(t.cpc).toLowerCase()==='sim'?'status-success':(String(t.cpc).toLowerCase()==='nao'?'status-danger':'status-warning')) + '">' + esc(t.cpc) + '</span></td>';
+                html += '<td>' + esc(t.funcionario_nome) + '</td>';
+                html += '</tr>';
+                html += '<tr class="tramitacao-row-desc"><td colspan="4">' + esc(t.descricao || '') + '</td></tr>';
+            });
+            html += '</tbody></table></div></div>';
+        }
+
         if (data.parcelas && data.parcelas.length > 0) {
             html += '<div class="detail-section"><h3><i class="fa-solid fa-list-ol"></i> Parcelas (' + data.parcelas.length + ')</h3>';
             html += '<div class="table-responsive"><table class="styled-table modal-table"><thead><tr>';

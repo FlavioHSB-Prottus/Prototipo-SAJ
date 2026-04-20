@@ -371,14 +371,15 @@ document.addEventListener('DOMContentLoaded', function () {
                     <i class="fa-solid fa-chevron-down" style="pointer-events:none; transition: transform 0.3s ease;"></i>
                 </h3>
                 <div class="tramitacao-container d-none">
-                    <div class="table-responsive"><table class="styled-table modal-table tramitacao-table"><thead><tr><th>Data</th><th>Tipo</th><th>CPC</th></tr></thead><tbody>
+                    <div class="table-responsive"><table class="styled-table modal-table tramitacao-table"><thead><tr><th>Data</th><th>Tipo</th><th>CPC</th><th>Funcionário</th></tr></thead><tbody>
                         ${data.tramitacoes.map(t => `
                             <tr class="tramitacao-row-main">
                                 <td>${formatDateTime(t.data)}</td>
                                 <td><span class="status-badge status-active">${esc(t.tipo)}</span></td>
                                 <td><span class="status-badge ${String(t.cpc).toLowerCase()==='sim'?'status-success':(String(t.cpc).toLowerCase()==='nao'?'status-danger':'status-warning')}">${esc(t.cpc)}</span></td>
+                                <td>${esc(t.funcionario_nome)}</td>
                             </tr>
-                            <tr class="tramitacao-row-desc"><td colspan="3">
+                            <tr class="tramitacao-row-desc"><td colspan="4">
                                 <span class="tramitacao-desc-label">Descrição:</span>
                                 <span class="tramitacao-desc-text">${esc(t.descricao)}</span>
                             </td></tr>
