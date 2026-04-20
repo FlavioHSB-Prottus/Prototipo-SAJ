@@ -535,9 +535,204 @@
 .func-badge.value { background: #ecfdf5; color: #059669; border-color: #a7f3d0; }
 .func-badge.pct { background: #f1f5f9; color: #475569; }
 
+.func-transfer-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 1px solid #c7d2fe;
+    background: #eef2ff;
+    color: #4338ca;
+    border-radius: 20px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s, transform 0.1s;
+}
+
+.func-transfer-btn:hover {
+    background: #4338ca;
+    color: #fff;
+}
+
+.func-transfer-btn:active {
+    transform: scale(0.96);
+}
+
 .func-chevron {
     color: var(--text-muted);
     transition: transform 0.25s ease;
+}
+
+/* ==========================================================
+   Modal de Transferencia de contratos entre funcionarios
+   ========================================================== */
+.transfer-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 20px;
+    animation: tmFadeIn 0.2s ease;
+}
+
+@keyframes tmFadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.transfer-modal {
+    background: #fff;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 520px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    animation: tmSlideIn 0.25s ease;
+}
+
+@keyframes tmSlideIn {
+    from { transform: translateY(-20px); opacity: 0; }
+    to   { transform: translateY(0); opacity: 1; }
+}
+
+.transfer-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.transfer-modal-header h3 {
+    margin: 0 0 4px 0;
+    font-size: 1.05rem;
+    color: var(--primary-color);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.transfer-modal-sub {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+.transfer-close {
+    background: transparent;
+    border: none;
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    transition: background 0.15s, color 0.15s;
+}
+
+.transfer-close:hover {
+    background: #f1f5f9;
+    color: var(--text-main);
+}
+
+.transfer-modal-body {
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.transfer-option {
+    display: flex;
+    gap: 12px;
+    padding: 14px 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.transfer-option:hover {
+    background: #f8fafc;
+}
+
+.transfer-option input[type="radio"] {
+    margin-top: 3px;
+    accent-color: #4338ca;
+    flex-shrink: 0;
+}
+
+.transfer-option:has(input:checked) {
+    border-color: #4338ca;
+    background: #eef2ff;
+}
+
+.transfer-option-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.transfer-option-text strong {
+    font-size: 0.88rem;
+    color: var(--text-main);
+}
+
+.transfer-option-text span {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+.transfer-option-extra {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 0 16px 4px 40px;
+}
+
+.transfer-option-extra label {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.transfer-option-extra select {
+    padding: 9px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 0.88rem;
+    background: #fff;
+    color: var(--text-main);
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+
+.transfer-option-extra select:focus {
+    outline: none;
+    border-color: #4338ca;
+    box-shadow: 0 0 0 3px rgba(67, 56, 202, 0.15);
+}
+
+.transfer-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 16px 24px;
+    border-top: 1px solid var(--border-color);
+    background: #f8fafc;
 }
 
 .func-card.collapsed .func-chevron {

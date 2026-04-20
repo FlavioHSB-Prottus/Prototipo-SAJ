@@ -499,6 +499,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="func-badge total">${fmtInt(s.count)} <small>ctr</small></div>
                     <div class="func-badge value">${fmtMoney(s.value)}</div>
                     <div class="func-badge pct">${fmtPct(s.value, totals.value)} valor</div>
+                    <button type="button" class="func-transfer-btn" title="Transferir contratos deste funcionário">
+                        <i class="fa-solid fa-right-left"></i> Transferir
+                    </button>
                     <i class="fa-solid fa-chevron-down func-chevron"></i>
                 </div>
             </div>
@@ -544,6 +547,14 @@ document.addEventListener('DOMContentLoaded', () => {
         wrapper.querySelector('.func-header').addEventListener('click', () => {
             wrapper.classList.toggle('collapsed');
         });
+
+        const btnTransfer = wrapper.querySelector('.func-transfer-btn');
+        if (btnTransfer) {
+            btnTransfer.addEventListener('click', (e) => {
+                e.stopPropagation();
+                openTransferModal(f);
+            });
+        }
 
         return wrapper;
     }
@@ -626,6 +637,152 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (btnAprovarDistribuicao) btnAprovarDistribuicao.addEventListener('click', aprovarDistribuicao);
     if (btnRecarregarDistribuicao) btnRecarregarDistribuicao.addEventListener('click', () => loadDistribuicao(false));
+
+    // =====================================================================
+    // Modal de Transferencia de contratos
+    // =====================================================================
+    const transferModal = document.getElementById('transferModal');
+    const transferModalTitle = document.getElementById('transferModalTitle');
+    const transferModalSub = document.getElementById('transferModalSub');
+    const transferDestinoWrap = document.getElementById('transferDestinoWrap');
+    const transferDestinoSelect = document.getElementById('transferDestinoSelect');
+    const transferClose = document.getElementById('transferClose');
+    const transferCancelar = document.getElementById('transferCancelar');
+    const transferConfirmar = document.getElementById('transferConfirmar');
+
+    let transferOrigem = null; // { id, nome, stats: {...} }
+
+    function openTransferModal(func) {
+        if (!transferModal) return;
+        transferOrigem = func;
+        const s = func.stats || {};
+        const countCtr = fmtInt(s.count);
+        const valor = fmtMoney(s.value);
+
+        transferModalTitle.innerHTML =
+            '<i class="fa-solid fa-right-left"></i> Transferir contratos de ' + escHtml(func.nome);
+        transferModalSub.innerHTML =
+            `<strong>${countCtr}</strong> contratos (${valor}) serão movidos para outro(s) funcionário(s).`;
+
+        // Popula select com TODOS os outros funcionarios (ativos ou nao),
+        // exceto a propria origem.
+        transferDestinoSelect.innerHTML = '';
+        const disponiveis = (distribuicaoData && distribuicaoData.funcionarios_disponiveis) || [];
+        const outros = disponiveis.filter(d => Number(d.id) !== Number(func.id));
+        if (outros.length === 0) {
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = 'Nenhum outro funcionário disponível';
+            opt.disabled = true;
+            opt.selected = true;
+            transferDestinoSelect.appendChild(opt);
+        } else {
+            outros.forEach((f) => {
+                const opt = document.createElement('option');
+                opt.value = String(f.id);
+                opt.textContent = f.nome;
+                transferDestinoSelect.appendChild(opt);
+            });
+        }
+
+        // Restaura estado dos radios.
+        const radios = transferModal.querySelectorAll('input[name="transferModo"]');
+        radios.forEach(r => { r.checked = r.value === 'especifico'; });
+        applyTransferModo('especifico');
+
+        transferConfirmar.disabled = !s.count || outros.length === 0;
+        transferConfirmar.innerHTML = '<i class="fa-solid fa-check"></i> Confirmar transferência';
+
+        transferModal.classList.remove('d-none');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeTransferModal() {
+        if (!transferModal) return;
+        transferModal.classList.add('d-none');
+        document.body.style.overflow = '';
+        transferOrigem = null;
+    }
+
+    function applyTransferModo(modo) {
+        if (!transferDestinoWrap) return;
+        transferDestinoWrap.classList.toggle('d-none', modo !== 'especifico');
+    }
+
+    if (transferModal) {
+        transferModal.querySelectorAll('input[name="transferModo"]').forEach((radio) => {
+            radio.addEventListener('change', (e) => applyTransferModo(e.target.value));
+        });
+        if (transferClose) transferClose.addEventListener('click', closeTransferModal);
+        if (transferCancelar) transferCancelar.addEventListener('click', closeTransferModal);
+        transferModal.addEventListener('click', (e) => {
+            if (e.target === transferModal) closeTransferModal();
+        });
+        if (transferConfirmar) {
+            transferConfirmar.addEventListener('click', confirmarTransferencia);
+        }
+    }
+
+    async function confirmarTransferencia() {
+        if (!transferOrigem) return;
+        const modoEl = transferModal.querySelector('input[name="transferModo"]:checked');
+        const modo = modoEl ? modoEl.value : 'especifico';
+
+        const payload = {
+            id_origem: Number(transferOrigem.id),
+            modo: modo,
+        };
+
+        let mensagem = '';
+        if (modo === 'especifico') {
+            const destinoVal = transferDestinoSelect.value;
+            if (!destinoVal) {
+                alert('Selecione um funcionário de destino.');
+                return;
+            }
+            payload.id_destino = Number(destinoVal);
+            const destinoTxt = transferDestinoSelect.options[transferDestinoSelect.selectedIndex].textContent;
+            mensagem = 'Confirmar transferência de TODOS os contratos de "'
+                + transferOrigem.nome + '" para "' + destinoTxt + '"?';
+        } else {
+            mensagem = 'Redistribuir igualitariamente os contratos de "'
+                + transferOrigem.nome + '" entre os demais funcionários?';
+        }
+        if (!confirm(mensagem)) return;
+
+        transferConfirmar.disabled = true;
+        transferConfirmar.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Transferindo...';
+
+        try {
+            const resp = await fetch('/api/importacao/distribuicao/transferir', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const data = await resp.json();
+            if (!resp.ok || data.error) {
+                throw new Error(data.error || ('HTTP ' + resp.status));
+            }
+
+            let detalhe = (data.transferidos || 0) + ' contrato(s) transferidos.';
+            if (modo === 'igualitaria' && Array.isArray(data.por_destino) && data.por_destino.length) {
+                const linhas = data.por_destino
+                    .filter(d => d.count > 0)
+                    .map(d => '• ' + d.nome + ': ' + fmtInt(d.count) + ' ctr (' + fmtMoney(d.value) + ')')
+                    .join('\n');
+                if (linhas) detalhe += '\n\nDistribuição:\n' + linhas;
+            }
+            alert('Transferência concluída!\n\n' + detalhe);
+
+            closeTransferModal();
+            distribuicaoAprovadaNaSessao = false;
+            await loadDistribuicao(false);
+        } catch (err) {
+            alert('Falha na transferência: ' + err.message);
+            transferConfirmar.disabled = false;
+            transferConfirmar.innerHTML = '<i class="fa-solid fa-check"></i> Confirmar transferência';
+        }
+    }
 
     // Carrega a distribuicao atual assim que a pagina abre, mostrando o
     // estado vigente da tabela funcionario_cobranca (ou o empty-state).

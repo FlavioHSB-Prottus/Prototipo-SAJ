@@ -522,6 +522,240 @@ def api_distribuicao_reassign():
     return jsonify({'ok': True})
 
 
+@app.route('/api/importacao/distribuicao/transferir', methods=['POST'])
+def api_distribuicao_transferir():
+    """Transfere todos os contratos atribuidos a um funcionario de origem
+    para outro(s) funcionario(s).
+
+    Body JSON:
+        id_origem       (int)   - obrigatorio, funcionario que vai ficar sem carga
+        modo            (str)   - 'especifico' ou 'igualitaria'
+        id_destino      (int)   - obrigatorio quando modo='especifico'
+
+    No modo 'igualitaria' os contratos sao re-balanceados entre os demais
+    funcionarios seguindo as mesmas metricas do seed
+    (scripts/distribuir_funcionarios_cobranca.py): mesma media de valor e
+    mesma media de quantidade POR SITUACAO (critico / atencao / recente),
+    usando LPT greedy a partir da carga atual dos destinos.
+    """
+    data = request.get_json(silent=True) or {}
+    try:
+        id_origem = int(data.get('id_origem'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'id_origem invalido'}), 400
+
+    modo = (data.get('modo') or '').strip()
+    if modo not in ('especifico', 'igualitaria'):
+        return jsonify({'error': "modo deve ser 'especifico' ou 'igualitaria'"}), 400
+
+    id_destino = None
+    if modo == 'especifico':
+        try:
+            id_destino = int(data.get('id_destino'))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'id_destino invalido'}), 400
+        if id_destino == id_origem:
+            return jsonify({'error': 'Destino deve ser diferente da origem'}), 400
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT id, nome FROM funcionario WHERE id = %s", (id_origem,)
+        )
+        origem = cursor.fetchone()
+        if not origem:
+            return jsonify({'error': 'Funcionario de origem nao encontrado'}), 404
+
+        if modo == 'especifico':
+            cursor.execute(
+                "SELECT id, nome FROM funcionario WHERE id = %s", (id_destino,)
+            )
+            destino = cursor.fetchone()
+            if not destino:
+                return jsonify({'error': 'Funcionario de destino nao encontrado'}), 404
+
+            cursor.execute(
+                "UPDATE funcionario_cobranca SET id_funcionario = %s "
+                "WHERE id_funcionario = %s",
+                (id_destino, id_origem),
+            )
+            transferidos = cursor.rowcount
+            conn.commit()
+            return jsonify({
+                'ok': True,
+                'modo': modo,
+                'transferidos': transferidos,
+                'origem': {'id': int(origem['id']), 'nome': origem['nome']},
+                'destino': {'id': int(destino['id']), 'nome': destino['nome']},
+            })
+
+        # modo == 'igualitaria' ---------------------------------------------
+        # 1) Busca os demais funcionarios (destinos possiveis).
+        cursor.execute(
+            "SELECT id, nome FROM funcionario WHERE id <> %s "
+            "AND (ativo IS NULL OR ativo = 1) ORDER BY nome",
+            (id_origem,),
+        )
+        destinos = _clean_rows(cursor.fetchall())
+        if not destinos:
+            return jsonify({
+                'error': 'Nao ha outros funcionarios disponiveis para redistribuir',
+            }), 400
+        destino_ids = [int(d['id']) for d in destinos]
+
+        # 2) Contratos atualmente atribuidos a origem, com valor e dias de atraso.
+        cursor.execute(
+            """
+            SELECT fc.id                AS fc_id,
+                   fc.id_contrato,
+                   c.valor_credito,
+                   (SELECT DATEDIFF(CURDATE(), MIN(vencimento))
+                      FROM parcela
+                     WHERE id_contrato = c.id AND status = 'aberto') AS dias_atraso
+            FROM funcionario_cobranca fc
+            INNER JOIN contrato c ON c.id = fc.id_contrato
+            WHERE fc.id_funcionario = %s AND c.status = 'aberto'
+            """,
+            (id_origem,),
+        )
+        pendentes = _clean_rows(cursor.fetchall())
+
+        # Inclui tambem contratos ja fechados/indenizados que porventura
+        # estejam ligados ao origem (para esvaziar totalmente a carga dele).
+        cursor.execute(
+            "SELECT fc.id AS fc_id FROM funcionario_cobranca fc "
+            "WHERE fc.id_funcionario = %s AND fc.id_contrato NOT IN ("
+            "SELECT id_contrato FROM funcionario_cobranca fc2 "
+            "INNER JOIN contrato c ON c.id = fc2.id_contrato "
+            "WHERE fc2.id_funcionario = %s AND c.status = 'aberto')",
+            (id_origem, id_origem),
+        )
+        fechados = [int(r['fc_id']) for r in cursor.fetchall()]
+
+        if not pendentes and not fechados:
+            return jsonify({
+                'ok': True, 'modo': modo, 'transferidos': 0,
+                'origem': {'id': int(origem['id']), 'nome': origem['nome']},
+                'por_destino': [],
+                'detalhe': 'Origem nao possuia contratos atribuidos.',
+            })
+
+        # 3) Carga atual dos destinos por situacao (ponto de partida do LPT).
+        cursor.execute(
+            """
+            SELECT fc.id_funcionario,
+                   c.valor_credito,
+                   (SELECT DATEDIFF(CURDATE(), MIN(vencimento))
+                      FROM parcela
+                     WHERE id_contrato = c.id AND status = 'aberto') AS dias_atraso
+            FROM funcionario_cobranca fc
+            INNER JOIN contrato c ON c.id = fc.id_contrato
+            WHERE c.status = 'aberto' AND fc.id_funcionario IN (%s)
+            """ % (",".join(["%s"] * len(destino_ids))),
+            destino_ids,
+        )
+        cargas_rows = _clean_rows(cursor.fetchall())
+
+        estados = {
+            fid: {s: {'count': 0, 'value': 0.0}
+                  for s in ('critico', 'atencao', 'recente')}
+            for fid in destino_ids
+        }
+
+        def _sit_norm(dias):
+            try:
+                d = int(dias or 0)
+            except (TypeError, ValueError):
+                d = 0
+            if d >= 61: return 'critico'
+            if d >= 31: return 'atencao'
+            return 'recente'
+
+        def _to_float(v):
+            try:
+                return float(v) if v is not None else 0.0
+            except (TypeError, ValueError):
+                return 0.0
+
+        for cr in cargas_rows:
+            fid = int(cr['id_funcionario'])
+            if fid not in estados:
+                continue
+            sit = _sit_norm(cr.get('dias_atraso'))
+            estados[fid][sit]['count'] += 1
+            estados[fid][sit]['value'] += _to_float(cr.get('valor_credito'))
+
+        # 4) LPT greedy: ordena contratos da origem (abertos) por valor desc
+        #    dentro de cada situacao e aloca ao destino de menor carga.
+        por_sit = {'critico': [], 'atencao': [], 'recente': []}
+        for p in pendentes:
+            por_sit[_sit_norm(p.get('dias_atraso'))].append(p)
+        for s in por_sit:
+            por_sit[s].sort(key=lambda x: _to_float(x.get('valor_credito')),
+                            reverse=True)
+
+        por_destino = {fid: {'count': 0, 'value': 0.0, 'fc_ids': []}
+                       for fid in destino_ids}
+        updates = []  # (novo_fid, fc_id)
+
+        for s in ('critico', 'atencao', 'recente'):
+            for p in por_sit[s]:
+                valor = _to_float(p.get('valor_credito'))
+                def score(fid, _s=s):
+                    st = estados[fid][_s]
+                    return (st['value'], st['count'])
+                chosen = min(destino_ids, key=score)
+                estados[chosen][s]['count'] += 1
+                estados[chosen][s]['value'] += valor
+                por_destino[chosen]['count'] += 1
+                por_destino[chosen]['value'] += valor
+                por_destino[chosen]['fc_ids'].append(int(p['fc_id']))
+                updates.append((chosen, int(p['fc_id'])))
+
+        # Distribui tambem os fechados (round-robin simples).
+        for idx, fc_id in enumerate(fechados):
+            chosen = destino_ids[idx % len(destino_ids)]
+            por_destino[chosen]['fc_ids'].append(fc_id)
+            updates.append((chosen, fc_id))
+
+        if updates:
+            cursor.executemany(
+                "UPDATE funcionario_cobranca SET id_funcionario = %s WHERE id = %s",
+                updates,
+            )
+            conn.commit()
+
+        nome_by_id = {int(d['id']): d['nome'] for d in destinos}
+        resumo = [
+            {
+                'id': fid,
+                'nome': nome_by_id.get(fid, f'#{fid}'),
+                'count': por_destino[fid]['count'],
+                'value': round(por_destino[fid]['value'], 2),
+            }
+            for fid in destino_ids
+        ]
+
+        return jsonify({
+            'ok': True,
+            'modo': modo,
+            'transferidos': len(updates),
+            'origem': {'id': int(origem['id']), 'nome': origem['nome']},
+            'por_destino': resumo,
+        })
+
+    except Exception as exc:
+        conn.rollback()
+        app.logger.exception('api_distribuicao_transferir: erro inesperado')
+        return jsonify({'error': 'Erro na transferencia: ' + str(exc)}), 500
+    finally:
+        try: cursor.close()
+        except Exception: pass
+        try: conn.close()
+        except Exception: pass
+
+
 @app.route('/api/importacao/distribuicao/aprovar', methods=['POST'])
 def api_distribuicao_aprovar():
     """No-op de aprovacao. A tabela funcionario_cobranca nao tem coluna de
