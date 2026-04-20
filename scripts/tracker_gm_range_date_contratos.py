@@ -461,20 +461,20 @@ def process_arquivo(
                     
                     if b_res:
                         q_upd = """UPDATE bens SET
-                            id_pessoa = %s, codigo_renavam = %s, modelo = %s, ano_modelo = %s, cor = %s, marca = %s,
+                            codigo_renavam = %s, modelo = %s, ano_modelo = %s, cor = %s, marca = %s,
                             data_nota_fiscal = %s, matricula = %s, cartorio = %s, vl_avaliacao = %s, updated_at = NOW()
                             WHERE id = %s"""
                         cursor.execute(q_upd, (
-                            id_pessoa, row_dict.get("codigo_renavam"), row_dict.get("modelo"), row_dict.get("ano_modelo"),
+                            row_dict.get("codigo_renavam"), row_dict.get("modelo"), row_dict.get("ano_modelo"),
                             row_dict.get("cor"), row_dict.get("marca"), data_nf,
                             row_dict.get("matricula"), row_dict.get("cartorio"), vl_aval, b_res["id"]
                         ))
                     else:
                         q_ins = """INSERT INTO bens
-                        (id_pessoa, id_contrato, chassi, placa, codigo_renavam, modelo, ano_modelo, cor, marca, data_nota_fiscal, matricula, cartorio, vl_avaliacao)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+                        (id_contrato, chassi, placa, codigo_renavam, modelo, ano_modelo, cor, marca, data_nota_fiscal, matricula, cartorio, vl_avaliacao)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
                         cursor.execute(q_ins, (
-                            id_pessoa, id_contrato, chassi, placa, row_dict.get("codigo_renavam"), 
+                            id_contrato, chassi, placa, row_dict.get("codigo_renavam"), 
                             row_dict.get("modelo"), row_dict.get("ano_modelo"), row_dict.get("cor"), 
                             row_dict.get("marca"), data_nf,
                             row_dict.get("matricula"), row_dict.get("cartorio"), vl_aval
