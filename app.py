@@ -3239,5 +3239,113 @@ def api_avisos_item(aviso_id):
     return jsonify(atual)
 
 
+# =============================================================================
+# Automacoes de cobranca (SMS, e-mail, ligacao)
+# -----------------------------------------------------------------------------
+# Endpoints proxy entre o frontend e a API que o colega Flavio esta criando.
+# Por enquanto retornam sucesso simulado e logam o payload no console; quando a
+# API estiver pronta basta substituir o bloco TODO por uma chamada real
+# (requests.post / httpx) e propagar a resposta.
+# =============================================================================
+
+_AUTOMACAO_TIPOS = {'sms', 'email', 'ligacao'}
+
+
+def _automacao_log(tipo, payload, extra=None):
+    try:
+        print(f"[automacao:{tipo}] payload={json.dumps(payload, ensure_ascii=False)}"
+              + (f" extra={extra}" if extra else ''),
+              flush=True)
+    except Exception:
+        pass
+
+
+def _validar_ids_contratos(ids):
+    if not isinstance(ids, list):
+        return None, 'contrato_ids deve ser uma lista.'
+    out = []
+    for v in ids:
+        try:
+            out.append(int(v))
+        except (TypeError, ValueError):
+            return None, f'ID invalido na lista: {v!r}'
+    if not out:
+        return None, 'Nenhum contrato informado.'
+    return out, None
+
+
+@app.route('/api/automacao/<tipo>', methods=['POST'])
+def api_automacao(tipo):
+    """Disparo em lote de SMS / e-mail OU disparo unitario de ligacao."""
+    if tipo not in _AUTOMACAO_TIPOS:
+        return jsonify({'error': f'Tipo desconhecido: {tipo}'}), 400
+
+    payload = request.get_json(silent=True) or {}
+    nivel = (payload.get('nivel') or 'na').strip().lower()
+
+    if tipo == 'ligacao':
+        # Disparo unitario - o frontend faz o sequenciamento.
+        try:
+            contrato_id = int(payload.get('contrato_id'))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'contrato_id obrigatorio (inteiro).'}), 400
+
+        _automacao_log('ligacao', {
+            'contrato_id': contrato_id,
+            'nivel': nivel,
+            'nome': payload.get('nome'),
+            'telefone': payload.get('telefone'),
+        })
+
+        # TODO: integrar com a API real do discador.
+        # Exemplo (descomente e adapte quando a API estiver pronta):
+        #   import requests
+        #   r = requests.post('http://api-flavio/discador/chamada',
+        #                     json={'contrato_id': contrato_id,
+        #                           'telefone': payload.get('telefone')},
+        #                     timeout=15)
+        #   data = r.json()
+        #   return jsonify(data), r.status_code
+
+        return jsonify({
+            'success': True,
+            'tipo': 'ligacao',
+            'contrato_id': contrato_id,
+            'status_chamada': 'iniciada',
+            'mensagem': 'Discagem disparada (mock).',
+            'mock': True,
+        })
+
+    # SMS / email - lote
+    ids, err = _validar_ids_contratos(payload.get('contrato_ids'))
+    if err:
+        return jsonify({'error': err}), 400
+
+    _automacao_log(tipo, {
+        'nivel': nivel,
+        'qtd': len(ids),
+        'ids': ids[:50],  # log nao precisa imprimir milhares
+    })
+
+    # TODO: substituir pelo POST real para a API do Flavio.
+    # Exemplo:
+    #   import requests
+    #   r = requests.post(f'http://api-flavio/{tipo}/lote',
+    #                     json={'contrato_ids': ids, 'nivel': nivel},
+    #                     timeout=30)
+    #   data = r.json()
+    #   return jsonify(data), r.status_code
+
+    return jsonify({
+        'success': True,
+        'tipo': tipo,
+        'nivel': nivel,
+        'enviados': len(ids),
+        'falhas': 0,
+        'mensagem': f'{len(ids)} {tipo} disparados (mock).',
+        'mock': True,
+    })
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True, port=5000)

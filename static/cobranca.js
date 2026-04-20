@@ -267,15 +267,15 @@ document.addEventListener('DOMContentLoaded', function () {
         kanbanContainer.innerHTML = '';
 
         kanbanContainer.appendChild(
-            buildKanbanColumn('critico', 'Crítico', '60 – 90+ dias de atraso',
+            buildKanbanColumn('critico', 'Crítico', '60 – 90+ dias',
                 'fa-solid fa-fire', sortLevelData(data.critico, 'critico'))
         );
         kanbanContainer.appendChild(
-            buildKanbanColumn('atencao', 'Atenção', '30 – 60 dias de atraso',
+            buildKanbanColumn('atencao', 'Atenção', '30 – 60 dias',
                 'fa-solid fa-exclamation-triangle', sortLevelData(data.atencao, 'atencao'))
         );
         kanbanContainer.appendChild(
-            buildKanbanColumn('recente', 'Recente', '1 – 30 dias de atraso',
+            buildKanbanColumn('recente', 'Recente', '1 – 30 dias',
                 'fa-solid fa-clock', sortLevelData(data.recente, 'recente'))
         );
     }
@@ -295,12 +295,14 @@ document.addEventListener('DOMContentLoaded', function () {
             '  <span class="kanban-col-desc">' + esc(desc) + '</span>' +
             '</div>' +
             '<div class="kanban-col-header-right">' +
+                buildBulkActionsHTML(level, true) +
             '  <span class="kanban-col-count">' + count + '</span>' +
             '  <i class="fa-solid fa-chevron-down kanban-col-chevron"></i>' +
             '</div>';
         header.addEventListener('click', function () {
             col.classList.toggle('collapsed');
         });
+        bindBulkActions(header, level);
         col.appendChild(header);
 
         // Corpo: cards rolaveis
@@ -422,6 +424,7 @@ document.addEventListener('DOMContentLoaded', function () {
             '  </div>' +
             '</div>' +
             '<div class="priority-header-right">' +
+                buildBulkActionsHTML(level, false) +
             '  <span class="priority-count">' + count + ' contrato' + (count !== 1 ? 's' : '') + '</span>' +
             '  <i class="fa-solid fa-chevron-down priority-chevron"></i>' +
             '</div>';
@@ -430,6 +433,7 @@ document.addEventListener('DOMContentLoaded', function () {
             block.classList.toggle('collapsed');
         });
 
+        bindBulkActions(header, level);
         block.appendChild(header);
 
         // Body (tabela)
@@ -949,6 +953,55 @@ document.addEventListener('DOMContentLoaded', function () {
         if (s === 'parcela paga') return 'status-success';
         if (s === 'parcela vencida') return 'status-danger';
         return 'status-active';
+    }
+
+    // ---- Botões de automação em lote (Ligar / SMS / E-mail) ----
+    // Inseridos no header de cada bloco Crítico/Atenção/Recente, tanto na visão
+    // analítica quanto no Kanban. Disparam fluxos definidos em
+    // static/cobranca_automacoes.js (window.CobrancaAutomacoes).
+    function buildBulkActionsHTML(level, kanban) {
+        var cls = 'bulk-actions' + (kanban ? ' bulk-actions-kanban' : '');
+        return '<div class="' + cls + '" data-level="' + esc(level) + '" title="Ações para todos os contratos deste bloco">' +
+            '  <button type="button" class="bulk-btn bulk-btn-call" data-action="ligacao" title="Ligar para todos (sequencial)">' +
+            '    <i class="fa-solid fa-phone"></i><span>Ligar</span>' +
+            '  </button>' +
+            '  <button type="button" class="bulk-btn bulk-btn-sms" data-action="sms" title="Enviar SMS para todos">' +
+            '    <i class="fa-solid fa-comment-sms"></i><span>SMS</span>' +
+            '  </button>' +
+            '  <button type="button" class="bulk-btn bulk-btn-mail" data-action="email" title="Enviar e-mail para todos">' +
+            '    <i class="fa-solid fa-envelope"></i><span>E-mail</span>' +
+            '  </button>' +
+            '</div>';
+    }
+
+    function bindBulkActions(headerEl, level) {
+        var wrap = headerEl.querySelector('.bulk-actions');
+        if (!wrap) return;
+        // o wrapper inteiro nao deve disparar o toggle do bloco
+        wrap.addEventListener('click', function (e) { e.stopPropagation(); });
+        wrap.querySelectorAll('.bulk-btn').forEach(function (btn) {
+            btn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                var action = this.getAttribute('data-action');
+                var contratos = getContratosNivelAtual(level);
+                if (!window.CobrancaAutomacoes) {
+                    alert('Módulo de automações não carregado.');
+                    return;
+                }
+                window.CobrancaAutomacoes.iniciar(action, level, contratos);
+            });
+        });
+    }
+
+    // Devolve os contratos visíveis no bloco selecionado, respeitando filtro de
+    // pesquisa atual + ordenação aplicada na coluna.
+    function getContratosNivelAtual(level) {
+        if (!currentData) return [];
+        var termo = (searchInput.value || '').trim().toLowerCase();
+        var tipo = searchType.value;
+        var lista = currentData[level] || [];
+        if (termo) lista = filterContracts(lista, termo, tipo);
+        return sortLevelData(lista, level);
     }
 
     // ---- Lógica de Ordenação ----
