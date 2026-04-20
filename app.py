@@ -2995,5 +2995,112 @@ def api_dashboard_export(formato):
                      mimetype='text/csv')
 
 
+# ==========================================
+# AGENDA
+# ==========================================
+@app.route('/api/funcionarios', methods=['GET'])
+def api_funcionarios():
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id, nome FROM funcionario WHERE ativo = 1 ORDER BY nome")
+        funcis = cursor.fetchall()
+        return jsonify(funcis)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/api/agenda', methods=['GET', 'POST'])
+def api_agenda():
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        if request.method == 'GET':
+            month = request.args.get('month')
+            year = request.args.get('year')
+            
+            where = "1=1"
+            params = []
+            if month and year:
+                where = "MONTH(a.data) = %s AND YEAR(a.data) = %s"
+                params = [int(month), int(year)]
+            
+            query = f"""
+                SELECT a.*, f.nome as funcionario_nome, c.numero_contrato, c.grupo, c.cota 
+                FROM agenda a
+                LEFT JOIN funcionario f ON a.id_funcionario = f.id
+                LEFT JOIN contrato c ON a.id_contrato = c.id
+                WHERE {where}
+                ORDER BY a.data ASC
+            """
+            cursor.execute(query, params)
+            tarefas = cursor.fetchall()
+            for t in tarefas:
+                t['data'] = t['data'].isoformat() if t['data'] else None
+            return jsonify(tarefas)
+
+        if request.method == 'POST':
+            data = request.json
+            atividade = data.get('atividade')
+            descricao = data.get('descricao', '')
+            data_agenda = data.get('data') # "YYYY-MM-DDTHH:MM" format
+            prioridade = data.get('prioridade', 'media')
+            id_funcionario = data.get('id_funcionario')
+            grupo_cota = data.get('grupo_cota', '').strip()
+            
+            id_contrato = None
+            if grupo_cota:
+                parts = tuple(p.strip() for p in grupo_cota.replace('-', '/').split('/', 1))
+                if len(parts) == 2:
+                    cursor.execute("SELECT id FROM contrato WHERE grupo = %s AND cota = %s", parts)
+                    c_row = cursor.fetchone()
+                    if c_row:
+                        id_contrato = c_row['id']
+                    else:
+                        return jsonify({'error': 'Contrato com Grupo/Cota informado não foi encontrado.'}), 404
+                else:
+                    return jsonify({'error': 'Formato de Contrato inválido. Use Grupo/Cota (ex: 50A/0101)'}), 400
+
+            sql = """INSERT INTO agenda 
+                     (atividade, descricao, data, prioridade, id_contrato, id_funcionario) 
+                     VALUES (%s, %s, %s, %s, %s, %s)"""
+            cursor.execute(sql, (atividade, descricao, data_agenda, prioridade, id_contrato, id_funcionario))
+            conn.commit()
+            return jsonify({'success': True, 'id': cursor.lastrowid})
+
+    except Exception as e:
+        app.logger.error("api_agenda error: %s", str(e))
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/api/agenda/<int:id_agenda>', methods=['PATCH', 'DELETE'])
+def api_agenda_item(id_agenda):
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        if request.method == 'PATCH':
+            data = request.json
+            status = data.get('status')
+            if status in ('pendente', 'concluido'):
+                cursor.execute("UPDATE agenda SET status = %s WHERE id = %s", (status, id_agenda))
+                conn.commit()
+                return jsonify({'success': True})
+            return jsonify({'error': 'status invalid'}), 400
+        
+        elif request.method == 'DELETE':
+            cursor.execute("DELETE FROM agenda WHERE id = %s", (id_agenda,))
+            conn.commit()
+            return jsonify({'success': True})
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True, port=5000)
