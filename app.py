@@ -1130,7 +1130,10 @@ def api_contrato_detalhe(contrato_id):
             (contrato_id,),
         )
         tramitacoes = _safe_all(
-            "SELECT * FROM tramitacao WHERE id_contrato = %s ORDER BY data DESC",
+            "SELECT t.*, f.nome AS funcionario_nome "
+            "FROM tramitacao t "
+            "LEFT JOIN funcionario f ON t.id_funcionario = f.id "
+            "WHERE t.id_contrato = %s ORDER BY t.data DESC",
             (contrato_id,),
         )
 
