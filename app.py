@@ -57,10 +57,6 @@ def relatorios():
 def performance():
     return render_template('performance.html')
 
-@app.route('/tramitacao')
-def tramitacao():
-    return render_template('tramitacao.html')
-
 @app.route('/agenda')
 def agenda():
     return render_template('agenda.html')
