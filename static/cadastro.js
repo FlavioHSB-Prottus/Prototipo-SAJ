@@ -161,7 +161,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 data.contratos.forEach(function (c) {
                     html += '<tr>';
                     html += '<td class="fw-bold">' + esc(c.numero_contrato || '-') + '</td>';
-                    html += '<td>' + esc(c.grupo || '-') + ' / ' + esc(c.cota || '-') + '</td>';
+                    html += '<td>' + esc(c.grupo || '-') + '/' + esc(c.cota || '-') + '</td>';
                     html += '<td><span class="status-badge ' + getStatusClass(c.status) + '">' + esc(c.status || '-') + '</span></td>';
                     html += '<td><button class="action-btn detail-contract-btn" data-id="' + c.id + '"><i class="fa-solid fa-file-lines"></i> Detalhes</button></td>';
                     html += '</tr>';
@@ -217,7 +217,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         html += '<div class="detail-section"><h3><i class="fa-solid fa-file-contract"></i> Dados do Contrato</h3>';
         html += '<div class="detail-grid">';
-        html += dataItem('Grupo / Cota', c.grupo + ' / ' + c.cota);
+        html += dataItem('Grupo / Cota', c.grupo + '/' + c.cota);
         html += dataItem('Nro Contrato', c.numero_contrato);
         html += dataItem('Versao', c.versao);
         html += dataItem('Status', c.status, true, c.status);

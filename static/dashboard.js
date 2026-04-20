@@ -4,16 +4,48 @@ document.addEventListener('DOMContentLoaded', async function () {
     Chart.defaults.color = '#64748b';
     Chart.defaults.scale.grid.color = 'rgba(226, 232, 240, 0.5)';
 
+    // --- Elementos ---
     var kpiAbertos = document.getElementById('kpiAbertos');
     var kpiPagos = document.getElementById('kpiPagos');
     var kpiIndenizados = document.getElementById('kpiIndenizados');
+    var kpiNovos = document.getElementById('kpiNovos');
     var kpiRetomados = document.getElementById('kpiRetomados');
-    var prioridadeBody = document.getElementById('prioridadeBody');
+    var kpiPagosPeriodo = document.getElementById('kpiPagosPeriodo');
+    var kpiIndenizadosPeriodo = document.getElementById('kpiIndenizadosPeriodo');
+    var kpiNovosPeriodo = document.getElementById('kpiNovosPeriodo');
+    var kpiRetomadosPeriodo = document.getElementById('kpiRetomadosPeriodo');
+
+    var lineChartTitleEl = document.getElementById('lineChartTitle');
+    var lineChartSubtitleEl = document.getElementById('lineChartSubtitle');
+    var pieChartSubtitleEl = document.getElementById('pieChartSubtitle');
+
+    var seriesSelector = document.getElementById('seriesSelector');
+    var pieSelector = document.getElementById('pieSelector');
+    var periodoInicio = document.getElementById('periodoInicio');
+    var periodoFim = document.getElementById('periodoFim');
+    var presetBtns = document.querySelectorAll('.preset-btn');
+    var btnResetControles = document.getElementById('btnResetControles');
+
     var detalhesModal = document.getElementById('detalhesModal');
     var closeModalBtn = document.getElementById('closeModalBtn');
     var modalTitle = document.getElementById('modalTitle');
     var modalContent = document.getElementById('modalContent');
 
+    // --- Catalogo de series plotaveis ---
+    var SERIES_META = {
+        pagos:       { label: 'Contratos pagos',         color: '#10b981' },
+        indenizados: { label: 'Contratos indenizados',   color: '#f59e0b' },
+        novos:       { label: 'Contratos novos',         color: '#3b82f6' },
+        retomados:   { label: 'Contratos que voltaram',  color: '#8b5cf6' },
+    };
+
+    var PIE_META = {
+        aberto:     { label: 'Em Cobrança', color: '#3b82f6' },
+        fechado:    { label: 'Pagos',       color: '#10b981' },
+        indenizado: { label: 'Indenizados', color: '#f59e0b' },
+    };
+
+    // --- Carrega dados ---
     var data;
     try {
         var resp = await fetch('/api/dashboard');
@@ -23,189 +55,288 @@ document.addEventListener('DOMContentLoaded', async function () {
         return;
     }
 
-    // --- KPIs ---
-    kpiAbertos.textContent = formatNumber(data.kpis.abertos);
-    kpiPagos.textContent = formatNumber(data.kpis.pagos);
-    kpiIndenizados.textContent = formatNumber(data.kpis.indenizados);
-    kpiRetomados.textContent = formatNumber(data.kpis.retomados);
+    var meses = data.meses || [];                  // ['2025-06', '2025-07', ...]
+    var series = data.series || {};                // { pagos: [..], indenizados: [..], novos: [..], retomados: [..] }
+    var snapshot = data.snapshot || {};
+    var pieRaw = data.pie_chart || {};
 
-    // --- Grafico de Linhas ---
-    var lineCtx = document.getElementById('lineChart');
-    if (lineCtx) {
-        var monthLabels = (data.line_chart.labels || []).map(function (m) {
-            var parts = m.split('-');
-            var names = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-            return names[parseInt(parts[1], 10) - 1] + '/' + parts[0].slice(2);
+    kpiAbertos.textContent = formatNumber(snapshot.em_cobranca);
+
+    // --- Estado dos controles (padrao: pagos+indenizados, ultimos 6 meses, todas as fatias) ---
+    var selectedSeries = { pagos: true, indenizados: true, novos: false, retomados: false };
+    var pieSelection = {};
+    Object.keys(pieRaw).forEach(function (k) { pieSelection[k] = true; });
+
+    var defaultStartIdx = Math.max(0, meses.length - 6);
+    var defaultEndIdx = Math.max(0, meses.length - 1);
+    var periodStart = meses[defaultStartIdx] || null;
+    var periodEnd = meses[defaultEndIdx] || null;
+
+    // Popula selects de periodo
+    meses.forEach(function (m) {
+        var optA = document.createElement('option');
+        optA.value = m; optA.textContent = humanMonth(m);
+        periodoInicio.appendChild(optA);
+        var optB = document.createElement('option');
+        optB.value = m; optB.textContent = humanMonth(m);
+        periodoFim.appendChild(optB);
+    });
+    if (periodStart) periodoInicio.value = periodStart;
+    if (periodEnd) periodoFim.value = periodEnd;
+
+    // Popula seletor da pizza (baseado no que veio do backend)
+    renderPieSelector();
+
+    // --- Instancias Chart.js ---
+    var lineChart = null;
+    var pieChart = null;
+
+    // --- Inicializa graficos ---
+    refreshAll();
+
+    // ========================================================================
+    //                          CONTROLES / EVENTOS
+    // ========================================================================
+
+    seriesSelector.addEventListener('change', function (e) {
+        var cb = e.target;
+        if (!cb || cb.type !== 'checkbox') return;
+        var key = cb.getAttribute('data-serie');
+        if (!key) return;
+        selectedSeries[key] = cb.checked;
+        refreshAll();
+    });
+
+    pieSelector.addEventListener('change', function (e) {
+        var cb = e.target;
+        if (!cb || cb.type !== 'checkbox') return;
+        var key = cb.getAttribute('data-pie');
+        if (!key) return;
+        pieSelection[key] = cb.checked;
+        refreshPie();
+    });
+
+    periodoInicio.addEventListener('change', function () {
+        periodStart = periodoInicio.value;
+        if (meses.indexOf(periodStart) > meses.indexOf(periodEnd)) {
+            periodEnd = periodStart;
+            periodoFim.value = periodStart;
+        }
+        clearPresetActive();
+        refreshAll();
+    });
+
+    periodoFim.addEventListener('change', function () {
+        periodEnd = periodoFim.value;
+        if (meses.indexOf(periodEnd) < meses.indexOf(periodStart)) {
+            periodStart = periodEnd;
+            periodoInicio.value = periodEnd;
+        }
+        clearPresetActive();
+        refreshAll();
+    });
+
+    presetBtns.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var n = parseInt(btn.getAttribute('data-preset'), 10);
+            if (!n || !meses.length) return;
+            var endIdx = meses.length - 1;
+            var startIdx = Math.max(0, endIdx - n + 1);
+            periodStart = meses[startIdx];
+            periodEnd = meses[endIdx];
+            periodoInicio.value = periodStart;
+            periodoFim.value = periodEnd;
+            presetBtns.forEach(function (b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+            refreshAll();
+        });
+    });
+
+    btnResetControles.addEventListener('click', function () {
+        selectedSeries = { pagos: true, indenizados: true, novos: false, retomados: false };
+        seriesSelector.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
+            cb.checked = !!selectedSeries[cb.getAttribute('data-serie')];
+        });
+        Object.keys(pieSelection).forEach(function (k) { pieSelection[k] = true; });
+        pieSelector.querySelectorAll('input[type="checkbox"]').forEach(function (cb) { cb.checked = true; });
+        periodStart = meses[defaultStartIdx] || null;
+        periodEnd = meses[defaultEndIdx] || null;
+        if (periodStart) periodoInicio.value = periodStart;
+        if (periodEnd) periodoFim.value = periodEnd;
+        clearPresetActive();
+        refreshAll();
+    });
+
+    function clearPresetActive() {
+        presetBtns.forEach(function (b) { b.classList.remove('active'); });
+    }
+
+    function renderPieSelector() {
+        pieSelector.innerHTML = '';
+        var keys = Object.keys(pieRaw);
+        if (!keys.length) {
+            pieSelector.innerHTML = '<span style="color:var(--text-muted);font-size:0.85rem">Nenhum status disponível.</span>';
+            return;
+        }
+        keys.forEach(function (key) {
+            var meta = PIE_META[key] || { label: key, color: '#64748b' };
+            var label = document.createElement('label');
+            label.className = 'chip-option';
+            label.innerHTML =
+                '<input type="checkbox" data-pie="' + esc(key) + '" checked>' +
+                '<span class="chip-dot" style="background:' + meta.color + '"></span>' +
+                '<span>' + esc(meta.label) + ' <small style="color:var(--text-muted)">(' + formatNumber(pieRaw[key]) + ')</small></span>';
+            pieSelector.appendChild(label);
+        });
+    }
+
+    // ========================================================================
+    //                         RECALCULO / RENDER
+    // ========================================================================
+
+    function getPeriodIndices() {
+        var i = meses.indexOf(periodStart);
+        var j = meses.indexOf(periodEnd);
+        if (i < 0) i = 0;
+        if (j < 0) j = meses.length - 1;
+        if (i > j) { var t = i; i = j; j = t; }
+        return { start: i, end: j };
+    }
+
+    function refreshAll() {
+        refreshKpis();
+        refreshLineChart();
+        refreshPie();
+    }
+
+    function refreshKpis() {
+        var idx = getPeriodIndices();
+        function sumSerie(key) {
+            var arr = series[key] || [];
+            var s = 0;
+            for (var i = idx.start; i <= idx.end; i++) s += (arr[i] || 0);
+            return s;
+        }
+        kpiPagos.textContent = formatNumber(sumSerie('pagos'));
+        kpiIndenizados.textContent = formatNumber(sumSerie('indenizados'));
+        kpiNovos.textContent = formatNumber(sumSerie('novos'));
+        kpiRetomados.textContent = formatNumber(sumSerie('retomados'));
+
+        var label = periodLabel();
+        kpiPagosPeriodo.textContent = '(' + label + ')';
+        kpiIndenizadosPeriodo.textContent = '(' + label + ')';
+        kpiNovosPeriodo.textContent = '(' + label + ')';
+        kpiRetomadosPeriodo.textContent = '(' + label + ')';
+
+        // Dim/highlight KPI cards conforme a serie esta selecionada ou nao
+        document.querySelectorAll('.kpi-row .kpi-card').forEach(function (card) {
+            var k = card.getAttribute('data-kpi');
+            if (k === 'em_cobranca') { card.classList.remove('dimmed'); return; }
+            if (selectedSeries[k]) card.classList.remove('dimmed');
+            else card.classList.add('dimmed');
+        });
+    }
+
+    function refreshLineChart() {
+        var idx = getPeriodIndices();
+        var slicedLabels = meses.slice(idx.start, idx.end + 1).map(humanMonth);
+        var activeKeys = Object.keys(selectedSeries).filter(function (k) { return selectedSeries[k]; });
+
+        var datasets = activeKeys.map(function (key) {
+            var meta = SERIES_META[key];
+            var arr = (series[key] || []).slice(idx.start, idx.end + 1);
+            return {
+                label: meta.label,
+                data: arr,
+                borderColor: meta.color,
+                backgroundColor: hexToRgba(meta.color, 0.12),
+                borderWidth: 2,
+                tension: 0.4,
+                fill: activeKeys.length === 1,
+                pointBackgroundColor: '#ffffff',
+                pointBorderColor: meta.color,
+                pointBorderWidth: 2,
+                pointRadius: 4
+            };
         });
 
-        new Chart(lineCtx, {
+        lineChartTitleEl.textContent = 'Evolução: ' + (activeKeys.length
+            ? activeKeys.map(function (k) { return SERIES_META[k].label; }).join(' × ')
+            : 'selecione uma série');
+        lineChartSubtitleEl.textContent = periodLabel();
+
+        var ctx = document.getElementById('lineChart');
+        if (!ctx) return;
+
+        if (lineChart) lineChart.destroy();
+        lineChart = new Chart(ctx, {
             type: 'line',
-            data: {
-                labels: monthLabels,
-                datasets: [
-                    {
-                        label: 'Contratos Pagos',
-                        data: data.line_chart.pagos,
-                        borderColor: '#10b981',
-                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                        borderWidth: 2,
-                        tension: 0.4,
-                        fill: true,
-                        pointBackgroundColor: '#ffffff',
-                        pointBorderColor: '#10b981',
-                        pointBorderWidth: 2,
-                        pointRadius: 4
-                    },
-                    {
-                        label: 'Indenizados',
-                        data: data.line_chart.indenizados,
-                        borderColor: '#f59e0b',
-                        backgroundColor: 'rgba(245, 158, 11, 0.0)',
-                        borderWidth: 2,
-                        tension: 0.4,
-                        fill: false,
-                        pointBackgroundColor: '#ffffff',
-                        pointBorderColor: '#f59e0b',
-                        pointBorderWidth: 2,
-                        pointRadius: 4
-                    }
-                ]
-            },
+            data: { labels: slicedLabels, datasets: datasets },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
                 plugins: {
                     legend: { position: 'top', align: 'end', labels: { usePointStyle: true, boxWidth: 8 } },
-                    tooltip: { backgroundColor: 'rgba(30, 41, 59, 0.9)', padding: 12, titleFont: { size: 13 }, bodyFont: { size: 13 }, cornerRadius: 8 }
+                    tooltip: {
+                        backgroundColor: 'rgba(30, 41, 59, 0.95)',
+                        padding: 12, titleFont: { size: 13 }, bodyFont: { size: 13 }, cornerRadius: 8
+                    }
                 },
                 scales: {
-                    y: { beginAtZero: true, border: { display: false } },
+                    y: { beginAtZero: true, border: { display: false }, ticks: { precision: 0 } },
                     x: { grid: { display: false }, border: { display: false } }
                 }
             }
         });
     }
 
-    // --- Grafico Doughnut ---
-    var pieCtx = document.getElementById('pieChart');
-    if (pieCtx) {
-        var pie = data.pie_chart || {};
-        var pieLabels = [];
-        var pieData = [];
-        var pieColors = [];
-
-        var colorMap = { 'aberto': '#3b82f6', 'fechado': '#10b981', 'indenizado': '#f59e0b' };
-        var labelMap = { 'aberto': 'Em Cobrança', 'fechado': 'Pagos', 'indenizado': 'Indenizados' };
-        var fallbackColors = ['#64748b', '#8b5cf6', '#ec4899', '#06b6d4'];
-        var ci = 0;
-
-        Object.keys(pie).forEach(function (key) {
-            pieLabels.push(labelMap[key] || key);
-            pieData.push(pie[key]);
-            pieColors.push(colorMap[key] || fallbackColors[ci++ % fallbackColors.length]);
+    function refreshPie() {
+        var labels = [];
+        var values = [];
+        var colors = [];
+        Object.keys(pieRaw).forEach(function (key) {
+            if (!pieSelection[key]) return;
+            var meta = PIE_META[key] || { label: key, color: '#64748b' };
+            labels.push(meta.label);
+            values.push(pieRaw[key]);
+            colors.push(meta.color);
         });
 
-        new Chart(pieCtx, {
+        var totalVisivel = values.reduce(function (a, b) { return a + b; }, 0);
+        pieChartSubtitleEl.textContent = totalVisivel
+            ? formatNumber(totalVisivel) + ' contratos exibidos'
+            : 'Nenhuma fatia selecionada';
+
+        var ctx = document.getElementById('pieChart');
+        if (!ctx) return;
+        if (pieChart) pieChart.destroy();
+        pieChart = new Chart(ctx, {
             type: 'doughnut',
-            data: {
-                labels: pieLabels,
-                datasets: [{ data: pieData, backgroundColor: pieColors, borderWidth: 0, hoverOffset: 4 }]
-            },
+            data: { labels: labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 0, hoverOffset: 4 }] },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 cutout: '70%',
                 plugins: {
-                    legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20 } }
+                    legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20 } },
+                    tooltip: {
+                        callbacks: {
+                            label: function (ctx) {
+                                var v = ctx.parsed || 0;
+                                var pct = totalVisivel ? (v * 100 / totalVisivel).toFixed(1) + '%' : '0%';
+                                return ctx.label + ': ' + formatNumber(v) + ' (' + pct + ')';
+                            }
+                        }
+                    }
                 }
             }
         });
     }
 
-    // --- Tabela de Prioridade ---
-    renderPrioridade(data.prioridade || []);
-
-    // --- Filtro dropdown ---
-    var btnFilter = document.getElementById('btn-filter');
-    var filterDropdown = document.getElementById('filter-dropdown');
-
-    if (btnFilter && filterDropdown) {
-        btnFilter.addEventListener('click', function (e) {
-            e.stopPropagation();
-            filterDropdown.style.display = filterDropdown.style.display === 'none' ? 'flex' : 'none';
-        });
-
-        document.addEventListener('click', function (e) {
-            if (!filterDropdown.contains(e.target) && e.target !== btnFilter) {
-                filterDropdown.style.display = 'none';
-            }
-        });
-
-        var checkboxes = filterDropdown.querySelectorAll('input[type="checkbox"]');
-        checkboxes.forEach(function (cb) {
-            cb.addEventListener('change', function () {
-                var checked = Array.from(checkboxes).filter(function (i) { return i.checked; }).map(function (i) { return i.value; });
-                var rows = prioridadeBody.querySelectorAll('tr');
-                rows.forEach(function (row) {
-                    var cell = row.querySelector('td:nth-child(5)');
-                    if (cell) {
-                        row.style.display = checked.includes(cell.textContent.trim()) ? '' : 'none';
-                    }
-                });
-            });
-        });
-    }
-
-    // --- Renderizar tabela ---
-    function renderPrioridade(rows) {
-        prioridadeBody.innerHTML = '';
-        if (!rows.length) {
-            prioridadeBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text-muted)">Nenhum contrato com parcelas abertas.</td></tr>';
-            return;
-        }
-
-        var today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        rows.forEach(function (r) {
-            var venc = r.vencimento_mais_antigo ? new Date(r.vencimento_mais_antigo + 'T00:00:00') : null;
-            var diffDias = venc ? Math.floor((today - venc) / 86400000) : 0;
-
-            var prioLabel, prioClass;
-            if (diffDias >= 60) {
-                prioLabel = 'Crítico';
-                prioClass = 'status-danger';
-            } else if (diffDias >= 30) {
-                prioLabel = 'Atenção';
-                prioClass = 'status-warning';
-            } else {
-                prioLabel = 'Recente';
-                prioClass = 'status-active';
-            }
-
-            var tr = document.createElement('tr');
-            tr.innerHTML =
-                '<td class="fw-bold">' + esc(r.grupo) + ' / ' + esc(r.cota) + '</td>' +
-                '<td>' + esc(r.nome_devedor || '-') + '</td>' +
-                '<td>' + esc(r.parcelas_abertas) + '</td>' +
-                '<td>' + formatDate(r.vencimento_mais_antigo) + '</td>' +
-                '<td><span class="status-badge ' + prioClass + '">' + prioLabel + '</span></td>' +
-                '<td class="text-right"><button class="action-btn" data-id="' + r.id + '">Acessar <i class="fa-solid fa-arrow-right"></i></button></td>';
-            prioridadeBody.appendChild(tr);
-        });
-
-        bindDetailButtons();
-    }
-
-    function bindDetailButtons() {
-        prioridadeBody.querySelectorAll('.action-btn').forEach(function (btn) {
-            btn.addEventListener('click', function () {
-                openDetails(this.getAttribute('data-id'));
-            });
-        });
-    }
-
-    // --- Modal ---
+    // ========================================================================
+    //                               MODAL
+    // ========================================================================
     async function openDetails(id) {
         modalContent.innerHTML = '<div style="text-align:center;padding:48px;color:var(--text-muted)"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem"></i><p style="margin-top:12px">Carregando detalhes...</p></div>';
         modalTitle.textContent = 'Carregando...';
@@ -230,10 +361,9 @@ document.addEventListener('DOMContentLoaded', async function () {
         modalTitle.innerHTML = 'Detalhes do Contrato: <span class="text-accent">' + esc(c.grupo) + '/' + esc(c.cota) + '</span>';
 
         var html = '';
-
         html += '<div class="detail-section"><h3><i class="fa-solid fa-file-contract"></i> Dados do Contrato</h3>';
         html += '<div class="detail-grid">';
-        html += dataItem('Grupo / Cota', c.grupo + ' / ' + c.cota);
+        html += dataItem('Grupo / Cota', c.grupo + '/' + c.cota);
         html += dataItem('Nro Contrato', c.numero_contrato);
         html += dataItem('Versao', c.versao);
         html += dataItem('Status', c.status || c.status_txt, true, c.status);
@@ -246,13 +376,8 @@ document.addEventListener('DOMContentLoaded', async function () {
         html += dataItem('Percentual Lance', c.percentual_lance);
         html += '</div></div>';
 
-        if (data.devedor) {
-            html += renderPessoaSection('Devedor', data.devedor, data.devedor_enderecos, data.devedor_telefones, data.devedor_emails);
-        }
-        if (data.avalista) {
-            html += renderPessoaSection('Avalista', data.avalista, data.avalista_enderecos, data.avalista_telefones, data.avalista_emails);
-        }
-
+        if (data.devedor) html += renderPessoaSection('Devedor', data.devedor, data.devedor_enderecos, data.devedor_telefones, data.devedor_emails);
+        if (data.avalista) html += renderPessoaSection('Avalista', data.avalista, data.avalista_enderecos, data.avalista_telefones, data.avalista_emails);
         html += renderBemSection(data.bens);
 
         if (data.parcelas && data.parcelas.length > 0) {
@@ -273,39 +398,6 @@ document.addEventListener('DOMContentLoaded', async function () {
             html += '</tbody></table></div></div>';
         }
 
-        if (data.ocorrencias && data.ocorrencias.length > 0) {
-            html += '<div class="detail-section"><h3><i class="fa-solid fa-timeline"></i> Historico de Ocorrencias (' + data.ocorrencias.length + ')</h3>';
-            html += '<div class="timeline">';
-            data.ocorrencias.forEach(function (o) {
-                html += '<div class="timeline-item">';
-                html += '<div class="timeline-date">' + formatDate(o.data_arquivo) + '</div>';
-                html += '<div class="timeline-event"><strong><span class="status-badge ' + getStatusClass(o.status) + '">' + esc(o.status || '') + '</span></strong> ' + esc(o.descricao || '') + '</div>';
-                html += '</div>';
-            });
-            html += '</div></div>';
-        }
-
-        // Tramitacoes (com toggle ocultar/exibir)
-        if (data.tramitacoes && data.tramitacoes.length > 0) {
-            html += '<div class="detail-section tramitacao-section">';
-            html += '<h3 style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onclick="var c = this.nextElementSibling; var i = this.querySelector(\'i.fa-chevron-down\'); if (c.classList.contains(\'d-none\')) { c.classList.remove(\'d-none\'); i.style.transform = \'rotate(180deg)\'; } else { c.classList.add(\'d-none\'); i.style.transform = \'rotate(0deg)\'; }">';
-            html += '<span style="pointer-events:none;"><i class="fa-solid fa-comments"></i> Tramitações (' + data.tramitacoes.length + ')</span>';
-            html += '<i class="fa-solid fa-chevron-down" style="pointer-events:none; transition: transform 0.3s ease;"></i></h3>';
-            html += '<div class="tramitacao-container d-none">'; // inicialmente oculto
-            html += '<div class="table-responsive"><table class="styled-table modal-table"><thead><tr>';
-            html += '<th>Data</th><th>Tipo</th><th>CPC</th><th>Descrição</th>';
-            html += '</tr></thead><tbody>';
-            data.tramitacoes.forEach(function (t) {
-                html += '<tr>';
-                html += '<td>' + formatDateTime(t.data) + '</td>';
-                html += '<td><span class="status-badge status-active">' + esc(t.tipo) + '</span></td>';
-                html += '<td><span class="status-badge ' + (String(t.cpc).toLowerCase()==='sim'?'status-success':(String(t.cpc).toLowerCase()==='nao'?'status-danger':'status-warning')) + '">' + esc(t.cpc) + '</span></td>';
-                html += '<td>' + esc(t.descricao) + '</td>';
-                html += '</tr>';
-            });
-            html += '</tbody></table></div></div></div>';
-        }
-
         modalContent.innerHTML = html;
     }
 
@@ -315,9 +407,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         var titulo = bens.length > 1 ? ('Bem (' + bens.length + ')') : 'Bem';
         var html = '<div class="detail-section"><h3><i class="fa-solid fa-box"></i> ' + titulo + '</h3>';
         bens.forEach(function (bem, idx) {
-            if (bens.length > 1) {
-                html += '<h4 style="margin:16px 0 8px;color:#6b7280;font-size:0.95rem;">Item ' + (idx + 1) + '</h4>';
-            }
+            if (bens.length > 1) html += '<h4 style="margin:16px 0 8px;color:#6b7280;font-size:0.95rem;">Item ' + (idx + 1) + '</h4>';
             html += '<div class="detail-grid">';
             var anyField = false;
             Object.keys(bem).forEach(function (key) {
@@ -327,9 +417,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 anyField = true;
                 html += dataItem(humanizeBemField(key), formatBemValue(key, value));
             });
-            if (!anyField) {
-                html += '<div style="color:#9ca3af;">Sem informações adicionais.</div>';
-            }
+            if (!anyField) html += '<div style="color:#9ca3af;">Sem informações adicionais.</div>';
             html += '</div>';
         });
         html += '</div>';
@@ -357,9 +445,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             var n = Number(value);
             if (!isNaN(n) && isFinite(n)) return formatCurrency(n);
         }
-        if (k === 'data' || k.indexOf('data_') === 0 || k.indexOf('_data') !== -1) {
-            return formatDate(value);
-        }
+        if (k === 'data' || k.indexOf('data_') === 0 || k.indexOf('_data') !== -1) return formatDate(value);
         return value;
     }
 
@@ -373,7 +459,6 @@ document.addEventListener('DOMContentLoaded', async function () {
         html += dataItem('Profissao', pessoa.profissao);
         html += dataItem('Conjuge', pessoa.conjuge_nome);
         html += '</div>';
-
         if (enderecos && enderecos.length > 0) {
             enderecos.forEach(function (e) {
                 html += '<div class="detail-grid" style="margin-top:12px">';
@@ -381,7 +466,6 @@ document.addEventListener('DOMContentLoaded', async function () {
                 html += '</div>';
             });
         }
-
         if ((telefones && telefones.length) || (emails && emails.length)) {
             html += '<div class="contact-grid" style="margin-top:12px">';
             if (telefones && telefones.length) {
@@ -389,8 +473,6 @@ document.addEventListener('DOMContentLoaded', async function () {
                 telefones.forEach(function (t) {
                     html += '<li><i class="fa-solid fa-phone"></i> ' + esc(t.numero || '-');
                     if (t.ramal) html += ' (ramal ' + esc(t.ramal) + ')';
-                    html += '<button class="btn-ligar" title="Ligar"><i class="fa-solid fa-phone-volume"></i></button>';
-                    html += '<button class="btn-mensagem" title="Enviar Mensagem"><i class="fa-solid fa-comment-dots"></i></button>';
                     html += '<span class="contact-tipo">' + esc(t.tipo) + '</span></li>';
                 });
                 html += '</ul></div>';
@@ -399,33 +481,55 @@ document.addEventListener('DOMContentLoaded', async function () {
                 html += '<div><ul class="contact-list">';
                 emails.forEach(function (em) {
                     html += '<li><i class="fa-solid fa-envelope"></i> ' + esc(em.email || '-');
-                    html += '<button class="btn-mensagem" title="Enviar Mensagem"><i class="fa-solid fa-comment-dots"></i></button>';
                     html += '<span class="contact-tipo">' + esc(em.tipo) + '</span></li>';
                 });
                 html += '</ul></div>';
             }
             html += '</div>';
         }
-
         html += '</div>';
         return html;
     }
 
-    // --- Modal open/close ---
     function closeModal() {
         detalhesModal.classList.remove('active');
         document.body.style.overflow = '';
     }
-
     closeModalBtn.addEventListener('click', closeModal);
-    detalhesModal.addEventListener('click', function (e) {
-        if (e.target === detalhesModal) closeModal();
-    });
+    detalhesModal.addEventListener('click', function (e) { if (e.target === detalhesModal) closeModal(); });
     document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape' && detalhesModal.classList.contains('active')) closeModal();
     });
 
-    // --- Helpers ---
+    // ========================================================================
+    //                               HELPERS
+    // ========================================================================
+
+    function humanMonth(ym) {
+        if (!ym) return '';
+        var parts = String(ym).split('-');
+        if (parts.length !== 2) return ym;
+        var names = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+        var idx = parseInt(parts[1], 10) - 1;
+        if (idx < 0 || idx > 11) return ym;
+        return names[idx] + '/' + parts[0].slice(2);
+    }
+
+    function periodLabel() {
+        if (!periodStart || !periodEnd) return '';
+        if (periodStart === periodEnd) return humanMonth(periodStart);
+        return humanMonth(periodStart) + ' — ' + humanMonth(periodEnd);
+    }
+
+    function hexToRgba(hex, alpha) {
+        var h = String(hex).replace('#', '');
+        if (h.length === 3) h = h.split('').map(function (c) { return c + c; }).join('');
+        var r = parseInt(h.substring(0, 2), 16);
+        var g = parseInt(h.substring(2, 4), 16);
+        var b = parseInt(h.substring(4, 6), 16);
+        return 'rgba(' + r + ', ' + g + ', ' + b + ', ' + alpha + ')';
+    }
+
     function esc(val) {
         if (val === null || val === undefined) return '-';
         var div = document.createElement('div');
@@ -435,9 +539,7 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     function dataItem(label, value, isBadge, badgeStatus) {
         var display = (value !== null && value !== undefined && value !== '') ? esc(value) : '-';
-        if (isBadge && badgeStatus) {
-            display = '<span class="status-badge ' + getStatusClass(badgeStatus) + '">' + esc(value) + '</span>';
-        }
+        if (isBadge && badgeStatus) display = '<span class="status-badge ' + getStatusClass(badgeStatus) + '">' + esc(value) + '</span>';
         return '<div class="data-item"><span class="data-label">' + esc(label) + '</span><span class="data-value">' + display + '</span></div>';
     }
 
@@ -446,22 +548,6 @@ document.addEventListener('DOMContentLoaded', async function () {
         var parts = String(val).split('T')[0].split('-');
         if (parts.length === 3) return parts[2] + '/' + parts[1] + '/' + parts[0];
         return val;
-    }
-
-    function formatDateTime(val) {
-        if (!val) return '-';
-        var parts = String(val).split('T');
-        var dPart = parts[0];
-        var tPart = parts[1] || '';
-        if (parts.length === 1 && val.includes(' ')) {
-            var spaceParts = val.split(' ');
-            dPart = spaceParts[0];
-            tPart = spaceParts[1] || '';
-        }
-        var dSplit = dPart.split('-');
-        var fmtDate = dSplit.length === 3 ? dSplit[2] + '/' + dSplit[1] + '/' + dSplit[0] : dPart;
-        var fmtTime = tPart ? tPart.substring(0, 5) : '';
-        return fmtDate + (fmtTime ? ' ' + fmtTime : '');
     }
 
     function formatCurrency(val) {
@@ -487,4 +573,105 @@ document.addEventListener('DOMContentLoaded', async function () {
         return 'status-active';
     }
 
+    // ========================================================================
+    //                  EXPORTACAO (XLSX / PDF / Power BI)
+    // ========================================================================
+    var exportBtnsDash = document.querySelectorAll('.control-card-export .export-btn');
+    var exportFeedbackDash = document.getElementById('exportFeedbackDash');
+
+    function showExportFeedbackDash(msg, kind) {
+        if (!exportFeedbackDash) return;
+        exportFeedbackDash.textContent = msg;
+        exportFeedbackDash.className = 'export-feedback' + (kind ? ' ' + kind : '');
+        exportFeedbackDash.style.display = 'block';
+    }
+    function hideExportFeedbackDash(delay) {
+        if (!exportFeedbackDash) return;
+        setTimeout(function () { exportFeedbackDash.style.display = 'none'; }, delay || 3500);
+    }
+    function chartToDataURLDash(instance) {
+        try {
+            if (!instance) return '';
+            return instance.toBase64Image('image/png', 1.0);
+        } catch (e) {
+            return '';
+        }
+    }
+
+    async function doExportDash(formato) {
+        var activeSeries = Object.keys(selectedSeries).filter(function (k) { return selectedSeries[k]; });
+        var activePie = Object.keys(pieSelection).filter(function (k) { return pieSelection[k]; });
+        if (!activeSeries.length) {
+            showExportFeedbackDash('Selecione ao menos uma série para exportar.', 'err');
+            hideExportFeedbackDash();
+            return;
+        }
+        var payload = {
+            period_start: periodStart,
+            period_end: periodEnd,
+            series: activeSeries,
+            pie: activePie,
+        };
+        if (formato === 'pdf') {
+            payload.line_image = chartToDataURLDash(lineChart);
+            payload.pie_image = chartToDataURLDash(pieChart);
+        }
+
+        var btn = document.querySelector('.control-card-export .export-btn[data-formato="' + formato + '"]');
+        var originalHtml = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i><span>Gerando...</span><small>aguarde</small>';
+        }
+        showExportFeedbackDash('Gerando arquivo, aguarde...', 'info');
+
+        try {
+            var resp = await fetch('/api/dashboard/export/' + formato, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            if (!resp.ok) {
+                var errObj;
+                try { errObj = await resp.json(); } catch (e) { errObj = { error: 'Falha na exportacao (' + resp.status + ')' }; }
+                throw new Error(errObj.error || 'Erro ao exportar');
+            }
+            var blob = await resp.blob();
+            var cd = resp.headers.get('Content-Disposition') || '';
+            var match = cd.match(/filename="?([^";]+)"?/i);
+            var filename = match ? match[1] : ('dashboard_export.' + (formato === 'powerbi' ? 'csv' : formato));
+
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(function () {
+                URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            }, 200);
+
+            showExportFeedbackDash('Arquivo "' + filename + '" gerado com sucesso.', 'ok');
+            hideExportFeedbackDash();
+        } catch (err) {
+            showExportFeedbackDash('Erro: ' + (err.message || 'falha desconhecida'), 'err');
+            hideExportFeedbackDash(5000);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+            }
+        }
+    }
+
+    exportBtnsDash.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var formato = btn.getAttribute('data-formato');
+            if (formato) doExportDash(formato);
+        });
+    });
+
+    // Expose for potential debug
+    window.__dashboard = { data: data, refreshAll: refreshAll };
 });

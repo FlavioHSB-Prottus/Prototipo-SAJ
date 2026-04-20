@@ -242,7 +242,7 @@ document.addEventListener('DOMContentLoaded', function () {
             const sitLabel = c.situacao.charAt(0).toUpperCase() + c.situacao.slice(1);
             
             tr.innerHTML = `
-                <td class="fw-bold">${esc(c.grupo)} / ${esc(c.cota)}</td>
+                <td class="fw-bold">${esc(c.grupo)}/${esc(c.cota)}</td>
                 <td>
                     <div style="font-weight: 500">${esc(c.nome_devedor || '-')}</div>
                     <div style="font-size: 0.75rem; color: var(--text-muted)">${esc(c.cpf_cnpj || '-')}</div>
@@ -282,7 +282,7 @@ document.addEventListener('DOMContentLoaded', function () {
             <td colspan="6">
                 <div class="contract-expand-panel">
                     <div class="expand-grid">
-                        <div class="expand-item"><span class="expand-label">Grupo / Cota</span><span class="expand-value">${esc(contract.grupo)} / ${esc(contract.cota)}</span></div>
+                        <div class="expand-item"><span class="expand-label">Grupo / Cota</span><span class="expand-value">${esc(contract.grupo)}/${esc(contract.cota)}</span></div>
                         <div class="expand-item"><span class="expand-label">Nro Contrato</span><span class="expand-value">${esc(contract.numero_contrato || '-')}</span></div>
                         <div class="expand-item"><span class="expand-label">Valor Crédito</span><span class="expand-value">${formatCurrency(contract.valor_credito)}</span></div>
                         <div class="expand-item"><span class="expand-label">Parcelas Abertas</span><span class="expand-value">${contract.parcelas_abertas}</span></div>
@@ -334,7 +334,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function renderModalContent(data) {
         const c = data.contrato;
-        modalTitle.innerHTML = `Contrato: <span class="text-accent">${esc(c.grupo)} / ${esc(c.cota)}</span>`;
+        modalTitle.innerHTML = `Contrato: <span class="text-accent">${esc(c.grupo)}/${esc(c.cota)}</span>`;
         
         let html = `
             <div class="detail-section">

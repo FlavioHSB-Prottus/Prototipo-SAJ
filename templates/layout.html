@@ -24,8 +24,8 @@
             <nav class="sidebar-nav">
                 <ul>
                     <li><a href="/home"><i class="fa-solid fa-house"></i> <span class="nav-text">Home</span></a></li>
-                    <li><a href="/importacao"><i class="fa-solid fa-file-import"></i> <span class="nav-text">Importação
-                                TXT</span></a></li>
+                    <li><a href="/importacao"><i class="fa-solid fa-file-import"></i> <span class="nav-text">Importação e
+                                Distribuição</span></a></li>
                     <li><a href="/cobranca"><i class="fa-solid fa-hand-holding-dollar"></i> <span
                                 class="nav-text">Cobrança</span></a></li>
                     <li><a href="/busca"><i class="fa-solid fa-magnifying-glass"></i> <span class="nav-text">Busca por
@@ -60,6 +60,38 @@
                 </div>
 
                 <div class="header-right">
+                    <!-- Seletor de Departamento (empresa atendida) -->
+                    <div class="departamento-selector" id="departamentoSelector">
+                        <i class="fa-solid fa-building"></i>
+                        <div class="dep-info">
+                            <span class="dep-label">Departamento</span>
+                            <span class="dep-current" id="departamentoAtual">GM</span>
+                        </div>
+                        <i class="fa-solid fa-chevron-down dep-chevron"></i>
+
+                        <div class="departamento-dropdown" id="departamentoDropdown">
+                            <div class="dropdown-header">
+                                <h4>Selecione o Departamento</h4>
+                            </div>
+                            <ul class="dep-list">
+                                <li class="dep-item active" data-dep="GM">
+                                    <i class="fa-solid fa-circle-check dep-check"></i>
+                                    <div>
+                                        <strong>GM</strong>
+                                        <span>Consórcio GM</span>
+                                    </div>
+                                </li>
+                                <li class="dep-item disabled" data-dep="">
+                                    <i class="fa-solid fa-lock"></i>
+                                    <div>
+                                        <strong>Outros</strong>
+                                        <span>Em breve</span>
+                                    </div>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+
                     <!-- Componente de Hora e Data -->
                     <div class="datetime-display" id="datetimeDisplay">
                         <i class="fa-regular fa-clock"></i>

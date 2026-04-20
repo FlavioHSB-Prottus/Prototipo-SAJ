@@ -72,7 +72,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
         if (mode === 'kanban') {
             blocksContainer.style.display = 'none';
-            kanbanContainer.style.display = 'grid';
+            kanbanContainer.style.display = 'flex';
         } else {
             blocksContainer.style.display = '';
             kanbanContainer.style.display = 'none';
@@ -286,16 +286,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
         var count = contracts ? contracts.length : 0;
 
-        // Header da coluna (clicavel para expandir/recolher)
+        // Header da coluna (estilo Tramitacao — titulo colorido + badge count)
         var header = document.createElement('div');
         header.className = 'kanban-col-header';
         header.innerHTML =
             '<div class="kanban-col-title">' +
-            '  <div class="kanban-col-icon"><i class="' + iconClass + '"></i></div>' +
-            '  <div>' +
-            '    <h4>' + esc(title) + '</h4>' +
-            '    <span class="kanban-col-desc">' + esc(desc) + '</span>' +
-            '  </div>' +
+            '  <h4>' + esc(title) + '</h4>' +
+            '  <span class="kanban-col-desc">' + esc(desc) + '</span>' +
             '</div>' +
             '<div class="kanban-col-header-right">' +
             '  <span class="kanban-col-count">' + count + '</span>' +
@@ -354,22 +351,28 @@ document.addEventListener('DOMContentLoaded', function () {
                 '</div>';
         }
 
+        // Pill ao lado do grupo/cota (estilo "Safra X" da Tramitacao).
+        // Usa o numero_contrato quando disponivel; senao, quantidade de parcelas abertas.
+        var pillHTML = '';
+        if (c.numero_contrato) {
+            pillHTML = '<span class="kanban-card-pill">Nº ' + esc(c.numero_contrato) + '</span>';
+        } else if (c.parcelas_abertas) {
+            pillHTML = '<span class="kanban-card-pill">' + c.parcelas_abertas + ' parc.</span>';
+        }
+
         card.innerHTML =
             '<div class="kanban-card-top">' +
-            '  <span class="kanban-grupo">' + esc(c.grupo) + ' / ' + esc(c.cota) + '</span>' +
-            '  <span class="dias-badge dias-' + level + '">' +
-            '    <i class="fa-solid fa-clock"></i> ' + dias + 'd' +
-            '  </span>' +
+            '  <span class="kanban-grupo">' + esc(c.grupo) + '/' + esc(c.cota) + '</span>' +
+            pillHTML +
             '</div>' +
-            '<div class="kanban-card-nome">' + esc(c.nome_devedor || '—') + '</div>' +
+            '<p class="kanban-card-nome">' + esc(c.nome_devedor || '—') + '</p>' +
             '<div class="kanban-card-cpf">' + esc(c.cpf_cnpj || '—') + '</div>' +
             bemLine +
-            '<div class="kanban-card-meta">' +
-            '  <span><i class="fa-solid fa-layer-group"></i> ' + (c.parcelas_abertas || 0) + ' parc. abertas</span>' +
-            '  <span><i class="fa-solid fa-calendar-day"></i> ' + formatDate(c.vencimento_mais_antigo) + '</span>' +
-            '</div>' +
-            '<div class="kanban-card-valor">' + formatCurrency(c.valor_credito) + '</div>' +
             funcHTML +
+            '<div class="kanban-card-bottom">' +
+            '  <span class="kanban-delay"><i class="fa-regular fa-clock"></i> ' + dias + ' dias de atraso</span>' +
+            '  <span class="kanban-card-valor">' + formatCurrency(c.valor_credito) + '</span>' +
+            '</div>' +
             '<div class="kanban-card-actions">' +
             '  <button class="btn-cobrar btn-kanban-cobrar" data-id="' + c.id + '"' +
             '    data-nome="' + esc(c.nome_devedor || '') + '"' +
@@ -502,7 +505,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (typeof dias === 'string') dias = parseInt(dias);
 
                 tr.innerHTML =
-                    '<td class="fw-bold">' + esc(c.grupo) + ' / ' + esc(c.cota) + '</td>' +
+                    '<td class="fw-bold">' + esc(c.grupo) + '/' + esc(c.cota) + '</td>' +
                     '<td>' + esc(c.nome_devedor || '-') + '</td>' +
                     '<td>' + esc(c.cpf_cnpj || '-') + '</td>' +
                     '<td>' + esc(c.parcelas_abertas || 0) + '</td>' +
@@ -552,7 +555,7 @@ document.addEventListener('DOMContentLoaded', function () {
             '  <div class="expand-grid">' +
             '    <div class="expand-item">' +
             '      <span class="expand-label">Grupo / Cota</span>' +
-            '      <span class="expand-value">' + esc(contract.grupo) + ' / ' + esc(contract.cota) + '</span>' +
+            '      <span class="expand-value">' + esc(contract.grupo) + '/' + esc(contract.cota) + '</span>' +
             '    </div>' +
             '    <div class="expand-item">' +
             '      <span class="expand-label">Nome do Devedor</span>' +
@@ -656,7 +659,18 @@ document.addEventListener('DOMContentLoaded', function () {
 
         try {
             const resp = await fetch('/api/contrato/' + id);
-            const data = await resp.json();
+            const raw = await resp.text();
+            let data = null;
+            try { data = JSON.parse(raw); } catch (_) { data = null; }
+            if (!data) {
+                modalContent.innerHTML =
+                    '<p style="padding:24px;color:#ef4444">' +
+                    'Erro HTTP ' + resp.status + ' ao carregar o contrato.<br>' +
+                    '<small style="color:var(--text-muted)">Resposta nao era JSON valido.</small>' +
+                    '</p>';
+                console.error('[cobranca] /api/contrato resposta invalida:', raw);
+                return;
+            }
             if (data.error) {
                 modalContent.innerHTML = '<p style="padding:24px;color:#ef4444">' + esc(data.error) + '</p>';
                 return;
@@ -676,7 +690,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // Dados do contrato
         html += '<div class="detail-section"><h3><i class="fa-solid fa-file-contract"></i> Dados do Contrato</h3>';
         html += '<div class="detail-grid">';
-        html += dataItem('Grupo / Cota', c.grupo + ' / ' + c.cota);
+        html += dataItem('Grupo / Cota', c.grupo + '/' + c.cota);
         html += dataItem('Nro Contrato', c.numero_contrato);
         html += dataItem('Versao', c.versao);
         html += dataItem('Status', c.status || c.status_txt, true, c.status);

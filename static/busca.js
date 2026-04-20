@@ -96,7 +96,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 var statusClass = getStatusClass(c.status);
                 var tr = document.createElement('tr');
                 tr.innerHTML =
-                    '<td class="fw-bold">' + esc(c.grupo) + ' / ' + esc(c.cota) + '</td>' +
+                    '<td class="fw-bold">' + esc(c.grupo) + '/' + esc(c.cota) + '</td>' +
                     '<td>' + esc(c.bem_descricao || '-') + '</td>' +
                     '<td>' + esc(c.nome_devedor || '-') + '</td>' +
                     '<td><span class="status-badge ' + statusClass + '">' + esc(c.status || '-') + '</span></td>' +
@@ -109,7 +109,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 var statusClass = getStatusClass(c.status);
                 var tr = document.createElement('tr');
                 tr.innerHTML =
-                    '<td class="fw-bold">' + esc(c.grupo) + ' / ' + esc(c.cota) + '</td>' +
+                    '<td class="fw-bold">' + esc(c.grupo) + '/' + esc(c.cota) + '</td>' +
                     '<td>' + esc(c.numero_contrato || '-') + '</td>' +
                     '<td>' + esc(c.nome_devedor || '-') + '</td>' +
                     '<td><span class="status-badge ' + statusClass + '">' + esc(c.status || '-') + '</span></td>' +
@@ -231,7 +231,7 @@ document.addEventListener('DOMContentLoaded', function () {
             data.contratos.forEach(function (c) {
                 var papel = (String(c.id_pessoa) === String(data.pessoa.id)) ? 'Devedor' : 'Avalista';
                 html += '<tr>';
-                html += '<td>' + esc(c.grupo) + ' / ' + esc(c.cota) + '</td>';
+                html += '<td>' + esc(c.grupo) + '/' + esc(c.cota) + '</td>';
                 html += '<td>' + esc(c.numero_contrato || '-') + '</td>';
                 html += '<td><span class="status-badge ' + getStatusClass(c.status) + '">' + esc(c.status || '-') + '</span></td>';
                 html += '<td>' + formatCurrency(c.valor_credito) + '</td>';
@@ -282,7 +282,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // Dados do contrato
         html += '<div class="detail-section"><h3><i class="fa-solid fa-file-contract"></i> Dados do Contrato</h3>';
         html += '<div class="detail-grid">';
-        html += dataItem('Grupo / Cota', c.grupo + ' / ' + c.cota);
+        html += dataItem('Grupo / Cota', c.grupo + '/' + c.cota);
         html += dataItem('Nro Contrato', c.numero_contrato);
         html += dataItem('Versao', c.versao);
         html += dataItem('Status', c.status || c.status_txt, true, c.status);
