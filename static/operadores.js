@@ -140,11 +140,15 @@ document.addEventListener('DOMContentLoaded', function () {
             return { ...op, contratos: filteredContracts, stats };
         }).filter(op => op !== null);
 
-        renderOperators(filteredOperators);
-        updateFooter(filteredOperators);
+        renderOperators(filteredOperators); // renderOperators ja chama updateFooterFromVisible()
     }
 
+    // Guarda a lista atualmente renderizada para que o footer possa somar
+    // apenas os cards expandidos (visiveis).
+    let renderedOperators = [];
+
     function renderOperators(operators) {
+        renderedOperators = operators || [];
         operadorBlocksContainer.innerHTML = '';
         if (operators.length === 0) {
             operadorBlocksContainer.innerHTML = '<div class="empty-block"><i class="fa-solid fa-user-slash"></i> Nenhum operador ou contrato encontrado com os filtros aplicados.</div>';
@@ -156,6 +160,10 @@ document.addEventListener('DOMContentLoaded', function () {
             const block = createOperatorBlock(op, color);
             operadorBlocksContainer.appendChild(block);
         });
+
+        // Apos renderizar, sincroniza o footer com o estado visivel atual
+        // (todos os cards iniciam colapsados => totais = 0).
+        updateFooterFromVisible();
     }
 
     function createOperatorBlock(op, color) {
@@ -233,7 +241,10 @@ document.addEventListener('DOMContentLoaded', function () {
         `;
 
         const header = div.querySelector('.operador-header');
-        header.addEventListener('click', () => div.classList.toggle('collapsed'));
+        header.addEventListener('click', () => {
+            div.classList.toggle('collapsed');
+            updateFooterFromVisible();
+        });
 
         const tbody = div.querySelector('.op-tbody');
         op.contratos.forEach(c => {
@@ -303,20 +314,29 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    function updateFooter(operators) {
+    // Soma somente o conteudo dos cards EXPANDIDOS (i.e. visiveis na tela).
+    // Se o usuario nao expandiu nenhum operador, todos os contadores sao zero.
+    function updateFooterFromVisible() {
+        const blocks = operadorBlocksContainer.querySelectorAll('.operador-block');
         let total = 0, critico = 0, atencao = 0, recente = 0;
-        operators.forEach(op => {
-            total += op.stats.total;
-            critico += op.stats.critico;
-            atencao += op.stats.atencao;
-            recente += op.stats.recente;
+        blocks.forEach((block, idx) => {
+            if (block.classList.contains('collapsed')) return;
+            const op = renderedOperators[idx];
+            if (!op || !op.stats) return;
+            total   += op.stats.total   || 0;
+            critico += op.stats.critico || 0;
+            atencao += op.stats.atencao || 0;
+            recente += op.stats.recente || 0;
         });
-
-        footerTotal.textContent = total.toLocaleString('pt-BR');
+        footerTotal.textContent   = total.toLocaleString('pt-BR');
         footerCritico.textContent = critico.toLocaleString('pt-BR');
         footerAtencao.textContent = atencao.toLocaleString('pt-BR');
         footerRecente.textContent = recente.toLocaleString('pt-BR');
     }
+
+    // Mantido por compatibilidade caso seja chamado de outro lugar; agora apenas
+    // delega para a versao baseada no estado visivel.
+    function updateFooter() { updateFooterFromVisible(); }
 
     // ---- Detalhes Modal (Reutilizando lógica global) ----
     async function openContractDetails(id) {
