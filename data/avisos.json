@@ -1,0 +1,20 @@
+[
+  {
+    "id": 1,
+    "titulo": "Nova Politica de Juros",
+    "descricao": "Atualizacao nas planilhas de calculo exigidas para grupos GM.",
+    "data_iso": "2026-04-20"
+  },
+  {
+    "id": 2,
+    "titulo": "Manutencao no Servidor",
+    "descricao": "Agendada uma breve pausa no servidor neste domingo, as 02h.",
+    "data_iso": "2026-04-19"
+  },
+  {
+    "id": 3,
+    "titulo": "Fechamento Mensal",
+    "descricao": "Lembrete: Os arquivos de repasse devem ser consolidados ate o dia 15.",
+    "data_iso": "2026-04-10"
+  }
+]

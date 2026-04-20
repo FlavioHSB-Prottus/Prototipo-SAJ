@@ -111,25 +111,8 @@
                                 <h4>Avisos Recentes</h4>
                             </div>
                             <div class="dropdown-body">
-                                <ul class="bulletin-board mini">
-                                    <li class="bulletin-item new">
-                                        <div class="bulletin-content">
-                                            <h4>Nova Política de Juros</h4>
-                                            <p>Atualização nas planilhas...</p>
-                                        </div>
-                                    </li>
-                                    <li class="bulletin-item">
-                                        <div class="bulletin-content">
-                                            <h4>Manutenção no Servidor</h4>
-                                            <p>Pausa agendada às 02h.</p>
-                                        </div>
-                                    </li>
-                                    <li class="bulletin-item">
-                                        <div class="bulletin-content">
-                                            <h4>Fechamento Mensal</h4>
-                                            <p>Consolidar até dia 15.</p>
-                                        </div>
-                                    </li>
+                                <ul class="bulletin-board mini" id="bulletinBoardHeader">
+                                    <li class="bulletin-empty"><i class="fa-regular fa-hourglass-half"></i> Carregando...</li>
                                 </ul>
                             </div>
                         </div>
@@ -167,6 +150,7 @@
 
     <!-- Script para lógica de UI global -->
     <script src="{{ url_for('static', filename='home.js') }}"></script>
+    <script src="{{ url_for('static', filename='avisos.js') }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 
