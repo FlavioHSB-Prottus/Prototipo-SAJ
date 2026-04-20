@@ -40,6 +40,19 @@ CREATE TABLE IF NOT EXISTS `funcionario` (
   `login` varchar(50) DEFAULT NULL,
   `senha` varchar(50) DEFAULT NULL,
   `acesso_externo` bit(1) DEFAULT b'0',
+  `email` varchar(255) DEFAULT NULL,
+  `ddd` varchar(5) DEFAULT NULL,
+  `numero` varchar(30) DEFAULT NULL,
+  `logradouro` varchar(255) DEFAULT NULL,
+  `bairro` varchar(100) DEFAULT NULL,
+  `complemento` varchar(100) DEFAULT NULL,
+  `cep` varchar(10) DEFAULT NULL,
+  `cidade` varchar(100) DEFAULT NULL,
+  `estado` varchar(2) DEFAULT NULL,
+  `departamento` varchar(25) DEFAULT NULL,
+  `nivel_acesso` varchar(20) DEFAULT NULL,
+  `sexo` varchar(1) DEFAULT NULL,
+  `matricula` varchar(25) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `cpf_cnpj` (`cpf_cnpj`),
   UNIQUE KEY `funcionario_login_IDX` (`login`) USING BTREE
@@ -116,19 +129,6 @@ CREATE TABLE IF NOT EXISTS `email` (
 );
 
 
-CREATE TABLE IF NOT EXISTS `email_funcionario` (
-  `id` bigint(20) NOT NULL AUTO_INCREMENT,
-  `id_funcionario` int(11) NOT NULL,
-  `tipo` varchar(40) NOT NULL DEFAULT 'principal',
-  `email` varchar(255) NOT NULL,
-  `created_at` timestamp NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  PRIMARY KEY (`id`),
-  KEY `idx_email_funcionario` (`id_funcionario`),
-  CONSTRAINT `fk_email_funcionario` FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE
-);
-
-
 CREATE TABLE IF NOT EXISTS `empresa` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `apelido` varchar(15) NOT NULL,
@@ -157,24 +157,6 @@ CREATE TABLE IF NOT EXISTS `endereco` (
   UNIQUE KEY `uk_endereco_pessoa_tipo` (`id_pessoa`,`tipo`),
   KEY `idx_endereco_pessoa` (`id_pessoa`),
   CONSTRAINT `fk_endereco_pessoa` FOREIGN KEY (`id_pessoa`) REFERENCES `pessoa` (`id`) ON DELETE CASCADE
-);
-
-
-CREATE TABLE IF NOT EXISTS `endereco_funcionario` (
-  `id` bigint(20) NOT NULL AUTO_INCREMENT,
-  `id_funcionario` int(11) NOT NULL,
-  `tipo` varchar(40) NOT NULL DEFAULT 'principal',
-  `logradouro` varchar(255) DEFAULT NULL,
-  `bairro` varchar(100) DEFAULT NULL,
-  `complemento` varchar(100) DEFAULT NULL,
-  `cep` varchar(10) DEFAULT NULL,
-  `cidade` varchar(100) DEFAULT NULL,
-  `estado` varchar(2) DEFAULT NULL,
-  `created_at` timestamp NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  PRIMARY KEY (`id`),
-  KEY `idx_endereco_funcionario` (`id_funcionario`),
-  CONSTRAINT `fk_endereco_funcionario` FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE
 );
 
 
@@ -539,22 +521,6 @@ CREATE TABLE IF NOT EXISTS `telefone` (
   KEY `idx_telefone_pessoa` (`id_pessoa`),
   CONSTRAINT `fk_telefone_pessoa` FOREIGN KEY (`id_pessoa`) REFERENCES `pessoa` (`id`) ON DELETE CASCADE
 );
-
-
-CREATE TABLE IF NOT EXISTS `telefone_funcionario` (
-  `id` bigint(20) NOT NULL AUTO_INCREMENT,
-  `id_funcionario` int(11) NOT NULL,
-  `tipo` varchar(40) NOT NULL DEFAULT 'celular',
-  `ddd` varchar(5) DEFAULT NULL,
-  `numero` varchar(30) NOT NULL,
-  `ramal` varchar(10) DEFAULT NULL,
-  `created_at` timestamp NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  PRIMARY KEY (`id`),
-  KEY `idx_telefone_funcionario` (`id_funcionario`),
-  CONSTRAINT `fk_telefone_funcionario` FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE
-);
-
 
 CREATE TABLE IF NOT EXISTS `trailer` (
   `id_registro` int(11) NOT NULL AUTO_INCREMENT,
