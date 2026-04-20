@@ -756,6 +756,71 @@ def api_distribuicao_transferir():
         except Exception: pass
 
 
+@app.route('/api/importacao/distribuicao/restaurar', methods=['POST'])
+def api_distribuicao_restaurar():
+    """Reverte a distribuicao atual para a baseline gerada pelo algoritmo
+    original (scripts/distribuir_funcionarios_cobranca.py).
+
+    Estrategia:
+        1. Apaga TODAS as linhas de funcionario_cobranca (remove as
+           transferencias manuais / em lote feitas pelo usuario).
+        2. Executa o script de distribuicao, que e deterministico: dado o
+           mesmo conjunto de contratos abertos e de funcionarios cadastrados,
+           produz exatamente a mesma atribuicao da importacao original.
+
+    Resposta:
+        { ok: true, total, logs: [..], restauracao_ok: bool }
+    """
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM funcionario_cobranca")
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        cursor.close()
+        conn.close()
+        app.logger.exception('restaurar: falha ao apagar funcionario_cobranca')
+        return jsonify({'error': f'Falha ao limpar a distribuicao atual: {exc}'}), 500
+
+    script = os.path.join(SCRIPTS_DIR, 'distribuir_funcionarios_cobranca.py')
+    try:
+        proc = subprocess.run(
+            [PYTHON_EXE, '-u', script],
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            env=_SUBPROCESS_ENV,
+            timeout=300,
+        )
+    except Exception as exc:
+        cursor.close()
+        conn.close()
+        app.logger.exception('restaurar: erro ao rodar script de distribuicao')
+        return jsonify({'error': f'Erro ao executar o script de distribuicao: {exc}'}), 500
+
+    logs = []
+    if proc.stdout:
+        logs.extend([ln for ln in proc.stdout.splitlines() if ln.strip()])
+    if proc.stderr:
+        logs.extend([f'[stderr] {ln}' for ln in proc.stderr.splitlines() if ln.strip()])
+
+    cursor.execute("SELECT COUNT(*) AS total FROM funcionario_cobranca")
+    row = cursor.fetchone() or {}
+    total = int(row.get('total') or 0)
+    cursor.close()
+    conn.close()
+
+    return jsonify({
+        'ok': True,
+        'restauracao_ok': (proc.returncode == 0),
+        'returncode': proc.returncode,
+        'total': total,
+        'logs': logs[-80:],  # limita o payload - logs completos ficam no servidor
+    })
+
+
 @app.route('/api/importacao/distribuicao/aprovar', methods=['POST'])
 def api_distribuicao_aprovar():
     """No-op de aprovacao. A tabela funcionario_cobranca nao tem coluna de
@@ -1520,6 +1585,15 @@ def api_cobranca():
     conn = _get_db()
     cursor = conn.cursor()
 
+    # Garante que a tabela de negativacao existe antes do SELECT que a
+    # referencia (evita erro quando ainda e a primeira execucao).
+    try:
+        _ensure_negativacao_table(cursor)
+    except Exception:
+        # Se a criacao falhar (permissao, schema bloqueado, etc.), seguimos
+        # sem o flag de negativacao em vez de derrubar a tela inteira.
+        app.logger.exception('api_cobranca: falha ao garantir tabela negativacao')
+
     # Query base: contratos abertos com parcelas em aberto, com join
     # opcional em funcionario_cobranca/funcionario para expor o
     # responsavel de cobranca e (se a tabela existir) com a descricao
@@ -1547,6 +1621,7 @@ def api_cobranca():
         "       COUNT(par.id) AS parcelas_abertas, "
         "       fc.id_funcionario AS id_funcionario, "
         "       f.nome AS nome_funcionario, "
+        "       EXISTS(SELECT 1 FROM negativacao n WHERE n.id_contrato = c.id) AS negativado, "
         f"       {bem_select} AS bem_descricao "
         "FROM contrato c "
         "INNER JOIN parcela par ON par.id_contrato = c.id AND par.status = 'aberto' "
@@ -1574,6 +1649,10 @@ def api_cobranca():
 
     cursor.execute(base_sql, params)
     rows = _clean_rows(cursor.fetchall())
+
+    # Normaliza o flag negativado (MySQL devolve 0/1) para boolean real.
+    for r in rows:
+        r['negativado'] = bool(r.get('negativado'))
 
     # Dividir em 3 blocos de prioridade
     critico = []   # 60-90+ dias
@@ -3240,6 +3319,39 @@ def api_avisos_item(aviso_id):
 
 
 # =============================================================================
+# Negativação (Serasa) - tabela auto-criada na primeira utilização
+# -----------------------------------------------------------------------------
+# Regra de negocio:
+#   * Um contrato se torna ELEGIVEL a negativacao quando sua parcela em aberto
+#     mais antiga tem entre 31 e 89 dias de atraso (inclusive).
+#   * Uma vez enviado ao Serasa, NAO e re-enviado automaticamente (o usuario
+#     tem que expressamente desejar uma nova negativacao -- futuro).
+# =============================================================================
+
+def _ensure_negativacao_table(cursor):
+    """Cria a tabela `negativacao` se ainda nao existir."""
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS negativacao (
+            id BIGINT PRIMARY KEY AUTO_INCREMENT,
+            id_contrato BIGINT NOT NULL,
+            id_parcela BIGINT NULL,
+            dias_atraso INT NULL,
+            data_negativacao DATETIME DEFAULT CURRENT_TIMESTAMP,
+            status VARCHAR(32) NOT NULL DEFAULT 'enviado',
+            resposta_api TEXT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                                 ON UPDATE CURRENT_TIMESTAMP,
+            KEY idx_negativacao_contrato (id_contrato),
+            CONSTRAINT fk_negativacao_contrato FOREIGN KEY (id_contrato)
+                REFERENCES contrato(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+    )
+
+
+# =============================================================================
 # Automacoes de cobranca (SMS, e-mail, ligacao)
 # -----------------------------------------------------------------------------
 # Endpoints proxy entre o frontend e a API que o colega Flavio esta criando.
@@ -3344,6 +3456,137 @@ def api_automacao(tipo):
         'falhas': 0,
         'mensagem': f'{len(ids)} {tipo} disparados (mock).',
         'mock': True,
+    })
+
+
+# =============================================================================
+# API: Negativacao (Serasa)
+# -----------------------------------------------------------------------------
+# Regra:
+#   - Elegivel = contrato aberto cuja parcela em aberto mais antiga tem
+#     entre 31 e 89 dias de atraso.
+#   - Contratos ja registrados na tabela `negativacao` sao IGNORADOS.
+#   - O envio real sera substituido pela API do Flavio (TODO abaixo).
+# =============================================================================
+
+@app.route('/api/negativacao/enviar', methods=['POST'])
+def api_negativacao_enviar():
+    payload = request.get_json(silent=True) or {}
+    ids, err = _validar_ids_contratos(payload.get('contrato_ids'))
+    if err:
+        return jsonify({'error': err}), 400
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    _ensure_negativacao_table(cursor)
+
+    placeholders = ','.join(['%s'] * len(ids))
+
+    # 1) Quais contratos ja foram negativados alguma vez?
+    cursor.execute(
+        f"SELECT DISTINCT id_contrato FROM negativacao "
+        f"WHERE id_contrato IN ({placeholders})",
+        ids,
+    )
+    ja_negativados = {int(r['id_contrato']) for r in cursor.fetchall()}
+
+    # 2) Buscar dias de atraso e parcela mais antiga aberta para cada contrato.
+    cursor.execute(
+        f"""
+        SELECT c.id AS id_contrato,
+               c.grupo, c.cota, c.numero_contrato,
+               (
+                 SELECT p.id FROM parcela p
+                 WHERE p.id_contrato = c.id AND p.status = 'aberto'
+                 ORDER BY p.vencimento ASC LIMIT 1
+               ) AS id_parcela,
+               (
+                 SELECT DATEDIFF(CURDATE(), MIN(p.vencimento)) FROM parcela p
+                 WHERE p.id_contrato = c.id AND p.status = 'aberto'
+               ) AS dias_atraso
+        FROM contrato c
+        WHERE c.id IN ({placeholders}) AND c.status = 'aberto'
+        """,
+        ids,
+    )
+    info = _clean_rows(cursor.fetchall())
+    info_por_id = {int(r['id_contrato']): r for r in info}
+
+    elegiveis = []
+    fora_janela = []
+    for cid in ids:
+        if cid in ja_negativados:
+            continue
+        r = info_por_id.get(cid)
+        if not r:
+            # contrato inexistente ou nao-aberto
+            fora_janela.append({'id_contrato': cid, 'dias_atraso': None})
+            continue
+        try:
+            dias_i = int(r.get('dias_atraso') or 0)
+        except (TypeError, ValueError):
+            dias_i = 0
+        if 31 <= dias_i <= 89:
+            elegiveis.append({
+                'id_contrato': cid,
+                'id_parcela': r.get('id_parcela'),
+                'dias_atraso': dias_i,
+                'grupo_cota': f"{r.get('grupo')}/{r.get('cota')}",
+            })
+        else:
+            fora_janela.append({'id_contrato': cid, 'dias_atraso': dias_i})
+
+    _automacao_log('negativacao', {
+        'qtd_total': len(ids),
+        'qtd_elegiveis': len(elegiveis),
+        'qtd_ja_negativados': len(ja_negativados & set(ids)),
+        'qtd_fora_janela': len(fora_janela),
+    })
+
+    # TODO: substituir pelo POST real para a API do Flavio (Serasa).
+    # Exemplo:
+    #   import requests
+    #   for e in elegiveis:
+    #       r = requests.post('http://api-flavio/serasa/negativacao',
+    #                         json={'id_contrato': e['id_contrato'],
+    #                               'id_parcela':  e['id_parcela'],
+    #                               'dias_atraso': e['dias_atraso']},
+    #                         timeout=30)
+    #       e['resposta_api'] = r.text
+
+    # Persiste no banco apenas os elegiveis (uma vez por contrato).
+    gravados = 0
+    if elegiveis:
+        cursor.executemany(
+            "INSERT INTO negativacao "
+            "  (id_contrato, id_parcela, dias_atraso, status, resposta_api) "
+            "VALUES (%s, %s, %s, 'enviado', %s)",
+            [
+                (e['id_contrato'], e['id_parcela'], e['dias_atraso'],
+                 '{"mock": true}')
+                for e in elegiveis
+            ],
+        )
+        conn.commit()
+        gravados = cursor.rowcount or len(elegiveis)
+
+    cursor.close()
+    conn.close()
+
+    return jsonify({
+        'success': True,
+        'tipo': 'negativacao',
+        'enviados': len(elegiveis),
+        'gravados': gravados,
+        'ja_negativados': len(ja_negativados & set(ids)),
+        'fora_janela': len(fora_janela),
+        'falhas': 0,
+        'mock': True,
+        'mensagem': (
+            f'{len(elegiveis)} contrato(s) negativado(s). '
+            f'{len(ja_negativados & set(ids))} ja estavam negativados. '
+            f'{len(fora_janela)} fora da janela (31-89 dias).'
+        ),
     })
 
 

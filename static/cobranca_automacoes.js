@@ -40,13 +40,23 @@
             icone: 'fa-solid fa-envelope',
             cor: '#f59e0b',
             bgIcone: 'rgba(245,158,11,0.15)'
+        },
+        negativacao: {
+            label: 'Negativação',
+            verbo: 'negativar os contratos elegíveis',
+            verboCurto: 'Negativar',
+            icone: 'fa-solid fa-ban',
+            cor: '#b91c1c',
+            bgIcone: 'rgba(185,28,28,0.12)',
+            endpoint: '/api/negativacao/enviar'
         }
     };
 
     var NIVEL_LABEL = {
         critico: 'Crítico',
         atencao: 'Atenção',
-        recente: 'Recente'
+        recente: 'Recente',
+        todos: 'Todos os blocos'
     };
 
     // ---- DOM cache (carregado on demand) -------------------------------------------
@@ -119,9 +129,39 @@
     // ---- Estado da ligação sequencial ---------------------------------------------
     var seqState = null;
 
+    // ---- Classificação para negativação (janela 31-89 dias + não negativados) -----
+    // Separa a lista em 3 grupos para deixar o usuário ver exatamente o que vai
+    // acontecer ANTES de confirmar. Assim o "Contratos alvo" exibido passa a ser
+    // apenas o subconjunto realmente elegível.
+    function classificarParaNegativacao(contratos) {
+        var elegiveis = [];
+        var jaNegativados = [];
+        var foraJanela = [];
+        (contratos || []).forEach(function (c) {
+            if (!c) return;
+            if (c.negativado) {
+                jaNegativados.push(c);
+                return;
+            }
+            var d = c.dias_atraso;
+            if (typeof d === 'string') d = parseInt(d, 10);
+            d = isFinite(d) ? d : 0;
+            if (d >= 31 && d <= 89) {
+                elegiveis.push(c);
+            } else {
+                foraJanela.push(c);
+            }
+        });
+        return {
+            elegiveis: elegiveis,
+            jaNegativados: jaNegativados,
+            foraJanela: foraJanela
+        };
+    }
+
     // ---- API pública --------------------------------------------------------------
     var Auto = {
-        /** Disparado pelo botão "Ligar/SMS/E-mail" do cabeçalho de cada bloco. */
+        /** Disparado pelo botão "Ligar/SMS/E-mail/Negativação" do painel. */
         iniciar: function (tipo, nivel, contratos) {
             if (!TIPO_META[tipo]) {
                 console.warn('[automacao] tipo desconhecido:', tipo);
@@ -132,29 +172,85 @@
                 alert('Não há contratos neste bloco para ' + TIPO_META[tipo].verboCurto.toLowerCase() + '.');
                 return;
             }
+
+            // Para negativação, pré-classifica no cliente e aborta cedo se
+            // nenhum contrato for elegível (evita abrir modal vazio).
+            if (tipo === 'negativacao') {
+                var cls = classificarParaNegativacao(contratos);
+                if (cls.elegiveis.length === 0) {
+                    alert(
+                        'Nenhum contrato elegível para negativação.\n\n' +
+                        'Critério: parcela mais antiga entre 31 e 89 dias de atraso ' +
+                        'e contrato ainda não negativado.\n\n' +
+                        'Na lista atual: ' + cls.jaNegativados.length + ' já negativado(s), ' +
+                        cls.foraJanela.length + ' fora da janela.'
+                    );
+                    return;
+                }
+                mostrarConfirmacao(tipo, nivel, cls.elegiveis, {
+                    jaNegativados: cls.jaNegativados.length,
+                    foraJanela:    cls.foraJanela.length,
+                    totalOriginal: contratos.length
+                });
+                return;
+            }
+
             mostrarConfirmacao(tipo, nivel, contratos);
         }
     };
 
     // ---- Modal de confirmação ------------------------------------------------------
-    function mostrarConfirmacao(tipo, nivel, contratos) {
+    function mostrarConfirmacao(tipo, nivel, contratos, infoNeg) {
         var d = dom();
         var meta = TIPO_META[tipo];
         var nivelLabel = NIVEL_LABEL[nivel] || nivel;
 
         setIcon(d.confirmIcon, meta.icone, meta.cor, meta.bgIcone);
         d.confirmTitle.textContent = meta.verboCurto + ' - bloco ' + nivelLabel;
-        d.confirmGoLabel.textContent = tipo === 'ligacao'
-            ? 'Iniciar ligações sequenciais'
-            : 'Confirmar e disparar';
+        if (tipo === 'ligacao') {
+            d.confirmGoLabel.textContent = 'Iniciar ligações sequenciais';
+        } else if (tipo === 'negativacao') {
+            d.confirmGoLabel.textContent = 'Confirmar e negativar';
+        } else {
+            d.confirmGoLabel.textContent = 'Confirmar e disparar';
+        }
         d.confirmGo.style.background = meta.cor;
         d.confirmGo.style.borderColor = meta.cor;
 
-        var detalhe = tipo === 'ligacao'
-            ? ('As ligações serão feitas <strong>uma a uma</strong>, na ordem da lista. ' +
-               'Após cada chamada o sistema perguntará se deseja seguir para a próxima.')
-            : ('Será disparado <strong>1 ' + meta.label.toLowerCase() + '</strong> para ' +
-               '<strong>cada um</strong> dos contratos do bloco selecionado.');
+        var detalhe;
+        if (tipo === 'ligacao') {
+            detalhe = 'As ligações serão feitas <strong>uma a uma</strong>, na ordem da lista. ' +
+                'Após cada chamada o sistema perguntará se deseja seguir para a próxima.';
+        } else if (tipo === 'negativacao') {
+            detalhe = 'Serão enviados ao Serasa <strong>apenas os contratos elegíveis</strong> ' +
+                '(parcela mais antiga com <strong>31 a 89 dias</strong> de atraso e ainda não negativados). ' +
+                'Os demais foram <strong>descartados automaticamente</strong> abaixo.';
+        } else {
+            detalhe = 'Será disparado <strong>1 ' + meta.label.toLowerCase() + '</strong> para ' +
+                '<strong>cada um</strong> dos contratos do bloco selecionado.';
+        }
+
+        // Breakdown extra exclusivo da negativação - mostra ao usuário
+        // exatamente quantos foram descartados e por qual motivo.
+        var breakdownHTML = '';
+        if (tipo === 'negativacao' && infoNeg) {
+            breakdownHTML =
+                '<div class="auto-info-row auto-info-sub">' +
+                '  <span class="auto-info-label">Total da lista</span>' +
+                '  <span class="auto-info-value auto-sub-value">' +
+                    infoNeg.totalOriginal.toLocaleString('pt-BR') + '</span>' +
+                '</div>' +
+                '<div class="auto-info-row auto-info-sub">' +
+                '  <span class="auto-info-label"><i class="fa-solid fa-ban" style="color:#6b7280"></i> Já negativados (ignorados)</span>' +
+                '  <span class="auto-info-value auto-sub-value">-' +
+                    infoNeg.jaNegativados.toLocaleString('pt-BR') + '</span>' +
+                '</div>' +
+                '<div class="auto-info-row auto-info-sub">' +
+                '  <span class="auto-info-label"><i class="fa-solid fa-clock" style="color:#f59e0b"></i> Fora da janela 31-89 dias</span>' +
+                '  <span class="auto-info-value auto-sub-value">-' +
+                    infoNeg.foraJanela.toLocaleString('pt-BR') + '</span>' +
+                '</div>';
+        }
 
         d.confirmBody.innerHTML =
             '<div class="auto-info-row">' +
@@ -166,9 +262,13 @@
             '  <span class="auto-info-label">Bloco</span>' +
             '  <span class="auto-info-value auto-pill auto-pill-' + esc(nivel) + '">' + esc(nivelLabel) + '</span>' +
             '</div>' +
-            '<div class="auto-info-row">' +
-            '  <span class="auto-info-label">Contratos alvo</span>' +
-            '  <span class="auto-info-value"><strong>' + contratos.length.toLocaleString('pt-BR') + '</strong></span>' +
+            breakdownHTML +
+            '<div class="auto-info-row auto-info-total">' +
+            '  <span class="auto-info-label">' +
+                (tipo === 'negativacao' ? 'Serão negativados' : 'Contratos alvo') +
+            '  </span>' +
+            '  <span class="auto-info-value"><strong>' +
+                contratos.length.toLocaleString('pt-BR') + '</strong></span>' +
             '</div>' +
             '<p class="auto-helper-text">' + detalhe + '</p>';
 
@@ -203,20 +303,30 @@
         }
     }
 
-    // ---- Disparo em lote (SMS / E-mail) -------------------------------------------
+    // ---- Disparo em lote (SMS / E-mail / Negativação) -----------------------------
     function dispararLote(tipo, nivel, contratos) {
         var d = dom();
         var meta = TIPO_META[tipo];
         var ids = contratos.map(function (c) { return c.id; }).filter(Boolean);
+        var endpoint = meta.endpoint || ('/api/automacao/' + tipo);
 
         setIcon(d.statusIcon, meta.icone, meta.cor, meta.bgIcone);
         d.statusTitle.textContent = meta.verboCurto + ' - enviando...';
+
+        var msgLoad;
+        if (tipo === 'negativacao') {
+            msgLoad = 'Avaliando <strong>' + ids.length.toLocaleString('pt-BR') + '</strong> contrato(s) ' +
+                      'e enviando os elegíveis ao Serasa...';
+        } else {
+            msgLoad = 'Disparando <strong>' + ids.length.toLocaleString('pt-BR') + '</strong> ' +
+                      esc(meta.label.toLowerCase()) + ' para o bloco <strong>' +
+                      esc(NIVEL_LABEL[nivel] || nivel) + '</strong>...';
+        }
+
         d.statusBody.innerHTML =
             '<div class="auto-status-loading">' +
             '  <i class="fa-solid fa-spinner fa-spin"></i>' +
-            '  <p>Disparando <strong>' + ids.length.toLocaleString('pt-BR') + '</strong> ' +
-            esc(meta.label.toLowerCase()) + ' para o bloco <strong>' + esc(NIVEL_LABEL[nivel] || nivel) +
-            '</strong>...</p>' +
+            '  <p>' + msgLoad + '</p>' +
             '  <small>Aguarde, não feche esta janela.</small>' +
             '</div>';
         d.statusFooter.innerHTML = '';
@@ -224,7 +334,7 @@
         bindFechamentoStatus();
         abrir(d.statusOverlay);
 
-        fetch('/api/automacao/' + tipo, {
+        fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ contrato_ids: ids, nivel: nivel })
@@ -236,7 +346,7 @@
                 renderStatusErro(meta, res.body.error || 'Falha ao disparar.', tipo);
                 return;
             }
-            renderStatusSucessoLote(meta, res.body, nivel);
+            renderStatusSucessoLote(meta, res.body, nivel, tipo);
         })
         .catch(function (err) {
             d.statusCloseX.disabled = false;
@@ -244,21 +354,44 @@
         });
     }
 
-    function renderStatusSucessoLote(meta, body, nivel) {
+    function renderStatusSucessoLote(meta, body, nivel, tipo) {
         var d = dom();
         var enviados = body.enviados != null ? body.enviados : 0;
         var falhas   = body.falhas   != null ? body.falhas   : 0;
         d.statusTitle.textContent = meta.verboCurto + ' - concluído';
+
+        var statsHTML;
+        if (tipo === 'negativacao') {
+            // Estatísticas específicas: enviados ao Serasa, já negativados e fora da janela.
+            var jaNeg   = body.ja_negativados != null ? body.ja_negativados : 0;
+            var foraJan = body.fora_janela    != null ? body.fora_janela    : 0;
+            statsHTML =
+                '  <div class="auto-result-stats auto-result-stats-neg">' +
+                '    <div class="auto-stat"><span class="auto-stat-num">' + enviados.toLocaleString('pt-BR') +
+                     '</span><span class="auto-stat-lbl">Negativados</span></div>' +
+                '    <div class="auto-stat"><span class="auto-stat-num" style="color:#6b7280">' + jaNeg.toLocaleString('pt-BR') +
+                     '</span><span class="auto-stat-lbl">Já negativados</span></div>' +
+                '    <div class="auto-stat"><span class="auto-stat-num" style="color:#f59e0b">' + foraJan.toLocaleString('pt-BR') +
+                     '</span><span class="auto-stat-lbl">Fora da janela</span></div>' +
+                '    <div class="auto-stat"><span class="auto-stat-num auto-stat-fail">' + falhas.toLocaleString('pt-BR') +
+                     '</span><span class="auto-stat-lbl">Falhas</span></div>' +
+                '  </div>';
+        } else {
+            statsHTML =
+                '  <div class="auto-result-stats">' +
+                '    <div class="auto-stat"><span class="auto-stat-num">' + enviados.toLocaleString('pt-BR') +
+                     '</span><span class="auto-stat-lbl">Enviados</span></div>' +
+                '    <div class="auto-stat"><span class="auto-stat-num auto-stat-fail">' + falhas.toLocaleString('pt-BR') +
+                     '</span><span class="auto-stat-lbl">Falhas</span></div>' +
+                '  </div>';
+        }
+
+        var titulo = tipo === 'negativacao' ? 'Negativação concluída' : 'Disparo concluído';
         d.statusBody.innerHTML =
             '<div class="auto-status-result auto-status-success">' +
             '  <div class="auto-result-icon"><i class="fa-solid fa-circle-check"></i></div>' +
-            '  <h4>Disparo concluído</h4>' +
-            '  <div class="auto-result-stats">' +
-            '    <div class="auto-stat"><span class="auto-stat-num">' + enviados.toLocaleString('pt-BR') +
-                 '</span><span class="auto-stat-lbl">Enviados</span></div>' +
-            '    <div class="auto-stat"><span class="auto-stat-num auto-stat-fail">' + falhas.toLocaleString('pt-BR') +
-                 '</span><span class="auto-stat-lbl">Falhas</span></div>' +
-            '  </div>' +
+            '  <h4>' + titulo + '</h4>' +
+            statsHTML +
             (body.mock ? '<p class="auto-mock-note"><i class="fa-solid fa-flask"></i> Resposta simulada (a API definitiva ainda será integrada).</p>' : '') +
             '  <p class="auto-result-msg">' + esc(body.mensagem || '') + '</p>' +
             '</div>';
@@ -267,6 +400,11 @@
             '<i class="fa-solid fa-check"></i> Concluir</button>';
         d.statusFooter.querySelector('[data-close-status]').onclick = function () {
             fechar(d.statusOverlay);
+            // Após negativar, recarrega a lista para pintar de cinza os contratos
+            // que acabaram de ser negativados.
+            if (tipo === 'negativacao' && typeof window.CobrancaReload === 'function') {
+                try { window.CobrancaReload(); } catch (e) { /* silencioso */ }
+            }
         };
     }
 

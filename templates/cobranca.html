@@ -39,6 +39,14 @@
                     <!-- Preenchido dinamicamente via JS -->
                 </select>
             </div>
+            <div class="operador-filter negativacao-filter">
+                <label for="negativacaoSelect"><i class="fa-solid fa-ban"></i> Negativação:</label>
+                <select id="negativacaoSelect" class="form-control-sm">
+                    <option value="">Todos</option>
+                    <option value="pendente">Falta negativar</option>
+                    <option value="negativado">Já negativados</option>
+                </select>
+            </div>
         </div>
         <div class="toolbar-right">
             <div class="view-toggle" role="group" aria-label="Alternar layout">
@@ -75,6 +83,18 @@
         <div class="footer-total">
             <i class="fa-solid fa-calculator"></i>
             Total de Contratos: <span class="total-num" id="totalDisplay">—</span>
+        </div>
+        <div class="footer-bulk-actions" id="footerBulkActions" title="Ações aplicadas a todos os contratos da lista (respeitando filtro de operador e busca).">
+            <button type="button" class="bulk-btn bulk-btn-negativacao" id="footerBulkNegativacao" title="Negativação em lote (a ser configurada)">
+                <i class="fa-solid fa-gavel"></i><span>Negativação</span>
+            </button>
+            <span class="footer-bulk-sep" aria-hidden="true"></span>
+            <button type="button" class="bulk-btn bulk-btn-sms" id="footerBulkSms" title="Enviar SMS para TODOS os contratos da lista">
+                <i class="fa-solid fa-comment-sms"></i><span>SMS</span>
+            </button>
+            <button type="button" class="bulk-btn bulk-btn-mail" id="footerBulkEmail" title="Enviar e-mail para TODOS os contratos da lista">
+                <i class="fa-solid fa-envelope"></i><span>E-mail</span>
+            </button>
         </div>
         <div class="footer-breakdown">
             <div class="fb-item">

@@ -175,6 +175,21 @@
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
 }
 
+/* Filtro de negativação - mais compacto que o de operador e com destaque
+   vermelho quando uma opção diferente de "Todos" está ativa. */
+.negativacao-filter select {
+    min-width: 160px;
+}
+.negativacao-filter label i {
+    color: #b91c1c;
+}
+.negativacao-filter.filter-active select {
+    border-color: rgba(185, 28, 28, 0.45);
+    background-color: #fff7f7;
+    color: #991b1b;
+    font-weight: 600;
+}
+
 .toolbar-right {
     display: flex;
     align-items: center;
@@ -355,7 +370,9 @@
 /* Corpo da lista (tabela) */
 .priority-body {
     overflow: hidden;
-    max-height: 2000px;
+    /* Cap alto o suficiente para listas grandes (~4000 linhas). Se exceder
+       isso, basta aumentar aqui ou trocar para uma abordagem JS. */
+    max-height: 200000px;
     transition: max-height 0.4s ease;
 }
 
@@ -492,6 +509,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 14px;
 }
 
 .footer-total {
@@ -1349,6 +1368,39 @@
     gap: 6px;
 }
 
+/* Linhas de breakdown (exclusivo do modal de negativação) - compactas,
+   tipografia mais leve, para parecer uma lista "- item" de ajustes. */
+.auto-info-row.auto-info-sub {
+    padding: 6px 0;
+    border-bottom: none;
+}
+.auto-info-row.auto-info-sub .auto-info-label {
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 500;
+    font-size: 0.85rem;
+    color: #4b5563;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.auto-info-row.auto-info-sub .auto-sub-value {
+    color: #6b7280;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+/* Linha do total final - destaca o número que realmente será negativado. */
+.auto-info-row.auto-info-total {
+    margin-top: 6px;
+    padding-top: 12px;
+    border-top: 1px solid #e5e7eb;
+    border-bottom: none;
+}
+.auto-info-row.auto-info-total .auto-info-value {
+    font-size: 1.15rem;
+    color: #b91c1c;
+}
+
 .auto-pill {
     display: inline-flex;
     align-items: center;
@@ -1625,3 +1677,122 @@
     .auto-modal-footer { flex-wrap: wrap; }
     .auto-result-stats { gap: 16px; }
 }
+
+/* === FOOTER BULK ACTIONS === */
+.footer-bulk-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.footer-bulk-actions .bulk-btn {
+    padding: 6px 12px;
+}
+
+/* Separador visual entre "Negativação" e o par SMS / E-mail ------------------ */
+.footer-bulk-sep {
+    display: inline-block;
+    width: 1px;
+    height: 22px;
+    margin: 0 8px;
+    background: #cbd5e1;
+}
+
+/* Negativação (ação séria) - vermelho escuro --------------------------------- */
+.bulk-btn-negativacao {
+    background: rgba(220, 38, 38, 0.10);
+    color: #b91c1c;
+    border-color: rgba(220, 38, 38, 0.30);
+}
+
+.bulk-btn-negativacao:hover {
+    background: #b91c1c;
+    color: #fff;
+    border-color: #b91c1c;
+}
+
+/* pill para nivel "todos" (automacao geral) no modal de confirmacao ---------- */
+.auto-pill-todos {
+    background: rgba(59, 130, 246, 0.12);
+    color: #1d4ed8;
+    border-color: rgba(59, 130, 246, 0.25);
+}
+
+/* =====================================================================
+   NEGATIVAÇÃO - visual dos contratos já enviados ao Serasa
+   --------------------------------------------------------------------- */
+
+/* Linha na visão analítica */
+.contract-row.contract-negativado {
+    background: #f3f4f6 !important;
+    color: #6b7280;
+}
+.contract-row.contract-negativado td {
+    background: inherit;
+}
+.contract-row.contract-negativado:hover {
+    background: #e5e7eb !important;
+}
+.contract-row.contract-negativado.selected {
+    background: #e5e7eb !important;
+}
+.contract-row.contract-negativado .fw-bold {
+    color: #4b5563;
+}
+
+/* Badge "Negativado" dentro da célula grupo/cota */
+.neg-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    margin-left: 6px;
+    background: #6b7280;
+    color: #fff;
+    border-radius: 50%;
+    font-size: 10px;
+    vertical-align: middle;
+}
+
+/* Card no Kanban */
+.kanban-card.kanban-card-negativado {
+    background: #f3f4f6 !important;
+    border-color: #d1d5db !important;
+    opacity: 0.85;
+}
+.kanban-card.kanban-card-negativado .kanban-card-nome,
+.kanban-card.kanban-card-negativado .kanban-card-cpf,
+.kanban-card.kanban-card-negativado .kanban-grupo {
+    color: #4b5563;
+}
+.kanban-card.kanban-card-negativado:hover {
+    opacity: 1;
+    background: #e5e7eb !important;
+}
+
+/* Pill "Negativado" no topo do card kanban */
+.kanban-card-pill.pill-negativado {
+    background: #6b7280 !important;
+    color: #fff !important;
+    border-color: #6b7280 !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 4px;
+}
+.kanban-card-pill.pill-negativado i {
+    font-size: 10px;
+}
+
+/* Ajuste do grid de resultado quando a negativação retorna 4 colunas */
+.auto-result-stats.auto-result-stats-neg {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+}
+@media (max-width: 540px) {
+    .auto-result-stats.auto-result-stats-neg {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+

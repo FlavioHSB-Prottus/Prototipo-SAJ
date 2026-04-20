@@ -62,10 +62,13 @@
             <!-- Blocos por funcionario -->
             <div class="distribuicao-funcionarios" id="distribuicaoFuncionarios"></div>
 
-            <!-- Acoes: Recarregar / Aprovar (rodape do painel) -->
+            <!-- Acoes: Recarregar / Restaurar / Aprovar (rodape do painel) -->
             <div class="distribuicao-actions distribuicao-actions-footer">
-                <button type="button" class="btn-secondary-dist" id="btnRecarregarDistribuicao" title="Recarregar proposta">
+                <button type="button" class="btn-secondary-dist" id="btnRecarregarDistribuicao" title="Recarregar proposta (apenas re-lê do banco)">
                     <i class="fa-solid fa-rotate"></i> Recarregar
+                </button>
+                <button type="button" class="btn-secondary-dist btn-restaurar-dist" id="btnRestaurarDistribuicao" title="Voltar à distribuição inicial da importação (desfaz todas as transferências)">
+                    <i class="fa-solid fa-clock-rotate-left"></i> Restaurar inicial
                 </button>
                 <button type="button" class="btn-aprovar-dist" id="btnAprovarDistribuicao">
                     <i class="fa-solid fa-check"></i> Aprovar Distribuição

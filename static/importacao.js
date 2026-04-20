@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const distribuicaoSubtitle = document.getElementById('distribuicaoSubtitle');
     const btnAprovarDistribuicao = document.getElementById('btnAprovarDistribuicao');
     const btnRecarregarDistribuicao = document.getElementById('btnRecarregarDistribuicao');
+    const btnRestaurarDistribuicao = document.getElementById('btnRestaurarDistribuicao');
     const distribuicaoToggle = document.getElementById('distribuicaoToggle');
 
     function setDistribuicaoExpandido(expandido) {
@@ -637,6 +638,41 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (btnAprovarDistribuicao) btnAprovarDistribuicao.addEventListener('click', aprovarDistribuicao);
     if (btnRecarregarDistribuicao) btnRecarregarDistribuicao.addEventListener('click', () => loadDistribuicao(false));
+    if (btnRestaurarDistribuicao) btnRestaurarDistribuicao.addEventListener('click', restaurarDistribuicao);
+
+    async function restaurarDistribuicao() {
+        const msg = 'Restaurar a distribuição inicial da importação?\n\n' +
+                    'Todas as transferências feitas (individuais ou em lote) serão desfeitas e ' +
+                    'os contratos voltarão para o funcionário designado pelo algoritmo de balanceamento original.\n\n' +
+                    'Deseja continuar?';
+        if (!confirm(msg)) return;
+
+        const originalHTML = btnRestaurarDistribuicao.innerHTML;
+        btnRestaurarDistribuicao.disabled = true;
+        btnRestaurarDistribuicao.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Restaurando...';
+        if (btnRecarregarDistribuicao) btnRecarregarDistribuicao.disabled = true;
+        if (btnAprovarDistribuicao) btnAprovarDistribuicao.disabled = true;
+
+        try {
+            const resp = await fetch('/api/importacao/distribuicao/restaurar', { method: 'POST' });
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok || data.error) {
+                throw new Error(data.error || ('HTTP ' + resp.status));
+            }
+            distribuicaoAprovadaNaSessao = false;
+            await loadDistribuicao(false);
+            if (data.restauracao_ok === false) {
+                alert('A restauração concluiu, mas o script de distribuição retornou código ' +
+                      data.returncode + '. Verifique os logs do servidor.');
+            }
+        } catch (err) {
+            alert('Falha ao restaurar a distribuição: ' + (err.message || err));
+        } finally {
+            btnRestaurarDistribuicao.disabled = false;
+            btnRestaurarDistribuicao.innerHTML = originalHTML;
+            if (btnRecarregarDistribuicao) btnRecarregarDistribuicao.disabled = false;
+        }
+    }
 
     // =====================================================================
     // Modal de Transferencia de contratos
