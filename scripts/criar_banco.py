@@ -87,12 +87,18 @@ CREATE TABLE IF NOT EXISTS `contrato` (
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `status` enum('aberto','fechado','indenizado') DEFAULT 'aberto',
+  `id_empresa` bigint(20) NOT NULL,
+  `id_seguradora` bigint(20) NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_grupo_cota` (`grupo`,`cota`),
   KEY `id_pessoa` (`id_pessoa`),
   KEY `id_avalista` (`id_avalista`),
+  KEY `idx_contrato_empresa` (`id_empresa`),
+  KEY `idx_contrato_seguradora` (`id_seguradora`),
   CONSTRAINT `contrato_ibfk_1` FOREIGN KEY (`id_pessoa`) REFERENCES `pessoa` (`id`),
-  CONSTRAINT `contrato_ibfk_2` FOREIGN KEY (`id_avalista`) REFERENCES `pessoa` (`id`) ON DELETE SET NULL
+  CONSTRAINT `contrato_ibfk_2` FOREIGN KEY (`id_avalista`) REFERENCES `pessoa` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `contrato_ibfk_3` FOREIGN KEY (`id_empresa`) REFERENCES `empresa` (`id`),
+  CONSTRAINT `contrato_ibfk_4` FOREIGN KEY (`id_seguradora`) REFERENCES `empresa` (`id`)
 );
 
 
