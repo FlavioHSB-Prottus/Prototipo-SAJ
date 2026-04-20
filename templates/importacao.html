@@ -75,6 +75,49 @@
     </div>
 
 
+    <!-- Modal de Transferencia de contratos entre funcionarios -->
+    <div class="transfer-modal-overlay d-none" id="transferModal" role="dialog" aria-modal="true" aria-labelledby="transferModalTitle">
+        <div class="transfer-modal">
+            <header class="transfer-modal-header">
+                <div>
+                    <h3 id="transferModalTitle"><i class="fa-solid fa-right-left"></i> Transferir contratos</h3>
+                    <p class="transfer-modal-sub" id="transferModalSub">Escolha como redistribuir a carga deste funcionário.</p>
+                </div>
+                <button type="button" class="transfer-close" id="transferClose" aria-label="Fechar">&times;</button>
+            </header>
+
+            <div class="transfer-modal-body">
+                <label class="transfer-option">
+                    <input type="radio" name="transferModo" value="especifico" checked>
+                    <div class="transfer-option-text">
+                        <strong>Para um funcionário específico</strong>
+                        <span>Todos os contratos passam para o funcionário escolhido.</span>
+                    </div>
+                </label>
+                <div class="transfer-option-extra" id="transferDestinoWrap">
+                    <label for="transferDestinoSelect">Funcionário de destino</label>
+                    <select id="transferDestinoSelect"></select>
+                </div>
+
+                <label class="transfer-option">
+                    <input type="radio" name="transferModo" value="igualitaria">
+                    <div class="transfer-option-text">
+                        <strong>Redistribuir igualitariamente</strong>
+                        <span>Divide os contratos entre os demais funcionários seguindo as métricas de balanceamento (valor/quantidade por situação).</span>
+                    </div>
+                </label>
+            </div>
+
+            <footer class="transfer-modal-footer">
+                <button type="button" class="btn-secondary-dist" id="transferCancelar">Cancelar</button>
+                <button type="button" class="btn-aprovar-dist" id="transferConfirmar">
+                    <i class="fa-solid fa-check"></i> Confirmar transferência
+                </button>
+            </footer>
+        </div>
+    </div>
+
+
     <!-- Painel de Progresso e Console (Oculto inicialmente) -->
     <div class="processing-panel d-none" id="processingPanel">
         
