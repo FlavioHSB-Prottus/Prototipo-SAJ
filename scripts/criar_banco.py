@@ -599,6 +599,22 @@ CREATE TABLE IF NOT EXISTS `bens` (
   KEY `fk_bens_contrato` (`id_contrato`),
   CONSTRAINT `fk_bens_contrato` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE
 );
+
+
+CREATE TABLE IF NOT EXISTS `negativacao` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `id_contrato` bigint(20) NOT NULL,
+  `id_parcela` bigint(20) DEFAULT NULL,
+  `dias_atraso` int(11) DEFAULT NULL,
+  `data_negativacao` datetime DEFAULT current_timestamp(),
+  `status` varchar(32) NOT NULL DEFAULT 'enviado',
+  `resposta_api` text DEFAULT NULL,
+  `created_at` datetime DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_negativacao_contrato` (`id_contrato`),
+  CONSTRAINT `fk_negativacao_contrato` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE
+);
 """
 
 

@@ -91,7 +91,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Seletor de Departamento (empresa atendida)
+    // Seletor de Empresa (cliente atendido)
     const departamentoSelector = document.getElementById('departamentoSelector');
     const departamentoDropdown = document.getElementById('departamentoDropdown');
     const departamentoAtual = document.getElementById('departamentoAtual');

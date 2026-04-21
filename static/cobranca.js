@@ -20,6 +20,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const searchInput = document.getElementById('searchInput');
     const searchType = document.getElementById('searchType');
     const btnSearchClear = document.getElementById('btnSearchClear');
+    const negativacaoSelect = document.getElementById('negativacaoSelect');
 
     // Modal (reutiliza o mesmo padrão da busca)
     const detalhesModal = document.getElementById('detalhesModal');
@@ -49,10 +50,23 @@ document.addEventListener('DOMContentLoaded', function () {
     // ---- Carregamento Inicial ----
     applyViewMode(currentView);
     loadCobranca();
+    bindFooterBulkActions();
+
+    // Expõe recarga para módulos auxiliares (ex.: cobranca_automacoes.js após
+    // negativar, precisa recarregar para pintar contratos em cinza).
+    window.CobrancaReload = function () { return loadCobranca(); };
 
     operadorSelect.addEventListener('change', function () {
         loadCobranca();
     });
+
+    if (negativacaoSelect) {
+        negativacaoSelect.addEventListener('change', function () {
+            var wrapper = negativacaoSelect.closest('.negativacao-filter');
+            if (wrapper) wrapper.classList.toggle('filter-active', !!this.value);
+            applyFilter();
+        });
+    }
 
     // ---- Toggle Analitico / Kanban ----
     viewToggleButtons.forEach(function (btn) {
@@ -116,25 +130,41 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const termo = searchInput.value.trim().toLowerCase();
         const tipo = searchType.value;
+        const negFilter = negativacaoSelect ? negativacaoSelect.value : '';
 
-        if (!termo) {
+        if (!termo && !negFilter) {
             renderView(currentData);
             return;
         }
 
         const filtered = {
-            critico: filterContracts(currentData.critico, termo, tipo),
-            atencao: filterContracts(currentData.atencao, termo, tipo),
-            recente: filterContracts(currentData.recente, termo, tipo),
+            critico: filterContracts(currentData.critico, termo, tipo, negFilter),
+            atencao: filterContracts(currentData.atencao, termo, tipo, negFilter),
+            recente: filterContracts(currentData.recente, termo, tipo, negFilter),
             funcionarios: currentData.funcionarios,
         };
 
         renderView(filtered);
     }
 
-    function filterContracts(contracts, termo, tipo) {
+    // Aplica o filtro de negativação (pendente / negativado / todos)
+    function matchNegativacao(c, negFilter) {
+        if (!negFilter) return true;
+        var isNeg = !!c.negativado;
+        if (negFilter === 'negativado') return isNeg;
+        if (negFilter === 'pendente')  return !isNeg;
+        return true;
+    }
+
+    function filterContracts(contracts, termo, tipo, negFilter) {
         if (!contracts) return [];
         return contracts.filter(function (c) {
+            // Filtro de negativação sempre se aplica (quando definido).
+            if (!matchNegativacao(c, negFilter)) return false;
+
+            // Sem termo de pesquisa: só o filtro de negativação vale.
+            if (!termo) return true;
+
             var grupoCota = ((c.grupo || '') + ' / ' + (c.cota || '')).toLowerCase();
             var grupoCotaCompact = ((c.grupo || '') + '/' + (c.cota || '')).toLowerCase();
 
@@ -327,8 +357,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function buildKanbanCard(level, c) {
         var card = document.createElement('div');
-        card.className = 'kanban-card kanban-card-' + level;
+        card.className = 'kanban-card kanban-card-' + level +
+            (c.negativado ? ' kanban-card-negativado' : '');
         card.setAttribute('data-id', c.id);
+        if (c.negativado) {
+            card.setAttribute('title', 'Contrato já negativado no Serasa');
+        }
 
         var dias = c.dias_atraso || 0;
         if (typeof dias === 'string') dias = parseInt(dias) || 0;
@@ -360,6 +394,10 @@ document.addEventListener('DOMContentLoaded', function () {
             pillHTML = '<span class="kanban-card-pill">Nº ' + esc(c.numero_contrato) + '</span>';
         } else if (c.parcelas_abertas) {
             pillHTML = '<span class="kanban-card-pill">' + c.parcelas_abertas + ' parc.</span>';
+        }
+        if (c.negativado) {
+            pillHTML += '<span class="kanban-card-pill pill-negativado" title="Negativado no Serasa">' +
+                '<i class="fa-solid fa-ban"></i> Negativado</span>';
         }
 
         card.innerHTML =
@@ -502,14 +540,21 @@ document.addEventListener('DOMContentLoaded', function () {
             contracts.forEach(function (c) {
                 // Linha principal do contrato
                 const tr = document.createElement('tr');
-                tr.className = 'contract-row';
+                tr.className = 'contract-row' + (c.negativado ? ' contract-negativado' : '');
                 tr.setAttribute('data-id', c.id);
+                if (c.negativado) {
+                    tr.setAttribute('title', 'Contrato já negativado no Serasa');
+                }
 
                 var dias = c.dias_atraso || 0;
                 if (typeof dias === 'string') dias = parseInt(dias);
 
+                var negBadge = c.negativado
+                    ? ' <span class="neg-badge" title="Negativado no Serasa"><i class="fa-solid fa-ban"></i></span>'
+                    : '';
+
                 tr.innerHTML =
-                    '<td class="fw-bold">' + esc(c.grupo) + '/' + esc(c.cota) + '</td>' +
+                    '<td class="fw-bold">' + esc(c.grupo) + '/' + esc(c.cota) + negBadge + '</td>' +
                     '<td>' + esc(c.nome_devedor || '-') + '</td>' +
                     '<td>' + esc(c.cpf_cnpj || '-') + '</td>' +
                     '<td>' + esc(c.parcelas_abertas || 0) + '</td>' +
@@ -994,14 +1039,51 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Devolve os contratos visíveis no bloco selecionado, respeitando filtro de
-    // pesquisa atual + ordenação aplicada na coluna.
+    // pesquisa atual, filtro de negativação e ordenação aplicada na coluna.
     function getContratosNivelAtual(level) {
         if (!currentData) return [];
         var termo = (searchInput.value || '').trim().toLowerCase();
         var tipo = searchType.value;
+        var negFilter = negativacaoSelect ? negativacaoSelect.value : '';
         var lista = currentData[level] || [];
-        if (termo) lista = filterContracts(lista, termo, tipo);
+        if (termo || negFilter) lista = filterContracts(lista, termo, tipo, negFilter);
         return sortLevelData(lista, level);
+    }
+
+    // Devolve TODOS os contratos visíveis (Crítico + Atenção + Recente),
+    // respeitando filtro de operador (já aplicado no backend), pesquisa e
+    // ordenação. Usado pelos botões de automação geral do rodapé.
+    function getContratosTodos() {
+        return []
+            .concat(getContratosNivelAtual('critico'))
+            .concat(getContratosNivelAtual('atencao'))
+            .concat(getContratosNivelAtual('recente'));
+    }
+
+    // ---- Ações de automação geral no rodapé (SMS / E-mail) ----
+    function bindFooterBulkActions() {
+        var btnSms = document.getElementById('footerBulkSms');
+        var btnMail = document.getElementById('footerBulkEmail');
+        var btnNeg = document.getElementById('footerBulkNegativacao');
+        if (btnSms) btnSms.addEventListener('click', function () { dispararFooterLote('sms'); });
+        if (btnMail) btnMail.addEventListener('click', function () { dispararFooterLote('email'); });
+        // "Negativação" - envia ao Serasa (via API futura do Flávio). O módulo
+        // CobrancaAutomacoes trata confirmação + loading; o backend filtra os
+        // elegíveis (31-89 dias) e ignora contratos já negativados.
+        if (btnNeg) btnNeg.addEventListener('click', function () { dispararFooterLote('negativacao'); });
+    }
+
+    function dispararFooterLote(tipo) {
+        if (!window.CobrancaAutomacoes) {
+            alert('Módulo de automações não carregado.');
+            return;
+        }
+        var contratos = getContratosTodos();
+        if (!contratos.length) {
+            alert('Nenhum contrato disponível na lista atual.');
+            return;
+        }
+        window.CobrancaAutomacoes.iniciar(tipo, 'todos', contratos);
     }
 
     // ---- Lógica de Ordenação ----

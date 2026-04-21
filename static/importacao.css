@@ -398,8 +398,26 @@
     border-color: var(--border-color);
 }
 
-.btn-secondary-dist:hover {
+.btn-secondary-dist:hover:not(:disabled) {
     background: #e2e8f0;
+}
+
+.btn-secondary-dist:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+/* Botão "Restaurar inicial" - âmbar para sinalizar que reverte alterações */
+.btn-restaurar-dist {
+    background: rgba(245, 158, 11, 0.12);
+    color: #b45309;
+    border-color: rgba(245, 158, 11, 0.35);
+}
+
+.btn-restaurar-dist:hover:not(:disabled) {
+    background: #f59e0b;
+    color: #fff;
+    border-color: #f59e0b;
 }
 
 /* KPIs topo */
@@ -917,7 +935,8 @@
         justify-content: stretch;
     }
     .distribuicao-actions-footer .btn-aprovar-dist,
-    .distribuicao-actions-footer .btn-secondary-dist {
+    .distribuicao-actions-footer .btn-secondary-dist,
+    .distribuicao-actions-footer .btn-restaurar-dist {
         flex: 1;
         justify-content: center;
     }
