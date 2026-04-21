@@ -12,21 +12,33 @@ Esquema (pre-existente, NAO e criado por este script):
         created_at, updated_at
     )
 
-Regras de balanceamento (aplicadas apenas aos contratos ainda nao
-atribuidos):
+Regras de balanceamento (em ORDEM de prioridade -- cada criterio so e
+aplicado se nao quebrar os anteriores):
+
     1. Mesma media de VALOR TOTAL em cobranca por funcionario (por
        situacao critico / atencao / recente).
     2. Mesma media de QUANTIDADE de contratos em cobranca por
        funcionario (por situacao critico / atencao / recente).
+    3. ESTABILIDADE / PREFERENCIA HISTORICA: se um contrato ja foi
+       cobrado/atendido por algum funcionario no passado (visto em
+       `tramitacao` ou em registros antigos de `funcionario_cobranca`),
+       devolver o contrato para esse mesmo funcionario SEMPRE QUE for
+       possivel sem quebrar (1) e (2) -- isto e, desde que a carga
+       atual desse funcionario, naquele bloco, esteja dentro de uma
+       margem de tolerancia em relacao ao funcionario menos carregado.
+       Tolerancia configuravel via env var ESTABILIDADE_TOLERANCIA
+       (default 0.15 = 15%).
 
-Contratos ja presentes em funcionario_cobranca sao preservados (nao
-trocam de funcionario automaticamente).
+Contratos ja presentes em funcionario_cobranca sao preservados
+naturalmente pelo passo (3) -- e tambem pelo "fixos" do passo inicial,
+para garantir compatibilidade com o comportamento anterior.
 
 Uso:
     python distribuir_funcionarios_cobranca.py
 
 Ambiente (opcional):
     DB_HOST, DB_USER, DB_PASSWORD, DB_NAME
+    ESTABILIDADE_TOLERANCIA   (default 0.15)
 """
 import os
 import sys
@@ -115,6 +127,71 @@ def fetch_existentes(cursor):
     return {int(r["id_contrato"]): int(r["id_funcionario"]) for r in cursor.fetchall()}
 
 
+def fetch_historico_funcionarios(cursor, funcionarios_validos):
+    """Retorna {id_contrato: id_funcionario_ultimo} para o CRITERIO 3.
+
+    Une duas fontes, com a primeira tendo precedencia (acao mais recente):
+
+      a) Tramitacao (ligacao / sms / email): pega o id_funcionario do
+         ultimo registro por contrato.
+      b) Funcionario_cobranca: pega o id_funcionario do ultimo registro
+         (id maximo) por contrato. Cobre o caso onde um contrato ja foi
+         distribuido antes mas perdeu o vinculo por algum motivo.
+
+    Filtra apenas funcionarios que ainda existem em `funcionario` (passados
+    em `funcionarios_validos`), para evitar referencia a quem ja saiu da
+    empresa.
+    """
+    historico = {}
+    validos = set(int(x) for x in funcionarios_validos)
+
+    # (a) Tramitacao -- pode nao existir em ambientes muito antigos.
+    try:
+        cursor.execute(
+            """
+            SELECT t.id_contrato, t.id_funcionario
+            FROM tramitacao t
+            INNER JOIN (
+                SELECT id_contrato, MAX(data) AS max_data
+                FROM tramitacao
+                GROUP BY id_contrato
+            ) ult ON ult.id_contrato = t.id_contrato AND ult.max_data = t.data
+            """
+        )
+        for r in cursor.fetchall():
+            fid = int(r["id_funcionario"])
+            if fid in validos:
+                historico[int(r["id_contrato"])] = fid
+    except Exception as exc:
+        # Se a tabela nao existe ou esta inacessivel, segue sem ela --
+        # ainda temos a fonte (b).
+        print(f"AVISO: nao foi possivel ler historico de tramitacao: {exc}")
+
+    # (b) Funcionario_cobranca historico -- so preenche se o contrato AINDA
+    # nao tem entrada vinda da tramitacao.
+    try:
+        cursor.execute(
+            """
+            SELECT fc.id_contrato, fc.id_funcionario
+            FROM funcionario_cobranca fc
+            INNER JOIN (
+                SELECT id_contrato, MAX(id) AS max_id
+                FROM funcionario_cobranca
+                GROUP BY id_contrato
+            ) ult ON ult.id_contrato = fc.id_contrato AND ult.max_id = fc.id
+            """
+        )
+        for r in cursor.fetchall():
+            cid = int(r["id_contrato"])
+            fid = int(r["id_funcionario"])
+            if fid in validos and cid not in historico:
+                historico[cid] = fid
+    except Exception as exc:
+        print(f"AVISO: nao foi possivel ler historico de funcionario_cobranca: {exc}")
+
+    return historico
+
+
 def init_estados(funcionarios_ids):
     """Matriz de carga (count + valor) por funcionario x situacao."""
     return {
@@ -123,19 +200,28 @@ def init_estados(funcionarios_ids):
     }
 
 
-def distribuir_balanceado(contratos, existentes, funcionarios_ids):
+def distribuir_balanceado(contratos, existentes, funcionarios_ids, historico=None,
+                          tolerancia=0.15):
     """
-    Distribui cada contrato NAO-existente ao funcionario com a MENOR
-    carga (valor acumulado, contagem) naquela situacao. Dentro de cada
-    situacao, os contratos sao processados em ordem decrescente de valor
-    (LPT), o que produz o melhor balanceamento online para makespan.
+    Distribui cada contrato NAO-existente seguindo a hierarquia de criterios:
+
+      C1 + C2 -> funcionario com menor (valor_acumulado, qtd_contratos)
+                 para a situacao do contrato.
+      C3      -> se ha historico para esse contrato, prefere o
+                 funcionario historico SEMPRE QUE sua carga atual
+                 estiver dentro de `tolerancia` em relacao ao menos
+                 carregado (assim nao quebra C1/C2).
+
+    Os contratos ja presentes em `existentes` viram FIXOS (mantem o
+    funcionario atual) -- isso ja e uma forma forte do criterio 3.
 
     Retorna:
-      - atribuicoes: dict {id_contrato: id_funcionario}
-      - estados:     estado final de carga por funcionario x situacao
-      - fixos:       dict {id_contrato: id_funcionario} com os que ja
-                     existiam e nao foram remexidos
+      - atribuicoes:    dict {id_contrato: id_funcionario}
+      - estados:        estado final de carga por funcionario x situacao
+      - fixos:          dict {id_contrato: id_funcionario} (ja existiam)
+      - estatisticas:   dict com contadores do criterio 3 aplicado
     """
+    historico = historico or {}
     estados = init_estados(funcionarios_ids)
 
     # 1) Contabiliza o que ja esta fixado (carga previa).
@@ -151,7 +237,7 @@ def distribuir_balanceado(contratos, existentes, funcionarios_ids):
                 fixos[cid] = fid
 
     # 2) Separa os nao-fixados por situacao, em ordem decrescente de
-    #    valor (LPT).
+    #    valor (LPT - Longest Processing Time first).
     por_status = {s: [] for s in STATUS_LIST}
     for c in contratos:
         cid = int(c["id_contrato"])
@@ -162,8 +248,15 @@ def distribuir_balanceado(contratos, existentes, funcionarios_ids):
     for s in STATUS_LIST:
         por_status[s].sort(key=lambda x: float(x["valor_credito"] or 0), reverse=True)
 
-    # 3) Greedy: menor (valor, count) na situacao.
+    # 3) Greedy com preferencia historica.
     atribuicoes = {}
+    estatisticas = {
+        "respeitou_historico":   0,  # caiu no funcionario que ja cobrou
+        "ignorou_historico":     0,  # tinha historico mas estava saturado
+        "sem_historico":         0,  # nunca foi cobrado antes
+        "tolerancia_aplicada":   tolerancia,
+    }
+
     for s in STATUS_LIST:
         for c in por_status[s]:
             cid = int(c["id_contrato"])
@@ -173,12 +266,37 @@ def distribuir_balanceado(contratos, existentes, funcionarios_ids):
                 st = estados[fid][_s]
                 return (st["value"], st["count"])
 
-            fid_escolhido = min(funcionarios_ids, key=score)
+            # Funcionario com a MENOR carga -- candidato de C1+C2.
+            fid_balanceador = min(funcionarios_ids, key=score)
+            menor_valor = estados[fid_balanceador][s]["value"]
+            menor_count = estados[fid_balanceador][s]["count"]
+
+            fid_escolhido = fid_balanceador
+            fid_historico = historico.get(cid)
+
+            if fid_historico is None or fid_historico not in estados:
+                estatisticas["sem_historico"] += 1
+            elif fid_historico == fid_balanceador:
+                # historico ja coincide com o melhor: C3 ja "satisfeito"
+                estatisticas["respeitou_historico"] += 1
+            else:
+                carga_hist_v = estados[fid_historico][s]["value"]
+                carga_hist_q = estados[fid_historico][s]["count"]
+                # Limites superiores aceitaveis para C3 ainda respeitar
+                # C1 (valor) e C2 (quantidade).
+                limite_v = (menor_valor * (1.0 + tolerancia)) if menor_valor > 0 else max(valor, 1.0)
+                limite_q = (menor_count * (1.0 + tolerancia) + 1) if menor_count > 0 else 1
+                if carga_hist_v <= limite_v and carga_hist_q <= limite_q:
+                    fid_escolhido = fid_historico
+                    estatisticas["respeitou_historico"] += 1
+                else:
+                    estatisticas["ignorou_historico"] += 1
+
             atribuicoes[cid] = fid_escolhido
             estados[fid_escolhido][s]["count"] += 1
             estados[fid_escolhido][s]["value"] += valor
 
-    return atribuicoes, estados, fixos
+    return atribuicoes, estados, fixos, estatisticas
 
 
 def persist(cursor, atribuicoes):
@@ -269,13 +387,28 @@ def main():
     existentes = fetch_existentes(cursor)
     print(f"Atribuicoes ja gravadas (preservadas): {len(existentes)}")
 
-    atribuicoes, estados, _fixos = distribuir_balanceado(
-        contratos, existentes, ids_func
+    historico = fetch_historico_funcionarios(cursor, ids_func)
+    print(f"Historico de cobranca encontrado: {len(historico)} contratos com funcionario previo")
+
+    try:
+        tolerancia = float(os.environ.get("ESTABILIDADE_TOLERANCIA", "0.15"))
+    except ValueError:
+        tolerancia = 0.15
+    print(f"Tolerancia do criterio 3 (estabilidade): {tolerancia:.0%}")
+
+    atribuicoes, estados, _fixos, estat3 = distribuir_balanceado(
+        contratos, existentes, ids_func, historico=historico, tolerancia=tolerancia
     )
 
     inseridos = persist(cursor, atribuicoes)
     conn.commit()
     print(f"Novas atribuicoes inseridas: {inseridos}")
+
+    print("")
+    print("=== CRITERIO 3 (estabilidade historica) ===")
+    print(f" -> Mantido com funcionario historico: {estat3['respeitou_historico']}")
+    print(f" -> Historico ignorado por sobrecarga: {estat3['ignorou_historico']}")
+    print(f" -> Sem historico anterior:            {estat3['sem_historico']}")
 
     print_resumo(contratos, estados, funcionarios)
     print("SUCESSO: Distribuicao de funcionarios finalizada.")
