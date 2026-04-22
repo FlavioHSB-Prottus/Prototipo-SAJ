@@ -3,6 +3,7 @@ import datetime
 import decimal
 import io
 import json
+import secrets
 import os
 import shutil
 import subprocess
@@ -10,10 +11,11 @@ import sys
 import tempfile
 
 import pymysql
-from flask import Flask, Response, render_template, request, redirect, url_for, jsonify, send_file
+from flask import Flask, Response, render_template, request, redirect, url_for, jsonify, send_file, session, flash
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev-consorcio-gm-altere-em-producao')
 
 SCRIPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scripts')
 PYTHON_EXE = sys.executable
@@ -31,11 +33,77 @@ DB_CONFIG = {
     'database': 'consorcio_gm',
 }
 
+def _funcionario_esta_ativo(val):
+    """Interpreta a coluna `ativo` (bit(1)) retornada pelo PyMySQL."""
+    if val is None:
+        return False
+    if isinstance(val, (bytes, bytearray)):
+        return len(val) > 0 and val != b'\x00'
+    if isinstance(val, int):
+        return val != 0
+    return bool(val)
+
+
 @app.route('/', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
+        login_val = (request.form.get('login') or '').strip()
+        senha_val = request.form.get('senha') or ''
+        if not login_val:
+            flash('Informe o login.', 'error')
+            return render_template('login.html')
+        conn = None
+        try:
+            conn = _get_db()
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    'SELECT id, nome, senha, ativo FROM funcionario WHERE login = %s LIMIT 1',
+                    (login_val,),
+                )
+                row = cursor.fetchone()
+        except Exception:
+            app.logger.exception('login: falha ao consultar funcionario')
+            flash('Não foi possível validar o login. Tente novamente.', 'error')
+            return render_template('login.html')
+        finally:
+            if conn is not None:
+                conn.close()
+
+        if not row or not _funcionario_esta_ativo(row.get('ativo')):
+            flash('Login ou senha incorretos.', 'error')
+            return render_template('login.html')
+
+        db_senha = row.get('senha')
+        if db_senha is None:
+            db_senha = ''
+        else:
+            db_senha = str(db_senha)
+        if not secrets.compare_digest(str(senha_val), db_senha):
+            flash('Login ou senha incorretos.', 'error')
+            return render_template('login.html')
+
+        session.clear()
+        session['funcionario_id'] = int(row['id'])
+        session['funcionario_nome'] = row.get('nome') or ''
+        return redirect(url_for('home'))
+
+    if session.get('funcionario_id'):
         return redirect(url_for('home'))
     return render_template('login.html')
+
+@app.before_request
+def _require_login():
+    """Exige sessão de funcionário para todas as rotas, exceto login, estáticos e recuperação de senha."""
+    if request.endpoint is None:
+        return None
+    public = {'login', 'static', 'recuperar_senha'}
+    if request.endpoint in public:
+        return None
+    if session.get('funcionario_id'):
+        return None
+    if request.path.startswith('/api/'):
+        return jsonify({'error': 'Não autenticado'}), 401
+    return redirect(url_for('login'))
 
 @app.route('/home', methods=['GET', 'POST'])
 def home():

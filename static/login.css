@@ -79,6 +79,23 @@ body {
     font-weight: 400;
 }
 
+.login-flash {
+    margin-bottom: 20px;
+}
+
+.login-flash-msg {
+    font-size: 0.875rem;
+    padding: 10px 12px;
+    border-radius: var(--border-radius);
+    text-align: center;
+}
+
+.login-flash-error {
+    color: #991b1b;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+}
+
 .login-form {
     display: flex;
     flex-direction: column;
