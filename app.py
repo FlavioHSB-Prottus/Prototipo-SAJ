@@ -3744,139 +3744,263 @@ def api_agenda_item(id_agenda):
 
 
 # =============================================================================
-# Mural de Avisos (persistencia em JSON, pasta data/)
+# Mural de Avisos (tabela `aviso` no MySQL; migracao de data/avisos.json na 1a carga)
 # =============================================================================
 
-_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
-_AVISOS_FILE = os.path.join(_DATA_DIR, 'avisos.json')
-
-
-def _avisos_load():
-    """Le a lista de avisos do arquivo JSON. Cria seed na 1a execucao."""
-    if not os.path.isdir(_DATA_DIR):
-        os.makedirs(_DATA_DIR, exist_ok=True)
-    if not os.path.isfile(_AVISOS_FILE):
-        hoje = datetime.date.today()
-        seed = [
-            {
-                'id': 1,
-                'titulo': 'Nova Politica de Juros',
-                'descricao': 'Atualizacao nas planilhas de calculo exigidas para grupos GM.',
-                'data_iso': hoje.isoformat(),
-            },
-            {
-                'id': 2,
-                'titulo': 'Manutencao no Servidor',
-                'descricao': 'Agendada uma breve pausa no servidor neste domingo, as 02h.',
-                'data_iso': (hoje - datetime.timedelta(days=1)).isoformat(),
-            },
-            {
-                'id': 3,
-                'titulo': 'Fechamento Mensal',
-                'descricao': 'Lembrete: Os arquivos de repasse devem ser consolidados ate o dia 15.',
-                'data_iso': (hoje - datetime.timedelta(days=10)).isoformat(),
-            },
-        ]
-        _avisos_save(seed)
-        return seed
-    try:
-        with open(_AVISOS_FILE, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        if isinstance(data, list):
-            return data
-        return []
-    except Exception:
-        return []
-
-
-def _avisos_save(lista):
-    os.makedirs(_DATA_DIR, exist_ok=True)
-    tmp = _AVISOS_FILE + '.tmp'
-    with open(tmp, 'w', encoding='utf-8') as f:
-        json.dump(lista, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, _AVISOS_FILE)
-
-
-def _avisos_next_id(lista):
-    if not lista:
-        return 1
-    return max(int(a.get('id') or 0) for a in lista) + 1
-
-
-def _avisos_sorted(lista):
-    """Ordena por data_iso desc (mais recentes primeiro)."""
-    return sorted(
-        lista,
-        key=lambda a: (a.get('data_iso') or '', a.get('id') or 0),
-        reverse=True,
+def _ensure_aviso_table(cursor):
+    """Cria a tabela `aviso` alinhada a scripts/criar_banco.py (idempotente)."""
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS aviso (
+            id BIGINT PRIMARY KEY AUTO_INCREMENT,
+            titulo VARCHAR(255) NOT NULL,
+            descricao TEXT,
+            data_ref DATE NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            KEY idx_aviso_data_ref (data_ref)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
     )
+
+
+def _aviso_row_to_api_dict(row):
+    """Converte linha do banco (dict) no formato esperado pelo front (data_iso)."""
+    if not row:
+        return None
+    dr = row.get("data_ref")
+    if dr is not None and hasattr(dr, "isoformat"):
+        data_iso = dr.isoformat()[:10]
+    else:
+        data_iso = (str(dr) if dr is not None else "")[:10]
+    out = {
+        "id": int(row["id"]),
+        "titulo": row.get("titulo") or "",
+        "descricao": row.get("descricao") or "",
+        "data_iso": data_iso,
+    }
+    for k in ("created_at", "updated_at"):
+        v = row.get(k)
+        if v is not None:
+            if hasattr(v, "isoformat"):
+                out[k] = v.isoformat(timespec="seconds")
+            else:
+                out[k] = str(v)[:19]
+    return out
+
+
+def _avisos_seed_or_migrate(cursor, conn):
+    """Tabela vazia: importa data/avisos.json se existir, senao insere avisos padrao; remove o JSON apos import."""
+    cursor.execute("SELECT COUNT(*) AS c FROM aviso")
+    c = int(cursor.fetchone().get("c") or 0)
+    if c > 0:
+        return
+    path_json = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "avisos.json")
+    if os.path.isfile(path_json):
+        try:
+            with open(path_json, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                for a in data:
+                    if not isinstance(a, dict):
+                        continue
+                    tit = (a.get("titulo") or "").strip()[:255]
+                    if not tit:
+                        continue
+                    d_s = (a.get("data_iso") or datetime.date.today().isoformat())[:10]
+                    try:
+                        datetime.date.fromisoformat(d_s)
+                    except ValueError:
+                        d_s = datetime.date.today().isoformat()
+                    cursor.execute(
+                        "INSERT INTO aviso (titulo, descricao, data_ref) VALUES (%s, %s, %s)",
+                        (tit, (a.get("descricao") or ""), d_s),
+                    )
+                conn.commit()
+        except Exception:
+            app.logger.exception("avisos: migracao a partir de data/avisos.json")
+        try:
+            os.remove(path_json)
+        except OSError:
+            pass
+        return
+
+    hoje = datetime.date.today()
+    seed = [
+        (
+            "Nova Politica de Juros",
+            "Atualizacao nas planilhas de calculo exigidas para grupos GM.",
+            hoje.isoformat(),
+        ),
+        (
+            "Manutencao no Servidor",
+            "Agendada uma breve pausa no servidor neste domingo, as 02h.",
+            (hoje - datetime.timedelta(days=1)).isoformat(),
+        ),
+        (
+            "Fechamento Mensal",
+            "Lembrete: Os arquivos de repasse devem ser consolidados ate o dia 15.",
+            (hoje - datetime.timedelta(days=10)).isoformat(),
+        ),
+    ]
+    for titulo, descricao, d in seed:
+        cursor.execute(
+            "INSERT INTO aviso (titulo, descricao, data_ref) VALUES (%s, %s, %s)",
+            (titulo, descricao, d),
+        )
+    conn.commit()
 
 
 @app.route('/api/avisos', methods=['GET', 'POST'])
 def api_avisos_collection():
-    if request.method == 'GET':
-        return jsonify(_avisos_sorted(_avisos_load()))
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        _ensure_aviso_table(cursor)
+        _avisos_seed_or_migrate(cursor, conn)
+    except Exception:
+        app.logger.exception("api/avisos: tabela aviso")
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+        if request.method == "GET":
+            return jsonify([]), 200
+        return jsonify({"error": "Falha ao preparar avisos"}), 500
 
+    if request.method == "GET":
+        try:
+            cursor.execute(
+                "SELECT id, titulo, descricao, data_ref, created_at, updated_at "
+                "FROM aviso ORDER BY data_ref DESC, id DESC"
+            )
+            rows = _clean_rows(cursor.fetchall())
+        finally:
+            cursor.close()
+            conn.close()
+        return jsonify([_aviso_row_to_api_dict(r) for r in rows])
+
+    # POST
     payload = request.get_json(silent=True) or {}
-    titulo = (payload.get('titulo') or '').strip()
-    descricao = (payload.get('descricao') or '').strip()
-    data_iso = (payload.get('data_iso') or '').strip()
+    titulo = (payload.get("titulo") or "").strip()[:255]
+    descricao = (payload.get("descricao") or "").strip()
+    data_iso = (payload.get("data_iso") or "").strip()
 
     if not titulo:
-        return jsonify({'error': 'titulo obrigatorio'}), 400
+        cursor.close()
+        conn.close()
+        return jsonify({"error": "titulo obrigatorio"}), 400
     if not data_iso:
         data_iso = datetime.date.today().isoformat()
     try:
         datetime.date.fromisoformat(data_iso)
     except ValueError:
-        return jsonify({'error': 'data_iso invalida (formato YYYY-MM-DD)'}), 400
+        cursor.close()
+        conn.close()
+        return jsonify({"error": "data_iso invalida (formato YYYY-MM-DD)"}), 400
 
-    lista = _avisos_load()
-    novo = {
-        'id': _avisos_next_id(lista),
-        'titulo': titulo,
-        'descricao': descricao,
-        'data_iso': data_iso,
-        'created_at': datetime.datetime.now().isoformat(timespec='seconds'),
-        'updated_at': datetime.datetime.now().isoformat(timespec='seconds'),
-    }
-    lista.append(novo)
-    _avisos_save(lista)
-    return jsonify(novo), 201
+    try:
+        cursor.execute(
+            "INSERT INTO aviso (titulo, descricao, data_ref) VALUES (%s, %s, %s)",
+            (titulo, descricao, data_iso[:10]),
+        )
+        conn.commit()
+        uid = cursor.lastrowid
+        cursor.execute(
+            "SELECT id, titulo, descricao, data_ref, created_at, updated_at "
+            "FROM aviso WHERE id = %s",
+            (uid,),
+        )
+        r = _clean_row(cursor.fetchone())
+    except Exception as e:
+        app.logger.exception("api/avisos POST")
+        conn.rollback()
+        cursor.close()
+        conn.close()
+        return jsonify({"error": str(e)}), 500
+    cursor.close()
+    conn.close()
+    return jsonify(_aviso_row_to_api_dict(r)), 201
 
 
-@app.route('/api/avisos/<int:aviso_id>', methods=['PUT', 'DELETE'])
+@app.route("/api/avisos/<int:aviso_id>", methods=["PUT", "DELETE"])
 def api_avisos_item(aviso_id):
-    lista = _avisos_load()
-    idx = next((i for i, a in enumerate(lista) if int(a.get('id') or 0) == aviso_id), -1)
-    if idx < 0:
-        return jsonify({'error': 'aviso nao encontrado'}), 404
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        _ensure_aviso_table(cursor)
+        _avisos_seed_or_migrate(cursor, conn)
+        cursor.execute(
+            "SELECT id, titulo, descricao, data_ref, created_at, updated_at "
+            "FROM aviso WHERE id = %s",
+            (aviso_id,),
+        )
+        row = _clean_row(cursor.fetchone())
+        if not row:
+            return jsonify({"error": "aviso nao encontrado"}), 404
 
-    if request.method == 'DELETE':
-        removido = lista.pop(idx)
-        _avisos_save(lista)
-        return jsonify({'success': True, 'removed': removido})
+        if request.method == "DELETE":
+            antigo = _aviso_row_to_api_dict(row)
+            cursor.execute("DELETE FROM aviso WHERE id = %s", (aviso_id,))
+            conn.commit()
+            return jsonify({"success": True, "removed": antigo})
 
-    payload = request.get_json(silent=True) or {}
-    atual = lista[idx]
-    if 'titulo' in payload:
-        titulo = (payload.get('titulo') or '').strip()
-        if not titulo:
-            return jsonify({'error': 'titulo obrigatorio'}), 400
-        atual['titulo'] = titulo
-    if 'descricao' in payload:
-        atual['descricao'] = (payload.get('descricao') or '').strip()
-    if 'data_iso' in payload:
-        data_iso = (payload.get('data_iso') or '').strip()
+        payload = request.get_json(silent=True) or {}
+        if "titulo" in payload:
+            titulo = (payload.get("titulo") or "").strip()[:255]
+            if not titulo:
+                return jsonify({"error": "titulo obrigatorio"}), 400
+        else:
+            titulo = row.get("titulo")
+        if "descricao" in payload:
+            descricao = (payload.get("descricao") or "").strip()
+        else:
+            descricao = row.get("descricao")
+        if "data_iso" in payload:
+            data_iso = (payload.get("data_iso") or "").strip()[:10]
+            try:
+                datetime.date.fromisoformat(data_iso)
+            except ValueError:
+                return jsonify({"error": "data_iso invalida (formato YYYY-MM-DD)"}), 400
+        else:
+            dr = row.get("data_ref")
+            if hasattr(dr, "isoformat"):
+                data_iso = dr.isoformat()[:10]
+            else:
+                data_iso = str(dr)[:10]
+
+        cursor.execute(
+            "UPDATE aviso SET titulo = %s, descricao = %s, data_ref = %s WHERE id = %s",
+            (titulo, descricao, data_iso, aviso_id),
+        )
+        conn.commit()
+        cursor.execute(
+            "SELECT id, titulo, descricao, data_ref, created_at, updated_at "
+            "FROM aviso WHERE id = %s",
+            (aviso_id,),
+        )
+        atual = _clean_row(cursor.fetchone())
+        return jsonify(_aviso_row_to_api_dict(atual))
+    except Exception as e:
+        app.logger.exception("api/avisos item")
         try:
-            datetime.date.fromisoformat(data_iso)
-        except ValueError:
-            return jsonify({'error': 'data_iso invalida (formato YYYY-MM-DD)'}), 400
-        atual['data_iso'] = data_iso
-    atual['updated_at'] = datetime.datetime.now().isoformat(timespec='seconds')
-    lista[idx] = atual
-    _avisos_save(lista)
-    return jsonify(atual)
+            conn.rollback()
+        except Exception:
+            pass
+        return jsonify({"error": str(e)}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 # =============================================================================

@@ -629,6 +629,18 @@ CREATE TABLE IF NOT EXISTS `negativacao` (
   CONSTRAINT `fk_negativacao_contrato` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_negativacao_parcela` FOREIGN KEY (`id_parcela`) REFERENCES `parcela` (`id`) ON DELETE CASCADE
 );
+
+
+CREATE TABLE IF NOT EXISTS `aviso` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `titulo` varchar(255) NOT NULL,
+  `descricao` text,
+  `data_ref` date NOT NULL,
+  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_aviso_data_ref` (`data_ref`)
+);
 """
 
 
