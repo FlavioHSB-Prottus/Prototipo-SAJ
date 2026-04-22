@@ -121,7 +121,7 @@
                     <!-- Perfil do Usuário -->
                     <div class="user-profile" id="userProfileBtn">
                         <div class="user-info">
-                            <span class="user-name">João Barbosa</span>
+                            <span class="user-name">{{ session.get('funcionario_nome') or 'Usuário' }}</span>
                             <span class="user-role">Administrador</span>
                         </div>
                         <div class="avatar">
@@ -134,7 +134,7 @@
                             <a href="#"><i class="fa-regular fa-user"></i> Meu Perfil</a>
                             <a href="#"><i class="fa-solid fa-gear"></i> Configurações</a>
                             <div class="dropdown-divider"></div>
-                            <a href="/" class="text-danger"><i class="fa-solid fa-arrow-right-from-bracket"></i>
+                            <a href="{{ url_for('logout') }}" class="text-danger"><i class="fa-solid fa-arrow-right-from-bracket"></i>
                                 Sair</a>
                         </div>
                     </div>

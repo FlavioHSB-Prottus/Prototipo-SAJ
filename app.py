@@ -91,12 +91,19 @@ def login():
         return redirect(url_for('home'))
     return render_template('login.html')
 
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
+
 @app.before_request
 def _require_login():
-    """Exige sessão de funcionário para todas as rotas, exceto login, estáticos e recuperação de senha."""
+    """Exige sessão de funcionário para todas as rotas, exceto login, logout, estáticos e recuperação de senha."""
     if request.endpoint is None:
         return None
-    public = {'login', 'static', 'recuperar_senha'}
+    public = {'login', 'static', 'recuperar_senha', 'logout'}
     if request.endpoint in public:
         return None
     if session.get('funcionario_id'):
