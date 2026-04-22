@@ -11,7 +11,7 @@ import sys
 import tempfile
 
 import pymysql
-from flask import Flask, Response, render_template, request, redirect, url_for, jsonify, send_file, session, flash
+from flask import Flask, Response, render_template, request, redirect, url_for, jsonify, send_file, session, flash, abort
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
@@ -42,6 +42,28 @@ def _funcionario_esta_ativo(val):
     if isinstance(val, int):
         return val != 0
     return bool(val)
+
+
+FOTO_MAX_BYTES = 5 * 1024 * 1024
+
+
+def _guess_image_mimetype(data):
+    """Retorna MIME se os bytes parecem JPEG, PNG, GIF ou WebP; caso contrário None."""
+    if not data or len(data) < 12:
+        return None
+    if data[:3] == b'\xff\xd8\xff':
+        return 'image/jpeg'
+    if data[:8] == b'\x89PNG\r\n\x1a\n':
+        return 'image/png'
+    if len(data) >= 6 and data[:6] in (b'GIF87a', b'GIF89a'):
+        return 'image/gif'
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        return 'image/webp'
+    return None
+
+
+def _mimetype_for_stored_blob(data):
+    return _guess_image_mimetype(data) or 'application/octet-stream'
 
 
 @app.route('/', methods=['GET', 'POST'])
@@ -91,12 +113,88 @@ def login():
         return redirect(url_for('home'))
     return render_template('login.html')
 
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
+
+@app.route('/minha-foto', methods=['GET', 'POST'])
+def minha_foto():
+    fid = session.get('funcionario_id')
+    if not fid:
+        if request.method == 'POST':
+            return jsonify({'error': 'Não autenticado'}), 401
+        abort(404)
+
+    if request.method == 'GET':
+        conn = None
+        try:
+            conn = _get_db()
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    'SELECT foto FROM funcionario WHERE id = %s',
+                    (int(fid),),
+                )
+                row = cursor.fetchone()
+        finally:
+            if conn is not None:
+                conn.close()
+
+        if not row:
+            abort(404)
+        foto = row.get('foto')
+        if foto is None:
+            abort(404)
+        if isinstance(foto, memoryview):
+            foto = foto.tobytes()
+        elif not isinstance(foto, (bytes, bytearray)):
+            foto = bytes(foto) if foto else b''
+        if not foto:
+            abort(404)
+        mt = _mimetype_for_stored_blob(foto)
+        return Response(
+            foto,
+            mimetype=mt,
+            headers={'Cache-Control': 'private, max-age=3600'},
+        )
+
+    f = request.files.get('foto')
+    if not f or not getattr(f, 'filename', None):
+        return jsonify({'error': 'Envie um ficheiro de imagem.'}), 400
+    raw = f.read()
+    if len(raw) > FOTO_MAX_BYTES:
+        return jsonify({'error': 'Imagem demasiado grande (máx. 5 MB).'}), 400
+    if not _guess_image_mimetype(raw):
+        return jsonify({'error': 'Formato não suportado. Use JPEG, PNG, GIF ou WebP.'}), 400
+
+    conn = None
+    try:
+        conn = _get_db()
+        with conn.cursor() as cursor:
+            cursor.execute(
+                'UPDATE funcionario SET foto = %s WHERE id = %s',
+                (raw, int(fid)),
+            )
+        conn.commit()
+    except Exception:
+        app.logger.exception('minha_foto POST')
+        if conn is not None:
+            conn.rollback()
+        return jsonify({'error': 'Não foi possível guardar a foto.'}), 500
+    finally:
+        if conn is not None:
+            conn.close()
+    return jsonify({'ok': True})
+
+
 @app.before_request
 def _require_login():
-    """Exige sessão de funcionário para todas as rotas, exceto login, estáticos e recuperação de senha."""
+    """Exige sessão de funcionário para todas as rotas, exceto login, logout, estáticos e recuperação de senha."""
     if request.endpoint is None:
         return None
-    public = {'login', 'static', 'recuperar_senha'}
+    public = {'login', 'static', 'recuperar_senha', 'logout'}
     if request.endpoint in public:
         return None
     if session.get('funcionario_id'):

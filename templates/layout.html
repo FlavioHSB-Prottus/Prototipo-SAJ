@@ -121,20 +121,21 @@
                     <!-- Perfil do Usuário -->
                     <div class="user-profile" id="userProfileBtn">
                         <div class="user-info">
-                            <span class="user-name">João Barbosa</span>
+                            <span class="user-name">{{ session.get('funcionario_nome') or 'Usuário' }}</span>
                             <span class="user-role">Administrador</span>
                         </div>
                         <div class="avatar">
-                            <img src="{{ url_for('static', filename='imagens/logo.png') }}" alt="Avatar">
+                            <img class="header-avatar-img" src="{{ url_for('minha_foto') }}" alt="Avatar"
+                                onerror="this.onerror=null;this.src='{{ url_for('static', filename='imagens/logo.png') }}';">
                         </div>
                         <i class="fa-solid fa-chevron-down"></i>
 
                         <!-- Dropdown Menu -->
                         <div class="dropdown-menu" id="profileDropdown">
                             <a href="#"><i class="fa-regular fa-user"></i> Meu Perfil</a>
-                            <a href="#"><i class="fa-solid fa-gear"></i> Configurações</a>
+                            <a href="#" id="openConfigFotoBtn"><i class="fa-solid fa-gear"></i> Configurações</a>
                             <div class="dropdown-divider"></div>
-                            <a href="/" class="text-danger"><i class="fa-solid fa-arrow-right-from-bracket"></i>
+                            <a href="{{ url_for('logout') }}" class="text-danger"><i class="fa-solid fa-arrow-right-from-bracket"></i>
                                 Sair</a>
                         </div>
                     </div>
@@ -145,6 +146,20 @@
             <main class="home-area">
                 {% block content %}{% endblock %}
             </main>
+        </div>
+    </div>
+
+    <div id="configFotoOverlay" class="config-foto-overlay" aria-hidden="true"
+        data-minha-foto-url="{{ url_for('minha_foto') }}">
+        <div class="config-foto-card" id="configFotoCard" role="dialog" aria-labelledby="configFotoTitle">
+            <button type="button" class="config-foto-close" id="configFotoCloseBtn" aria-label="Fechar">&times;</button>
+            <h3 id="configFotoTitle">Foto de perfil</h3>
+            <p class="config-foto-hint">JPEG, PNG, GIF ou WebP até 5 MB.</p>
+            <input type="file" id="configFotoInput" accept="image/jpeg,image/png,image/gif,image/webp">
+            <div class="config-foto-actions">
+                <button type="button" class="config-foto-submit" id="configFotoSubmitBtn">Enviar</button>
+            </div>
+            <p id="configFotoMsg" class="config-foto-msg" hidden></p>
         </div>
     </div>
 
