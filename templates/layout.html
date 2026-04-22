@@ -125,8 +125,8 @@
                             <span class="user-role">Administrador</span>
                         </div>
                         <div class="avatar">
-                            <img class="header-avatar-img" src="{{ url_for('minha_foto') }}" alt="Avatar"
-                                onerror="this.onerror=null;this.src='{{ url_for('static', filename='imagens/logo.png') }}';">
+                            <img class="header-avatar-img" src="{{ url_for('minha_foto') }}?u={{ session.get('funcionario_id', '') }}" alt="Avatar"
+                                onerror="this.onerror=null;this.src='{{ url_for('static', filename='imagens/avatar-placeholder.png') }}';">
                         </div>
                         <i class="fa-solid fa-chevron-down"></i>
 
@@ -150,7 +150,7 @@
     </div>
 
     <div id="configFotoOverlay" class="config-foto-overlay" aria-hidden="true"
-        data-minha-foto-url="{{ url_for('minha_foto') }}">
+        data-minha-foto-url="{{ url_for('minha_foto') }}?u={{ session.get('funcionario_id', '') }}">
         <div class="config-foto-card" id="configFotoCard" role="dialog" aria-labelledby="configFotoTitle">
             <button type="button" class="config-foto-close" id="configFotoCloseBtn" aria-label="Fechar">&times;</button>
             <h3 id="configFotoTitle">Foto de perfil</h3>

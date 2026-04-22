@@ -231,7 +231,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 .then(function (res) {
                     if (res.ok && res.body && res.body.ok) {
                         const img = document.querySelector('.header-avatar-img');
-                        if (img) img.src = url + '?t=' + Date.now();
+                        if (img) {
+                            const ts = Date.now();
+                            const sep = url.indexOf('?') >= 0 ? '&' : '?';
+                            img.src = url + sep + 't=' + ts;
+                        }
                         closeConfigFoto();
                         configFotoInput.value = '';
                     } else if (configFotoMsg) {

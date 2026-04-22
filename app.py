@@ -66,6 +66,20 @@ def _mimetype_for_stored_blob(data):
     return _guess_image_mimetype(data) or 'application/octet-stream'
 
 
+def _avatar_placeholder_path():
+    return os.path.join(app.root_path, 'static', 'imagens', 'avatar-placeholder.png')
+
+
+def _send_avatar_placeholder():
+    path = _avatar_placeholder_path()
+    if not os.path.isfile(path):
+        abort(404)
+    resp = send_file(path, mimetype='image/png')
+    resp.headers['Cache-Control'] = 'private, no-store'
+    resp.headers['Vary'] = 'Cookie'
+    return resp
+
+
 @app.route('/', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -146,18 +160,21 @@ def minha_foto():
             abort(404)
         foto = row.get('foto')
         if foto is None:
-            abort(404)
+            return _send_avatar_placeholder()
         if isinstance(foto, memoryview):
             foto = foto.tobytes()
         elif not isinstance(foto, (bytes, bytearray)):
             foto = bytes(foto) if foto else b''
         if not foto:
-            abort(404)
+            return _send_avatar_placeholder()
         mt = _mimetype_for_stored_blob(foto)
         return Response(
             foto,
             mimetype=mt,
-            headers={'Cache-Control': 'private, max-age=3600'},
+            headers={
+                'Cache-Control': 'private, no-store',
+                'Vary': 'Cookie',
+            },
         )
 
     f = request.files.get('foto')

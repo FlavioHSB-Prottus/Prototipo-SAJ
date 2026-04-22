@@ -516,7 +516,7 @@ body {
     width: 38px;
     height: 38px;
     border-radius: 50%;
-    background-color: var(--border-color);
+    background-color: var(--accent-color);
     overflow: hidden;
     display: flex;
     align-items: center;
@@ -526,7 +526,8 @@ body {
 .avatar img {
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
+    padding: 3px;
 }
 
 .user-profile > i {
