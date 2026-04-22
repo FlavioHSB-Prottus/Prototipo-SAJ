@@ -207,7 +207,7 @@ CREATE TABLE IF NOT EXISTS `ocorrencia` (
   `descricao` varchar(255) DEFAULT '',
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  `status` enum('aberto','fechado','indenizado','parcela paga','parcela vencida','ativo') DEFAULT NULL,
+  `status` enum('aberto','fechado','indenizado','parcela paga','parcela vencida') DEFAULT NULL,
   `data_arquivo` date DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `id_contrato` (`id_contrato`),

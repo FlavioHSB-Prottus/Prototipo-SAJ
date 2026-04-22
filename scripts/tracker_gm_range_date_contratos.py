@@ -17,9 +17,6 @@ OCORRENCIA_FECHADO = "fechado"
 OCORRENCIA_INDENIZADO = "indenizado"
 OCORRENCIA_PARCELA_PAGA = "parcela paga"
 OCORRENCIA_PARCELA_VENCIDA = "parcela vencida"
-# Negativacao: parcela que constava em `negativacao` foi paga; contrato "ativo"
-# de novo para, no futuro, outra parcela alvo ser negativada.
-OCORRENCIA_ATIVO = "ativo"
 
 OCORRENCIA_STATUS = frozenset(
     {
@@ -28,7 +25,6 @@ OCORRENCIA_STATUS = frozenset(
         OCORRENCIA_INDENIZADO,
         OCORRENCIA_PARCELA_PAGA,
         OCORRENCIA_PARCELA_VENCIDA,
-        OCORRENCIA_ATIVO,
     }
 )
 
@@ -424,48 +420,9 @@ def insert_ocorrencia(cursor, id_contrato, arquivo_gm_id, status, descricao):
     )
 
 
-_ocorrencia_tem_status_ativo = None
-
-
-def _ensure_ocorrencia_enum_ativo(cursor, conn):
-    """Bancos antigos sem 'ativo' no ENUM de ocorrencia: ALTER 1x por execucao."""
-    global _ocorrencia_tem_status_ativo
-    if _ocorrencia_tem_status_ativo is True:
-        return
-    if _ocorrencia_tem_status_ativo is False:
-        return
-    try:
-        cursor.execute("SHOW COLUMNS FROM ocorrencia LIKE 'status'")
-        row = cursor.fetchone() or {}
-        t = (row.get("Type") or row.get("type") or "") + str(row)
-        if "ativo" in t:
-            _ocorrencia_tem_status_ativo = True
-            return
-    except Exception:
-        pass
-    try:
-        cursor.execute(
-            """
-            ALTER TABLE ocorrencia
-            MODIFY COLUMN `status` ENUM(
-                'aberto','fechado','indenizado',
-                'parcela paga','parcela vencida','ativo'
-            ) NULL DEFAULT NULL
-            """
-        )
-        try:
-            if conn is not None:
-                conn.commit()
-        except Exception:
-            pass
-        _ocorrencia_tem_status_ativo = True
-    except Exception:
-        _ocorrencia_tem_status_ativo = False
-
-
 def _liberar_negativacao_parcela_paga(cursor, conn, id_parcela, id_contrato, arquivo_gm_id):
     """Se existia `negativacao` para a parcela paga, apaga 1 registro.
-    Grava ocorrencia *ativo* no compare diario, liberando a cobranca visual
+    Grava ocorrencia com status *aberto*, liberando a cobranca visual
     e a elegibilidade futura para a nova parcela-alvo."""
     _ensure_negativacao_table(cursor)
     try:
@@ -474,15 +431,12 @@ def _liberar_negativacao_parcela_paga(cursor, conn, id_parcela, id_contrato, arq
         return
     if not cursor.rowcount:
         return
-    _ensure_ocorrencia_enum_ativo(cursor, conn)
-    if _ocorrencia_tem_status_ativo is not True:
-        return
     try:
         insert_ocorrencia(
             cursor,
             id_contrato,
             arquivo_gm_id,
-            OCORRENCIA_ATIVO,
+            OCORRENCIA_ABERTO,
             "Parcela (antes negativada) paga: contrato ativo; outra parcela podera ser negativada se elegivel.",
         )
     except Exception:
