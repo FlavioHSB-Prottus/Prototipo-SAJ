@@ -3602,6 +3602,39 @@ def api_funcionarios():
         cursor.close()
         conn.close()
 
+
+@app.route('/api/funcionario/perfil', methods=['GET'])
+def api_funcionario_perfil():
+    """Dados do funcionário logado (sem id, senha nem foto)."""
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Não autenticado'}), 401
+    conn = None
+    try:
+        conn = _get_db()
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT nome, data_nascimento, cpf_cnpj, ativo, created_at, updated_at,
+                       login, acesso_externo, email, ddd, numero, logradouro, bairro,
+                       complemento, cep, cidade, estado, departamento, nivel_acesso,
+                       sexo, matricula
+                FROM funcionario WHERE id = %s
+                """,
+                (int(fid),),
+            )
+            row = cursor.fetchone()
+    except Exception as e:
+        app.logger.exception('api_funcionario_perfil')
+        return jsonify({'error': str(e)}), 500
+    finally:
+        if conn is not None:
+            conn.close()
+    if not row:
+        return jsonify({'error': 'Funcionário não encontrado.'}), 404
+    return jsonify({'funcionario': _clean_row(row)})
+
+
 @app.route('/api/agenda', methods=['GET', 'POST'])
 def api_agenda():
     conn = _get_db()

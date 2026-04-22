@@ -132,7 +132,7 @@
 
                         <!-- Dropdown Menu -->
                         <div class="dropdown-menu" id="profileDropdown">
-                            <a href="#"><i class="fa-regular fa-user"></i> Meu Perfil</a>
+                            <a href="#" id="openPerfilBtn"><i class="fa-regular fa-user"></i> Meu Perfil</a>
                             <a href="#" id="openConfigFotoBtn"><i class="fa-solid fa-gear"></i> Configurações</a>
                             <div class="dropdown-divider"></div>
                             <a href="{{ url_for('logout') }}" class="text-danger"><i class="fa-solid fa-arrow-right-from-bracket"></i>
@@ -160,6 +160,18 @@
                 <button type="button" class="config-foto-submit" id="configFotoSubmitBtn">Enviar</button>
             </div>
             <p id="configFotoMsg" class="config-foto-msg" hidden></p>
+        </div>
+    </div>
+
+    <div id="perfilModal" class="modal-overlay" data-perfil-url="{{ url_for('api_funcionario_perfil') }}"
+        aria-hidden="true">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h2 id="perfilModalTitle">Meu perfil</h2>
+                <button type="button" class="close-modal-btn" id="closePerfilModalBtn" aria-label="Fechar"><i
+                        class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body" id="perfilModalBody"></div>
         </div>
     </div>
 
