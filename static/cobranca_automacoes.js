@@ -129,33 +129,43 @@
     // ---- Estado da ligação sequencial ---------------------------------------------
     var seqState = null;
 
-    // ---- Classificação para negativação (janela 31-89 dias + não negativados) -----
-    // Separa a lista em 3 grupos para deixar o usuário ver exatamente o que vai
-    // acontecer ANTES de confirmar. Assim o "Contratos alvo" exibido passa a ser
-    // apenas o subconjunto realmente elegível.
+    // ---- Classificação para negativação (por parcela) -------------------------------
+    //
+    // Regras sincronizadas com o backend (/api/negativacao/enviar e /api/cobranca):
+    //   Elegível = (30 < dias_atraso < 90) e parcela-alvo ainda NÃO em
+    //              `negativacao` (1 ou N parcelas em aberto).
+    //
+    // Separa a lista em categorias para o modal de confirmação deixar claro
+    // quais contratos serão afetados e quais foram descartados (e por quê).
     function classificarParaNegativacao(contratos) {
-        var elegiveis = [];
+        var elegiveis     = [];
         var jaNegativados = [];
-        var foraJanela = [];
+        var foraJanela    = [];
         (contratos || []).forEach(function (c) {
             if (!c) return;
-            if (c.negativado) {
+
+            // Usa status calculado pelo backend quando disponível. Fallback para
+            // o flag antigo `negativado` para clientes que consumiram o dataset
+            // antes de recarregar.
+            var st = c.status_negativacao;
+            if (st === 'negativado' || (!st && c.negativado)) {
                 jaNegativados.push(c);
                 return;
             }
-            var d = c.dias_atraso;
-            if (typeof d === 'string') d = parseInt(d, 10);
-            d = isFinite(d) ? d : 0;
-            if (d >= 31 && d <= 89) {
+
+            var d = parseInt(c.dias_atraso, 10);
+            if (!isFinite(d)) d = 0;
+
+            if (d > 30 && d < 90) {
                 elegiveis.push(c);
             } else {
                 foraJanela.push(c);
             }
         });
         return {
-            elegiveis: elegiveis,
+            elegiveis:     elegiveis,
             jaNegativados: jaNegativados,
-            foraJanela: foraJanela
+            foraJanela:    foraJanela
         };
     }
 
@@ -179,11 +189,12 @@
                 var cls = classificarParaNegativacao(contratos);
                 if (cls.elegiveis.length === 0) {
                     alert(
-                        'Nenhum contrato elegível para negativação.\n\n' +
-                        'Critério: parcela mais antiga entre 31 e 89 dias de atraso ' +
-                        'e contrato ainda não negativado.\n\n' +
-                        'Na lista atual: ' + cls.jaNegativados.length + ' já negativado(s), ' +
-                        cls.foraJanela.length + ' fora da janela.'
+                        'Nenhuma parcela elegível para negativação.\n\n' +
+                        'Critério: parcela mais antiga com mais de 30 e menos de 90 ' +
+                        'dias de atraso, e ainda não negativada (1 ou mais parcelas em aberto).\n\n' +
+                        'Na lista atual:\n' +
+                        '  • ' + cls.jaNegativados.length + ' parcela(s) já negativada(s)\n' +
+                        '  • ' + cls.foraJanela.length    + ' fora da janela (≤30 ou ≥90 dias)\n'
                     );
                     return;
                 }
@@ -222,8 +233,9 @@
             detalhe = 'As ligações serão feitas <strong>uma a uma</strong>, na ordem da lista. ' +
                 'Após cada chamada o sistema perguntará se deseja seguir para a próxima.';
         } else if (tipo === 'negativacao') {
-            detalhe = 'Serão enviados ao Serasa <strong>apenas os contratos elegíveis</strong> ' +
-                '(parcela mais antiga com <strong>31 a 89 dias</strong> de atraso e ainda não negativados). ' +
+            detalhe = 'Serão negativadas no Serasa <strong>apenas as parcelas elegíveis</strong> ' +
+                '(parcela mais antiga com <strong>31 a 89 dias</strong> de atraso, ' +
+                'ainda não negativada, com 1 ou mais parcelas em aberto). ' +
                 'Os demais foram <strong>descartados automaticamente</strong> abaixo.';
         } else {
             detalhe = 'Será disparado <strong>1 ' + meta.label.toLowerCase() + '</strong> para ' +
@@ -362,9 +374,9 @@
 
         var statsHTML;
         if (tipo === 'negativacao') {
-            // Estatísticas específicas: enviados ao Serasa, já negativados e fora da janela.
-            var jaNeg   = body.ja_negativados != null ? body.ja_negativados : 0;
-            var foraJan = body.fora_janela    != null ? body.fora_janela    : 0;
+            // Estatísticas: enviados, já negativados, fora da janela, falhas.
+            var jaNeg    = body.ja_negativados != null ? body.ja_negativados : 0;
+            var foraJan  = body.fora_janela    != null ? body.fora_janela    : 0;
             statsHTML =
                 '  <div class="auto-result-stats auto-result-stats-neg">' +
                 '    <div class="auto-stat"><span class="auto-stat-num">' + enviados.toLocaleString('pt-BR') +

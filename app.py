@@ -195,6 +195,31 @@ def api_processar():
 
     def generate():
         # ------------------------------------------------------------------
+        # Pre-check: banco com tabelas (evita 11x o mesmo ERRO 1146 no log)
+        # ------------------------------------------------------------------
+        ok_schema, err_schema = _schema_pronto_para_importacao()
+        if not ok_schema:
+            yield _sse_event(
+                {'type': 'log', 'level': 'alert', 'text': err_schema}
+            )
+            yield _sse_event(
+                {
+                    'type': 'status',
+                    'text': 'Importacao nao iniciada: crie o schema do banco primeiro.',
+                }
+            )
+            yield _sse_event({'type': 'progress', 'value': 0})
+            yield _sse_event(
+                {
+                    'type': 'done',
+                    'summary': err_schema,
+                    'distribuicao_ready': False,
+                    'schema_error': True,
+                }
+            )
+            return
+
+        # ------------------------------------------------------------------
         # FASE 1: Importacao bruta (import_only_arquivos_gm.py)
         # ------------------------------------------------------------------
         yield _sse_event({'type': 'status', 'text': 'Fase 1/2 - Importando Arquivos para o Banco...'})
@@ -845,6 +870,47 @@ def _get_db():
     return pymysql.connect(**DB_CONFIG, cursorclass=pymysql.cursors.DictCursor)
 
 
+def _schema_pronto_para_importacao():
+    """Garante que o schema basico foi aplicado (scripts/criar_banco.py).
+
+    Retorna (True, None) ou (False, mensagem para o operador).
+    """
+    tabelas_obrigatorias = (
+        "arquivos_gm",
+        "empresa",
+        "contrato",
+        "parcela",
+    )
+    try:
+        conn = _get_db()
+        cur = conn.cursor()
+        for nome in tabelas_obrigatorias:
+            cur.execute("SHOW TABLES LIKE %s", (nome,))
+            if not cur.fetchone():
+                cur.close()
+                conn.close()
+                dbn = DB_CONFIG.get("database", "consorcio_gm")
+                return (
+                    False,
+                    (
+                        f"Schema ausente: a tabela '{nome}' nao existe no banco '{dbn}'. "
+                        "Aplique o script de criacao:  python3 scripts/criar_banco.py  "
+                        "(em seguida, se desejar: scripts/seed_funcionarios.py e "
+                        "scripts/seed_tramitacao.py). Depois repita a importacao."
+                    ),
+                )
+        cur.close()
+        conn.close()
+        return True, None
+    except Exception as e:
+        return (
+            False,
+            "Nao foi possivel acessar o MariaDB. Verifique se o servico esta no ar, "
+            "usuario/senha em app.py (DB_CONFIG) e se o banco existe. "
+            f"Detalhe: {e}",
+        )
+
+
 def _serialize(obj):
     """Converte tipos nao-serializaveis do MySQL para JSON."""
     if isinstance(obj, (datetime.date, datetime.datetime)):
@@ -1247,43 +1313,8 @@ _RELATORIO_COLUMNS = [
 
 
 def _build_relatorio_query(tipo, data_inicial, data_final, prioridade=None):
-    """Retorna (sql, params) para o relatorio solicitado."""
+    """Retorna (sql, params) para o relatorio solicitado (exceto 'abertos' — ver _build_relatorio_query_abertos)."""
     params = []
-
-    if tipo == 'abertos':
-        sql = (
-            "SELECT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
-            "       p.nome_completo AS nome_devedor, p.cpf_cnpj, "
-            "       MAX(o.data_arquivo) AS data_arquivo, "
-            "       MIN(par.vencimento) AS vencimento_mais_antigo, "
-            "       DATEDIFF(CURDATE(), MIN(par.vencimento)) AS dias_atraso "
-            "FROM contrato c "
-            "LEFT JOIN ocorrencia o ON c.id = o.id_contrato "
-            "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
-            "LEFT JOIN parcela par ON par.id_contrato = c.id AND par.status = 'aberto' "
-            "WHERE c.status = 'aberto' "
-        )
-        if data_final:
-            sql += " AND (o.data_arquivo IS NULL OR o.data_arquivo <= %s) "
-            params.append(data_final)
-        if data_inicial:
-            sql += " AND o.data_arquivo >= %s "
-            params.append(data_inicial)
-
-        sql += (
-            "GROUP BY c.id, c.grupo, c.cota, c.numero_contrato, c.status, p.nome_completo, p.cpf_cnpj "
-        )
-
-        # Filtro de prioridade via HAVING
-        if prioridade == 'critico':
-            sql += "HAVING dias_atraso >= 60 "
-        elif prioridade == 'atencao':
-            sql += "HAVING dias_atraso >= 30 AND dias_atraso < 60 "
-        elif prioridade == 'recente':
-            sql += "HAVING dias_atraso >= 1 AND dias_atraso < 30 "
-
-        sql += "ORDER BY dias_atraso DESC, c.grupo, c.cota"
-        return sql, params
 
     # Demais tipos: pagos, indenizados, novos
     params = [data_inicial, data_final]
@@ -1313,13 +1344,20 @@ def _build_relatorio_query(tipo, data_inicial, data_final, prioridade=None):
 
 
 def _fetch_relatorio_rows(tipo, data_inicial, data_final, prioridade=None):
-    sql, params = _build_relatorio_query(tipo, data_inicial, data_final, prioridade)
     conn = _get_db()
     cursor = conn.cursor()
-    cursor.execute(sql, params)
-    rows = _clean_rows(cursor.fetchall())
-    cursor.close()
-    conn.close()
+    try:
+        if tipo == 'abertos':
+            _ensure_cobranca_table(cursor)
+            data_ref = _relatorio_data_ref_abertos(cursor, data_final)
+            sql, params = _build_relatorio_query_abertos(data_ref, prioridade)
+        else:
+            sql, params = _build_relatorio_query(tipo, data_inicial, data_final, prioridade)
+        cursor.execute(sql, params)
+        rows = _clean_rows(cursor.fetchall())
+    finally:
+        cursor.close()
+        conn.close()
     return rows
 
 
@@ -1331,12 +1369,42 @@ def _validate_relatorio_params():
 
     if not tipo:
         return None, None, None, None, 'Parametro tipo e obrigatorio.'
-    # Para 'abertos', data_inicial e data_final sao opcionais (o relatorio
-    # usa toda a base ate a data atual por padrao). Para os demais tipos,
-    # ambas datas continuam sendo obrigatorias.
+    # Para 'abertos', so a data final importa (snapshot `cobranca` nesse dia;
+    # se omitida, usa a ultima data de arquivos_gm). Demais tipos: ambas obrigatorias.
     if tipo != 'abertos' and (not data_inicial or not data_final):
         return None, None, None, None, 'Parametros data_inicial e data_final sao obrigatorios.'
     return tipo, data_inicial or None, data_final or None, prioridade or None, None
+
+
+def _relatorio_export_periodo_titulo(tipo, dt_ini, dt_fim):
+    """Texto de periodo para cabecalhos de export (Excel/PDF)."""
+    if tipo != 'abertos':
+        return f"{dt_ini or '—'} a {dt_fim or '—'}"
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        _ensure_cobranca_table(cursor)
+        ref = _relatorio_data_ref_abertos(cursor, dt_fim)
+        if ref:
+            return f"Snapshot (data GM): {ref.isoformat()}"
+        return "Snapshot: —"
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def _relatorio_export_filename_suffix(tipo, dt_ini, dt_fim):
+    if tipo == 'abertos':
+        conn = _get_db()
+        cursor = conn.cursor()
+        try:
+            _ensure_cobranca_table(cursor)
+            ref = _relatorio_data_ref_abertos(cursor, dt_fim)
+            return ref.isoformat() if ref else 'sem_data'
+        finally:
+            cursor.close()
+            conn.close()
+    return f"{dt_ini}_{dt_fim}"
 
 
 _TIPO_LABELS = {
@@ -1368,6 +1436,8 @@ def api_relatorios_excel():
 
     rows = _fetch_relatorio_rows(tipo, dt_ini, dt_fim, prioridade)
     titulo = _TIPO_LABELS.get(tipo, tipo)
+    periodo_titulo = _relatorio_export_periodo_titulo(tipo, dt_ini, dt_fim)
+    fname_suffix = _relatorio_export_filename_suffix(tipo, dt_ini, dt_fim)
 
     wb = Workbook()
     ws = wb.active
@@ -1384,7 +1454,7 @@ def api_relatorios_excel():
     )
 
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(_RELATORIO_COLUMNS))
-    title_cell = ws.cell(row=1, column=1, value=f'{titulo}  |  {dt_ini} a {dt_fim}')
+    title_cell = ws.cell(row=1, column=1, value=f'{titulo}  |  {periodo_titulo}')
     title_cell.font = Font(bold=True, size=13)
     title_cell.alignment = Alignment(horizontal='center')
 
@@ -1415,7 +1485,7 @@ def api_relatorios_excel():
     wb.save(buf)
     buf.seek(0)
 
-    fname = f'relatorio_{tipo}_{dt_ini}_{dt_fim}.xlsx'
+    fname = f'relatorio_{tipo}_{fname_suffix}.xlsx'
     return send_file(buf, as_attachment=True, download_name=fname,
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
@@ -1430,6 +1500,8 @@ def api_relatorios_pdf():
 
     rows = _fetch_relatorio_rows(tipo, dt_ini, dt_fim, prioridade)
     titulo = _TIPO_LABELS.get(tipo, tipo)
+    periodo_titulo = _relatorio_export_periodo_titulo(tipo, dt_ini, dt_fim)
+    fname_suffix = _relatorio_export_filename_suffix(tipo, dt_ini, dt_fim)
 
     pdf = FPDF(orientation='L', unit='mm', format='A4')
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -1438,7 +1510,7 @@ def api_relatorios_pdf():
     pdf.set_font('Helvetica', 'B', 14)
     pdf.cell(0, 10, titulo, ln=True, align='C')
     pdf.set_font('Helvetica', '', 10)
-    pdf.cell(0, 6, f'Periodo: {dt_ini} a {dt_fim}', ln=True, align='C')
+    pdf.cell(0, 6, f'Periodo: {periodo_titulo}', ln=True, align='C')
     pdf.ln(6)
 
     col_widths = [30, 25, 40, 90, 40, 35]
@@ -1474,7 +1546,7 @@ def api_relatorios_pdf():
     pdf.output(buf)
     buf.seek(0)
 
-    fname = f'relatorio_{tipo}_{dt_ini}_{dt_fim}.pdf'
+    fname = f'relatorio_{tipo}_{fname_suffix}.pdf'
     return send_file(buf, as_attachment=True, download_name=fname, mimetype='application/pdf')
 
 
@@ -1497,6 +1569,10 @@ def api_dashboard():
     """
     conn = _get_db()
     cursor = conn.cursor()
+    try:
+        _ensure_cobranca_table(cursor)
+    except Exception:
+        app.logger.exception('api_dashboard: falha ao garantir tabela cobranca')
 
     now = datetime.date.today()
 
@@ -1533,9 +1609,9 @@ def api_dashboard():
     serie_novos = _series("WHERE o.descricao = 'contrato novo'", [])
     serie_retomados = _series("WHERE o.descricao = 'contrato voltou'", [])
 
-    # --- KPIs snapshot (nao dependem do periodo) ---
-    cursor.execute("SELECT COUNT(*) AS total FROM contrato WHERE status = 'aberto'")
-    kpi_em_cobranca = int(cursor.fetchone()['total'])
+    # --- KPIs snapshot (tabela `cobranca` = contratos em aberto no ultimo dia GM) ---
+    data_dash_ref = _get_data_referencia_arquivos_gm(cursor)
+    kpi_em_cobranca = _em_cobranca_count_por_data_ref(cursor, data_dash_ref)
 
     # --- Grafico doughnut: distribuicao da carteira ---
     cursor.execute("SELECT status, COUNT(*) AS total FROM contrato GROUP BY status")
@@ -1562,6 +1638,114 @@ def api_dashboard():
 # ---------------------------------------------------------------------------
 # API: Cobrança — Contratos agrupados por prioridade de parcelas
 # ---------------------------------------------------------------------------
+
+def _get_data_referencia_arquivos_gm(cursor):
+    """Ultima data de arquivo GM importada. Usada em DATEDIFF de atraso para
+    alinhar o painel ao tracker, ao relatorio e ao script de distribuicao
+    (nao usar CURDATE() isolado, que desloca a janela 30-90 dias se o
+    relogio nao bate com o fim de semana/feriado)."""
+    try:
+        cursor.execute("SELECT MAX(data_arquivo) AS dr FROM arquivos_gm")
+        row = cursor.fetchone()
+        if not row or row.get("dr") is None:
+            return datetime.date.today()
+        dr = row["dr"]
+        if isinstance(dr, datetime.datetime):
+            return dr.date()
+        if isinstance(dr, datetime.date):
+            return dr
+        s = str(dr)[:10]
+        return datetime.date.fromisoformat(s)
+    except Exception:
+        return datetime.date.today()
+
+
+def _ensure_cobranca_table(cursor):
+    """Cria a tabela `cobranca` (snapshot diario de id_contrato x data do GM) se ainda nao existir."""
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS cobranca (
+            id BIGINT(20) NOT NULL AUTO_INCREMENT,
+            id_contrato BIGINT(20) NOT NULL,
+            data_arquivo DATE NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY cobranca_id_contrato_IDX (id_contrato, data_arquivo) USING BTREE,
+            KEY cobranca_arquivos_gm_fk (data_arquivo),
+            CONSTRAINT cobranca_contrato_fk FOREIGN KEY (id_contrato)
+                REFERENCES contrato(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+    )
+
+
+def _em_cobranca_count_por_data_ref(cursor, data_ref):
+    """Conta registros em `cobranca` para a data (alinha a Em Cobranca / snapshot do painel)."""
+    if data_ref is None:
+        data_ref = _get_data_referencia_arquivos_gm(cursor)
+    if isinstance(data_ref, datetime.datetime):
+        d = data_ref.date()
+    elif isinstance(data_ref, datetime.date):
+        d = data_ref
+    else:
+        s = str(data_ref)[:10]
+        try:
+            d = datetime.date.fromisoformat(s)
+        except ValueError:
+            return 0
+    cursor.execute(
+        "SELECT COUNT(*) AS n FROM cobranca WHERE data_arquivo = %s",
+        (d.isoformat(),),
+    )
+    row = cursor.fetchone()
+    return int(row.get('n') or 0) if row else 0
+
+
+def _relatorio_data_ref_abertos(cursor, data_final):
+    """Data do snapshot: Data Final do filtro ou ultima `arquivos_gm` se omitida."""
+    if data_final:
+        s = str(data_final).strip()[:10]
+        if len(s) == 10:
+            try:
+                return datetime.date.fromisoformat(s)
+            except ValueError:
+                pass
+    return _get_data_referencia_arquivos_gm(cursor)
+
+
+def _build_relatorio_query_abertos(data_ref, prioridade=None):
+    """Relatorio Contratos Abertos: lista a partir do snapshot `cobranca` no dia `data_ref`."""
+    if isinstance(data_ref, datetime.datetime):
+        d = data_ref.date()
+    elif isinstance(data_ref, datetime.date):
+        d = data_ref
+    else:
+        d = datetime.date.fromisoformat(str(data_ref)[:10])
+    s = d.isoformat()
+
+    sql = (
+        "SELECT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
+        "       p.nome_completo AS nome_devedor, p.cpf_cnpj, "
+        "       %s AS data_arquivo, "
+        "       MIN(par.vencimento) AS vencimento_mais_antigo, "
+        "       DATEDIFF(%s, MIN(par.vencimento)) AS dias_atraso "
+        "FROM contrato c "
+        "INNER JOIN cobranca cb ON cb.id_contrato = c.id AND cb.data_arquivo = %s "
+        "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
+        "INNER JOIN parcela par ON par.id_contrato = c.id AND par.status = 'aberto' "
+        "GROUP BY c.id, c.grupo, c.cota, c.numero_contrato, c.status, p.nome_completo, p.cpf_cnpj "
+    )
+    params = [s, s, s]
+
+    if prioridade == 'critico':
+        sql += "HAVING dias_atraso >= 60 "
+    elif prioridade == 'atencao':
+        sql += "HAVING dias_atraso >= 30 AND dias_atraso < 60 "
+    elif prioridade == 'recente':
+        sql += "HAVING dias_atraso >= 1 AND dias_atraso < 30 "
+
+    sql += "ORDER BY dias_atraso DESC, c.grupo, c.cota"
+    return sql, params
+
 
 @app.route('/api/cobranca')
 def api_cobranca():
@@ -1593,11 +1777,18 @@ def api_cobranca():
         # Se a criacao falhar (permissao, schema bloqueado, etc.), seguimos
         # sem o flag de negativacao em vez de derrubar a tela inteira.
         app.logger.exception('api_cobranca: falha ao garantir tabela negativacao')
+    try:
+        _ensure_cobranca_table(cursor)
+    except Exception:
+        app.logger.exception('api_cobranca: falha ao garantir tabela cobranca')
 
-    # Query base: contratos abertos com parcelas em aberto, com join
+    # Query base: contratos do snapshot `cobranca` (ultimo dia GM) com parcelas
+    # em aberto, com join
     # opcional em funcionario_cobranca/funcionario para expor o
     # responsavel de cobranca e (se a tabela existir) com a descricao
     # do bem associado ao contrato.
+    data_ref = _get_data_referencia_arquivos_gm(cursor)
+
     bem_info = _get_bem_schema()
     bem_select = "NULL"
     bem_join = ""
@@ -1612,18 +1803,34 @@ def api_cobranca():
                 "ON b.grupo = c.grupo AND b.cota = c.cota "
             )
 
+    # A parcela ALVO e a parcela em aberto mais antiga do contrato. E ela
+    # que sera (ou ja foi) negativada. O subquery correlacionado abaixo
+    # devolve o ID dessa parcela por contrato (ordena por vencimento e
+    # id para ser deterministico).
     base_sql = (
         "SELECT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
         "       p.nome_completo AS nome_devedor, p.cpf_cnpj, "
         "       c.valor_credito, "
         "       MIN(par.vencimento) AS vencimento_mais_antigo, "
-        "       DATEDIFF(CURDATE(), MIN(par.vencimento)) AS dias_atraso, "
-        "       COUNT(par.id) AS parcelas_abertas, "
+        "       DATEDIFF(%s, MIN(par.vencimento)) AS dias_atraso, "
+        # DISTINCT: o JOIN com `bens` pode duplicar linhas (varios bens no mesmo
+        # contrato); o numero de parcelas abertas e por id de parcela, nao por linha.
+        "       COUNT(DISTINCT par.id) AS parcelas_abertas, "
         "       fc.id_funcionario AS id_funcionario, "
         "       f.nome AS nome_funcionario, "
-        "       EXISTS(SELECT 1 FROM negativacao n WHERE n.id_contrato = c.id) AS negativado, "
+        "       ( "
+        "         SELECT p2.id FROM parcela p2 "
+        "         WHERE p2.id_contrato = c.id AND p2.status = 'aberto' "
+        "         ORDER BY p2.vencimento ASC, p2.id ASC LIMIT 1 "
+        "       ) AS id_parcela_alvo, "
+        "       ( "
+        "         SELECT p3.numero_parcela FROM parcela p3 "
+        "         WHERE p3.id_contrato = c.id AND p3.status = 'aberto' "
+        "         ORDER BY p3.vencimento ASC, p3.id ASC LIMIT 1 "
+        "       ) AS numero_parcela_alvo, "
         f"       {bem_select} AS bem_descricao "
         "FROM contrato c "
+        "INNER JOIN cobranca cob ON cob.id_contrato = c.id AND cob.data_arquivo = %s "
         "INNER JOIN parcela par ON par.id_contrato = c.id AND par.status = 'aberto' "
         "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
         "LEFT JOIN funcionario_cobranca fc ON fc.id_contrato = c.id "
@@ -1631,7 +1838,7 @@ def api_cobranca():
         + bem_join +
         "WHERE c.status = 'aberto' "
     )
-    params = []
+    params = [data_ref, data_ref]
 
     if funcionario_id is not None:
         base_sql += " AND fc.id_funcionario = %s "
@@ -1650,9 +1857,81 @@ def api_cobranca():
     cursor.execute(base_sql, params)
     rows = _clean_rows(cursor.fetchall())
 
-    # Normaliza o flag negativado (MySQL devolve 0/1) para boolean real.
+    # -------------------------------------------------------------------------
+    # Classificacao de negativacao (3 estados):
+    #
+    #   'negativado'    -> a parcela-alvo ja consta em `negativacao` como
+    #                      id_parcela, OU ha registro legado (id_parcela NULL
+    #                      de versao antiga do schema) para o id_contrato.
+    #   'pendente'      -> 30 < dias_atraso < 90, parcela-alvo ainda nao
+    #                      consta em `negativacao` (inclui 1 so parcela em
+    #                      aberto, se a janela bater) — "Falta negativar".
+    #   'nao_elegivel'  -> fora da janela 31-89, ou ainda sem criterio Serasa
+    #                      p/ envio. Nao e o "Ativo" do filtro: ver front.
+    #
+    # NOTA: a versao anterior consultava `WHERE id_parcela IN (parcelas alvo
+    # desta resposta)` e descartava linhas de `negativacao` cujo id_parcela
+    # nao estava nessa lista (p.ex. registro legado, ou o IN nao trazia o
+    # id exato). Agora buscamos por id_contrato (completo) e comparamos no
+    # Python com a parcela-alvo atual.
+    #
+    # `negativado` (boolean) e mantido apenas para backcompat do front.
+    # -------------------------------------------------------------------------
+    cids = []
     for r in rows:
-        r['negativado'] = bool(r.get('negativado'))
+        try:
+            cids.append(int(r['id']))
+        except (TypeError, ValueError, KeyError):
+            pass
+
+    try:
+        neg_por_contrato = _mapa_parcelas_negativadas_por_contrato(cursor, cids)
+    except Exception:
+        app.logger.exception('api_cobranca: falha ao consultar negativacao')
+        neg_por_contrato = {}
+
+    for r in rows:
+        try:
+            cid = int(r['id'])
+        except (TypeError, ValueError, KeyError):
+            cid = None
+
+        try:
+            dias_i = int(r.get('dias_atraso') or 0)
+        except (TypeError, ValueError):
+            dias_i = 0
+        try:
+            qtd_abertas = int(r.get('parcelas_abertas') or 0)
+        except (TypeError, ValueError):
+            qtd_abertas = 0
+
+        id_alvo_raw = r.get('id_parcela_alvo')
+        id_alvo = None
+        if id_alvo_raw is not None:
+            try:
+                id_alvo = int(id_alvo_raw)
+            except (TypeError, ValueError):
+                id_alvo = None
+
+        neg_set = neg_por_contrato.get(cid, set()) if cid is not None else set()
+        # Historico: negativacao sem id_parcela = contrato ja foi tratado
+        # no modelo antigo. Parcela-alvo ja registrada = negativado atual.
+        ja_neg = (_NEG_NULL_PARCELA in neg_set) or (
+            id_alvo is not None and id_alvo in neg_set
+        )
+        # Janela Serasa: 31-89 dias na parcela-alvo (1 ou N parcelas abertas).
+        elegivel = 30 < dias_i < 90
+
+        if ja_neg:
+            status = 'negativado'
+        elif elegivel:
+            status = 'pendente'
+        else:
+            status = 'nao_elegivel'
+
+        r['status_negativacao'] = status
+        r['elegivel_negativacao'] = elegivel
+        r['negativado'] = ja_neg  # backcompat
 
     # Dividir em 3 blocos de prioridade
     critico = []   # 60-90+ dias
@@ -2724,6 +3003,11 @@ def _resolve_dash_export_payload():
 
 
 def _fetch_dash_export_dataset(cursor, ctx):
+    try:
+        _ensure_cobranca_table(cursor)
+    except Exception:
+        app.logger.exception('_fetch_dash_export: falha ao garantir tabela cobranca')
+
     meses = _month_range_from_yyyymm(ctx['period_start'], ctx['period_end'])
 
     # --- Series mensais (long format / tidy) ---
@@ -2766,9 +3050,9 @@ def _fetch_dash_export_dataset(cursor, ctx):
         for k in ctx['pie']
     ]
 
-    # --- KPIs do periodo ---
-    cursor.execute("SELECT COUNT(*) AS total FROM contrato WHERE status = 'aberto'")
-    em_cobranca = int(cursor.fetchone()['total'])
+    # --- KPIs do periodo: Em Cobranca = snapshot `cobranca` (ultimo dia GM) ---
+    data_dash_ref = _get_data_referencia_arquivos_gm(cursor)
+    em_cobranca = _em_cobranca_count_por_data_ref(cursor, data_dash_ref)
     kpis = {'em_cobranca': em_cobranca}
     for k in ctx['series']:
         kpis[k] = series_totals.get(k, 0)
@@ -3329,13 +3613,21 @@ def api_avisos_item(aviso_id):
 # =============================================================================
 
 def _ensure_negativacao_table(cursor):
-    """Cria a tabela `negativacao` se ainda nao existir."""
+    """Cria a tabela `negativacao` se ainda nao existir.
+
+    Negativacao acontece por PARCELA (nao por contrato). `id_parcela` e a
+    chave de unicidade: uma parcela so pode ser gravada aqui uma unica
+    vez. Isso resolve o bug anterior em que o simples EXISTS por
+    id_contrato fazia o contrato aparecer "negativado" indefinidamente,
+    mesmo quando a parcela atual em aberto era outra.
+    """
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS negativacao (
             id BIGINT PRIMARY KEY AUTO_INCREMENT,
             id_contrato BIGINT NOT NULL,
-            id_parcela BIGINT NULL,
+            id_parcela  BIGINT NOT NULL,
+            numero_parcela INT NULL,
             dias_atraso INT NULL,
             data_negativacao DATETIME DEFAULT CURRENT_TIMESTAMP,
             status VARCHAR(32) NOT NULL DEFAULT 'enviado',
@@ -3343,12 +3635,51 @@ def _ensure_negativacao_table(cursor):
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                                  ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uk_negativacao_parcela (id_parcela),
             KEY idx_negativacao_contrato (id_contrato),
             CONSTRAINT fk_negativacao_contrato FOREIGN KEY (id_contrato)
-                REFERENCES contrato(id) ON DELETE CASCADE
+                REFERENCES contrato(id) ON DELETE CASCADE,
+            CONSTRAINT fk_negativacao_parcela FOREIGN KEY (id_parcela)
+                REFERENCES parcela(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """
     )
+
+
+# Registros de `negativacao` muito antigos podem nao ter `id_parcela` (modelo
+# por contrato). O sentinel abaixo marca isso no mapa de conjuntos.
+_NEG_NULL_PARCELA = object()
+
+
+def _mapa_parcelas_negativadas_por_contrato(cursor, contrato_ids):
+    """{id_contrato: set} onde cada set contem id_parcela (int) e, se
+    houver negativacao legada sem parcela, o valor _NEG_NULL_PARCELA.
+
+    Necessario em vez de `WHERE id_parcela IN (lista de alvos desta tela)`:
+    essa lista nao abrange parcelas de outros contratos nem linhas cujo
+    id_parcela nao e o alvo atual, o que deixava o filtro "Ja negativados"
+    vazio apesar de existir negativacao no banco.
+    """
+    if not contrato_ids:
+        return {}
+    out = {}
+    ph = ','.join(['%s'] * len(contrato_ids))
+    cursor.execute(
+        f"SELECT id_contrato, id_parcela FROM negativacao "
+        f"WHERE id_contrato IN ({ph})",
+        list(contrato_ids),
+    )
+    for row in cursor.fetchall():
+        cid = int(row['id_contrato'])
+        s = out.setdefault(cid, set())
+        if row.get('id_parcela') is None:
+            s.add(_NEG_NULL_PARCELA)
+        else:
+            try:
+                s.add(int(row['id_parcela']))
+            except (TypeError, ValueError):
+                s.add(_NEG_NULL_PARCELA)
+    return out
 
 
 # =============================================================================
@@ -3460,14 +3791,59 @@ def api_automacao(tipo):
 
 
 # =============================================================================
-# API: Negativacao (Serasa)
+# API: Negativacao (Serasa) - POR PARCELA
 # -----------------------------------------------------------------------------
-# Regra:
-#   - Elegivel = contrato aberto cuja parcela em aberto mais antiga tem
-#     entre 31 e 89 dias de atraso.
-#   - Contratos ja registrados na tabela `negativacao` sao IGNORADOS.
-#   - O envio real sera substituido pela API do Flavio (TODO abaixo).
+# Regras de negocio (versao 2):
+#   - A negativacao e registrada no nivel de PARCELA (nao contrato).
+#   - Uma parcela ELEGIVEL: parcela aberto mais antiga com 30 < dias < 90
+#     (1 ou N parcelas em aberto) e ainda NAO consta em `negativacao`.
+#   - A unicidade e reforcada pelo UNIQUE KEY (id_parcela) + INSERT IGNORE.
+#     Isso protege contra:
+#       * race condition (dois cliques / dois usuarios simultaneos);
+#       * re-envios logicos (o front deveria evitar, mas nunca se confia).
+#   - O INSERT ocorre ANTES do disparo para a API externa para que a proxima
+#     leitura do painel de cobranca ja apresente o contrato como "negativado"
+#     mesmo se a API externa demorar ou falhar. Se a API externa falhar,
+#     atualizamos `status` para 'falhou' e guardamos a resposta.
 # =============================================================================
+
+def _info_negativacao_por_contrato(cursor, ids, data_referencia):
+    """Retorna dict {id_contrato: {...dados da parcela alvo}}.
+
+    ``data_referencia`` = mesma data de referencia de /api/cobranca
+    (MAX(data_arquivo) em arquivos_gm) para o calculo de dias de atraso.
+    """
+    if not ids:
+        return {}
+    placeholders = ','.join(['%s'] * len(ids))
+    q = f"""
+        SELECT c.id AS id_contrato,
+               c.grupo, c.cota, c.numero_contrato,
+               (
+                 SELECT COUNT(*) FROM parcela p
+                 WHERE p.id_contrato = c.id AND p.status = 'aberto'
+               ) AS parcelas_abertas,
+               (
+                 SELECT p.id FROM parcela p
+                 WHERE p.id_contrato = c.id AND p.status = 'aberto'
+                 ORDER BY p.vencimento ASC, p.id ASC LIMIT 1
+               ) AS id_parcela_alvo,
+               (
+                 SELECT p.numero_parcela FROM parcela p
+                 WHERE p.id_contrato = c.id AND p.status = 'aberto'
+                 ORDER BY p.vencimento ASC, p.id ASC LIMIT 1
+               ) AS numero_parcela_alvo,
+               (
+                 SELECT DATEDIFF(%s, MIN(p.vencimento)) FROM parcela p
+                 WHERE p.id_contrato = c.id AND p.status = 'aberto'
+               ) AS dias_atraso
+        FROM contrato c
+        WHERE c.id IN ({placeholders}) AND c.status = 'aberto'
+    """
+    cursor.execute(q, (data_referencia, *ids))
+    info = _clean_rows(cursor.fetchall())
+    return {int(r['id_contrato']): r for r in info}
+
 
 @app.route('/api/negativacao/enviar', methods=['POST'])
 def api_negativacao_enviar():
@@ -3480,95 +3856,114 @@ def api_negativacao_enviar():
     cursor = conn.cursor()
     _ensure_negativacao_table(cursor)
 
-    placeholders = ','.join(['%s'] * len(ids))
+    data_ref = _get_data_referencia_arquivos_gm(cursor)
 
-    # 1) Quais contratos ja foram negativados alguma vez?
-    cursor.execute(
-        f"SELECT DISTINCT id_contrato FROM negativacao "
-        f"WHERE id_contrato IN ({placeholders})",
-        ids,
-    )
-    ja_negativados = {int(r['id_contrato']) for r in cursor.fetchall()}
+    # --- Fase 1: coleta ------------------------------------------------------
+    info_por_id = _info_negativacao_por_contrato(cursor, ids, data_ref)
 
-    # 2) Buscar dias de atraso e parcela mais antiga aberta para cada contrato.
-    cursor.execute(
-        f"""
-        SELECT c.id AS id_contrato,
-               c.grupo, c.cota, c.numero_contrato,
-               (
-                 SELECT p.id FROM parcela p
-                 WHERE p.id_contrato = c.id AND p.status = 'aberto'
-                 ORDER BY p.vencimento ASC LIMIT 1
-               ) AS id_parcela,
-               (
-                 SELECT DATEDIFF(CURDATE(), MIN(p.vencimento)) FROM parcela p
-                 WHERE p.id_contrato = c.id AND p.status = 'aberto'
-               ) AS dias_atraso
-        FROM contrato c
-        WHERE c.id IN ({placeholders}) AND c.status = 'aberto'
-        """,
-        ids,
-    )
-    info = _clean_rows(cursor.fetchall())
-    info_por_id = {int(r['id_contrato']): r for r in info}
+    # --- Fase 2: CHECK BEFORE CLASSIFICATION --------------------------------
+    # Mesma logica de /api/cobranca: mapa por id_contrato (legado NULL + ids).
+    neg_map = _mapa_parcelas_negativadas_por_contrato(cursor, ids)
 
-    elegiveis = []
-    fora_janela = []
+    # --- Fase 3: classificacao (Needs Negative / Already / Not Negative) ----
+    elegiveis    = []  # "Needs Negative": serao gravados e enviados agora
+    ja_negativ   = []  # "Already Negative": parcela-alvo ja esta registrada
+    fora_janela  = []  # atraso fora de (30, 90)
+    ausentes     = []  # contrato nao encontrado ou nao-aberto
+
     for cid in ids:
-        if cid in ja_negativados:
-            continue
         r = info_por_id.get(cid)
         if not r:
-            # contrato inexistente ou nao-aberto
-            fora_janela.append({'id_contrato': cid, 'dias_atraso': None})
+            ausentes.append({'id_contrato': cid})
             continue
+
+        id_alvo_raw = r.get('id_parcela_alvo')
+        try:
+            id_alvo = int(id_alvo_raw) if id_alvo_raw is not None else None
+        except (TypeError, ValueError):
+            id_alvo = None
         try:
             dias_i = int(r.get('dias_atraso') or 0)
         except (TypeError, ValueError):
             dias_i = 0
-        if 31 <= dias_i <= 89:
-            elegiveis.append({
-                'id_contrato': cid,
-                'id_parcela': r.get('id_parcela'),
-                'dias_atraso': dias_i,
-                'grupo_cota': f"{r.get('grupo')}/{r.get('cota')}",
-            })
-        else:
+
+        neg_set = neg_map.get(cid, set())
+        if _NEG_NULL_PARCELA in neg_set or (
+            id_alvo is not None and id_alvo in neg_set
+        ):
+            ja_negativ.append({'id_contrato': cid, 'id_parcela': id_alvo})
+            continue
+        if not (30 < dias_i < 90):
             fora_janela.append({'id_contrato': cid, 'dias_atraso': dias_i})
+            continue
+        if id_alvo is None:
+            ausentes.append({'id_contrato': cid})
+            continue
+
+        elegiveis.append({
+            'id_contrato':     cid,
+            'id_parcela':      id_alvo,
+            'numero_parcela':  r.get('numero_parcela_alvo'),
+            'dias_atraso':     dias_i,
+            'grupo_cota':      f"{r.get('grupo')}/{r.get('cota')}",
+        })
 
     _automacao_log('negativacao', {
-        'qtd_total': len(ids),
-        'qtd_elegiveis': len(elegiveis),
-        'qtd_ja_negativados': len(ja_negativados & set(ids)),
-        'qtd_fora_janela': len(fora_janela),
+        'qtd_total':         len(ids),
+        'qtd_elegiveis':     len(elegiveis),
+        'qtd_ja_negativados': len(ja_negativ),
+        'qtd_fora_janela':   len(fora_janela),
+        'qtd_ausentes':      len(ausentes),
     })
 
-    # TODO: substituir pelo POST real para a API do Flavio (Serasa).
-    # Exemplo:
-    #   import requests
-    #   for e in elegiveis:
-    #       r = requests.post('http://api-flavio/serasa/negativacao',
-    #                         json={'id_contrato': e['id_contrato'],
-    #                               'id_parcela':  e['id_parcela'],
-    #                               'dias_atraso': e['dias_atraso']},
-    #                         timeout=30)
-    #       e['resposta_api'] = r.text
-
-    # Persiste no banco apenas os elegiveis (uma vez por contrato).
+    # --- Fase 4: INSERT primeiro (locking via UNIQUE KEY) -------------------
+    # INSERT IGNORE faz o uk_negativacao_parcela virar "seletor": se outra
+    # request concorrente ja gravou a mesma parcela, esta tentativa e
+    # silenciosamente descartada e rowcount reflete isso.
     gravados = 0
     if elegiveis:
         cursor.executemany(
-            "INSERT INTO negativacao "
-            "  (id_contrato, id_parcela, dias_atraso, status, resposta_api) "
-            "VALUES (%s, %s, %s, 'enviado', %s)",
+            "INSERT IGNORE INTO negativacao "
+            "  (id_contrato, id_parcela, numero_parcela, dias_atraso, status, resposta_api) "
+            "VALUES (%s, %s, %s, %s, 'enviado', %s)",
             [
-                (e['id_contrato'], e['id_parcela'], e['dias_atraso'],
-                 '{"mock": true}')
+                (
+                    e['id_contrato'],
+                    e['id_parcela'],
+                    e['numero_parcela'],
+                    e['dias_atraso'],
+                    '{"mock": true}',
+                )
                 for e in elegiveis
             ],
         )
         conn.commit()
-        gravados = cursor.rowcount or len(elegiveis)
+        gravados = cursor.rowcount if cursor.rowcount is not None else 0
+
+    # --- Fase 5: disparo para a API externa (mock hoje; Flavio depois) ------
+    # TODO: substituir pelo POST real. Se falhar, atualizar status p/ 'falhou':
+    #   import requests
+    #   for e in elegiveis:
+    #       try:
+    #           r = requests.post('http://api-flavio/serasa/negativacao',
+    #                             json={'id_contrato': e['id_contrato'],
+    #                                   'id_parcela':  e['id_parcela'],
+    #                                   'dias_atraso': e['dias_atraso']},
+    #                             timeout=30)
+    #           if r.status_code >= 400:
+    #               raise RuntimeError(r.text)
+    #           cursor.execute(
+    #               "UPDATE negativacao SET status='enviado', resposta_api=%s "
+    #               "WHERE id_parcela=%s",
+    #               (r.text, e['id_parcela']),
+    #           )
+    #       except Exception as exc:
+    #           cursor.execute(
+    #               "UPDATE negativacao SET status='falhou', resposta_api=%s "
+    #               "WHERE id_parcela=%s",
+    #               (str(exc), e['id_parcela']),
+    #           )
+    #   conn.commit()
 
     cursor.close()
     conn.close()
@@ -3576,16 +3971,17 @@ def api_negativacao_enviar():
     return jsonify({
         'success': True,
         'tipo': 'negativacao',
-        'enviados': len(elegiveis),
-        'gravados': gravados,
-        'ja_negativados': len(ja_negativados & set(ids)),
-        'fora_janela': len(fora_janela),
-        'falhas': 0,
-        'mock': True,
+        'enviados':         len(elegiveis),
+        'gravados':         gravados,
+        'ja_negativados':   len(ja_negativ),
+        'fora_janela':      len(fora_janela),
+        'ausentes':         len(ausentes),
+        'falhas':           0,
+        'mock':             True,
         'mensagem': (
-            f'{len(elegiveis)} contrato(s) negativado(s). '
-            f'{len(ja_negativados & set(ids))} ja estavam negativados. '
-            f'{len(fora_janela)} fora da janela (31-89 dias).'
+            f'{len(elegiveis)} parcela(s) negativada(s). '
+            f'{len(ja_negativ)} parcela(s) ja estavam negativadas. '
+            f'{len(fora_janela)} fora da janela (30 < dias < 90).'
         ),
     })
 

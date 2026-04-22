@@ -207,7 +207,7 @@ CREATE TABLE IF NOT EXISTS `ocorrencia` (
   `descricao` varchar(255) DEFAULT '',
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  `status` enum('aberto','fechado','indenizado','parcela paga','parcela vencida') DEFAULT NULL,
+  `status` enum('aberto','fechado','indenizado','parcela paga','parcela vencida','ativo') DEFAULT NULL,
   `data_arquivo` date DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `id_contrato` (`id_contrato`),
@@ -601,10 +601,22 @@ CREATE TABLE IF NOT EXISTS `bens` (
 );
 
 
+CREATE TABLE IF NOT EXISTS `cobranca` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `id_contrato` bigint(20) NOT NULL,
+  `data_arquivo` date NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `cobranca_id_contrato_IDX` (`id_contrato`,`data_arquivo`) USING BTREE,
+  KEY `cobranca_arquivos_gm_fk` (`data_arquivo`),
+  CONSTRAINT `cobranca_contrato_fk` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE
+);
+
+
 CREATE TABLE IF NOT EXISTS `negativacao` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_contrato` bigint(20) NOT NULL,
-  `id_parcela` bigint(20) DEFAULT NULL,
+  `id_parcela` bigint(20) NOT NULL,
+  `numero_parcela` int(11) DEFAULT NULL,
   `dias_atraso` int(11) DEFAULT NULL,
   `data_negativacao` datetime DEFAULT current_timestamp(),
   `status` varchar(32) NOT NULL DEFAULT 'enviado',
@@ -612,8 +624,10 @@ CREATE TABLE IF NOT EXISTS `negativacao` (
   `created_at` datetime DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_negativacao_parcela` (`id_parcela`),
   KEY `idx_negativacao_contrato` (`id_contrato`),
-  CONSTRAINT `fk_negativacao_contrato` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE
+  CONSTRAINT `fk_negativacao_contrato` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_negativacao_parcela` FOREIGN KEY (`id_parcela`) REFERENCES `parcela` (`id`) ON DELETE CASCADE
 );
 """
 

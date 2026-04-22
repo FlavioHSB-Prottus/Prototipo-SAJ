@@ -17,6 +17,9 @@ OCORRENCIA_FECHADO = "fechado"
 OCORRENCIA_INDENIZADO = "indenizado"
 OCORRENCIA_PARCELA_PAGA = "parcela paga"
 OCORRENCIA_PARCELA_VENCIDA = "parcela vencida"
+# Negativacao: parcela que constava em `negativacao` foi paga; contrato "ativo"
+# de novo para, no futuro, outra parcela alvo ser negativada.
+OCORRENCIA_ATIVO = "ativo"
 
 OCORRENCIA_STATUS = frozenset(
     {
@@ -25,6 +28,7 @@ OCORRENCIA_STATUS = frozenset(
         OCORRENCIA_INDENIZADO,
         OCORRENCIA_PARCELA_PAGA,
         OCORRENCIA_PARCELA_VENCIDA,
+        OCORRENCIA_ATIVO,
     }
 )
 
@@ -266,6 +270,148 @@ def ensure_default_empresas(cursor, conn):
     return id_emp, id_seg
 
 
+def _ensure_cobranca_table(cursor):
+    """Snapshot diario: contratos com status=aberto ao fim do processamento do GM (idempotente)."""
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS cobranca (
+            id BIGINT(20) NOT NULL AUTO_INCREMENT,
+            id_contrato BIGINT(20) NOT NULL,
+            data_arquivo DATE NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY cobranca_id_contrato_IDX (id_contrato, data_arquivo) USING BTREE,
+            KEY cobranca_arquivos_gm_fk (data_arquivo),
+            CONSTRAINT cobranca_contrato_fk FOREIGN KEY (id_contrato)
+                REFERENCES contrato(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+    )
+
+
+def registrar_snapshot_cobranca_dia(cursor, conn, data_referencia):
+    """Registra em `cobranca` um snapshot (id_contrato, data_arquivo) para cada contrato aberto.
+
+    Equivale, por dia, ao conjunto usado em COUNT(*) FROM contrato WHERE status='aberto'
+    ao final do processamento do arquivo GM daquele dia. Reprocessar o mesmo dia apaga
+    e reinsere (idempotente).
+    """
+    _ensure_cobranca_table(cursor)
+
+    if data_referencia is None:
+        return 0
+    if isinstance(data_referencia, datetime.datetime):
+        data_d = data_referencia.date()
+    elif isinstance(data_referencia, datetime.date):
+        data_d = data_referencia
+    else:
+        try:
+            s = str(data_referencia)[:10]
+            data_d = datetime.datetime.strptime(s, "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            return 0
+
+    dstr = data_d.isoformat()
+    cursor.execute("DELETE FROM cobranca WHERE data_arquivo = %s", (dstr,))
+    cursor.execute(
+        "INSERT INTO cobranca (id_contrato, data_arquivo) "
+        "SELECT id, %s FROM contrato WHERE status = 'aberto'",
+        (dstr,),
+    )
+    n = cursor.rowcount
+    return int(n) if n is not None else 0
+
+
+def _ensure_negativacao_table(cursor):
+    """Cria a tabela `negativacao` alinhada ao `app._ensure_negativacao_table` (idempotente)."""
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS negativacao (
+            id BIGINT PRIMARY KEY AUTO_INCREMENT,
+            id_contrato BIGINT NOT NULL,
+            id_parcela  BIGINT NOT NULL,
+            numero_parcela INT NULL,
+            dias_atraso INT NULL,
+            data_negativacao DATETIME DEFAULT CURRENT_TIMESTAMP,
+            status VARCHAR(32) NOT NULL DEFAULT 'enviado',
+            resposta_api TEXT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                                     ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uk_negativacao_parcela (id_parcela),
+            KEY idx_negativacao_contrato (id_contrato),
+            CONSTRAINT fk_negativacao_contrato FOREIGN KEY (id_contrato)
+                REFERENCES contrato(id) ON DELETE CASCADE,
+            CONSTRAINT fk_negativacao_parcela FOREIGN KEY (id_parcela)
+                REFERENCES parcela(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+    )
+
+
+def negativacao_inserir_elegiveis_apos_gm(cursor, _conn, data_referencia, id_arquivo_gm):
+    """
+    Apos o delta (dia a dia) no tracker, grava ocorrências em `negativacao` para
+    toda parcela alvo (mais antiga em aberto) que, na *data de referencia do
+    proprio arquivo GM* (nao a data de hoje do servidor), esteja com mais de
+    30 e menos de 90 dias de atraso, com mais de 1 parcela aberta.
+
+    * INSERT IGNORE + UNIQUE (id_parcela): a mesma parcela nao entra duas
+      vezes. Inclui contrato com **uma** parcela aberta, se 30 < dias < 90
+      (mesma regra de /api/cobranca e "Falta negativar").
+
+    * `data_negativacao` no INSERT e fixada no dia de `data_referencia` do GM
+      (meio-dia) para bater o "fato por dia" do arquivo.
+
+    Retorna o numero de linhas inseridas (Pode ser 0; MySQL ainda pode
+    reportar rowcount=None em versões antigas).
+    """
+    _ensure_negativacao_table(cursor)
+
+    if isinstance(data_referencia, datetime.datetime):
+        data_d = data_referencia.date()
+    elif isinstance(data_referencia, datetime.date):
+        data_d = data_referencia
+    else:
+        try:
+            s = str(data_referencia)[:10]
+            data_d = datetime.datetime.strptime(s, "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            return 0
+
+    data_hora = datetime.datetime.combine(data_d, datetime.time(12, 0, 0))
+    j = json.dumps(
+        {"fonte": "tracker", "id_arquivo_gm": int(id_arquivo_gm)},
+        ensure_ascii=False,
+    )
+
+    sql = """
+    INSERT IGNORE INTO negativacao (
+        id_contrato, id_parcela, numero_parcela, dias_atraso, status, resposta_api, data_negativacao
+    )
+    SELECT
+        c.id,
+        p.id,
+        p.numero_parcela,
+        DATEDIFF(%s, p.vencimento),
+        'registrado_tracker',
+        %s,
+        %s
+    FROM contrato c
+    INNER JOIN parcela p ON p.id = (
+        SELECT p2.id FROM parcela p2
+        WHERE p2.id_contrato = c.id AND p2.status = 'aberto'
+        ORDER BY p2.vencimento ASC, p2.id ASC
+        LIMIT 1
+    )
+    WHERE c.status = 'aberto'
+      AND DATEDIFF(%s, p.vencimento) > 30
+      AND DATEDIFF(%s, p.vencimento) < 90
+    """
+    cursor.execute(sql, (data_d, j, data_hora, data_d, data_d))
+    n = cursor.rowcount
+    return int(n) if n is not None else 0
+
+
 def insert_ocorrencia(cursor, id_contrato, arquivo_gm_id, status, descricao):
     if status not in OCORRENCIA_STATUS:
         raise ValueError(f"status de ocorrencia invalido: {status!r}")
@@ -276,6 +422,71 @@ def insert_ocorrencia(cursor, id_contrato, arquivo_gm_id, status, descricao):
         """,
         (id_contrato, arquivo_gm_id, arquivo_gm_id, status, descricao),
     )
+
+
+_ocorrencia_tem_status_ativo = None
+
+
+def _ensure_ocorrencia_enum_ativo(cursor, conn):
+    """Bancos antigos sem 'ativo' no ENUM de ocorrencia: ALTER 1x por execucao."""
+    global _ocorrencia_tem_status_ativo
+    if _ocorrencia_tem_status_ativo is True:
+        return
+    if _ocorrencia_tem_status_ativo is False:
+        return
+    try:
+        cursor.execute("SHOW COLUMNS FROM ocorrencia LIKE 'status'")
+        row = cursor.fetchone() or {}
+        t = (row.get("Type") or row.get("type") or "") + str(row)
+        if "ativo" in t:
+            _ocorrencia_tem_status_ativo = True
+            return
+    except Exception:
+        pass
+    try:
+        cursor.execute(
+            """
+            ALTER TABLE ocorrencia
+            MODIFY COLUMN `status` ENUM(
+                'aberto','fechado','indenizado',
+                'parcela paga','parcela vencida','ativo'
+            ) NULL DEFAULT NULL
+            """
+        )
+        try:
+            if conn is not None:
+                conn.commit()
+        except Exception:
+            pass
+        _ocorrencia_tem_status_ativo = True
+    except Exception:
+        _ocorrencia_tem_status_ativo = False
+
+
+def _liberar_negativacao_parcela_paga(cursor, conn, id_parcela, id_contrato, arquivo_gm_id):
+    """Se existia `negativacao` para a parcela paga, apaga 1 registro.
+    Grava ocorrencia *ativo* no compare diario, liberando a cobranca visual
+    e a elegibilidade futura para a nova parcela-alvo."""
+    _ensure_negativacao_table(cursor)
+    try:
+        cursor.execute("DELETE FROM negativacao WHERE id_parcela = %s", (id_parcela,))
+    except Exception:
+        return
+    if not cursor.rowcount:
+        return
+    _ensure_ocorrencia_enum_ativo(cursor, conn)
+    if _ocorrencia_tem_status_ativo is not True:
+        return
+    try:
+        insert_ocorrencia(
+            cursor,
+            id_contrato,
+            arquivo_gm_id,
+            OCORRENCIA_ATIVO,
+            "Parcela (antes negativada) paga: contrato ativo; outra parcela podera ser negativada se elegivel.",
+        )
+    except Exception:
+        pass
 
 
 def _extract_field(line, columns_info, field_name):
@@ -711,10 +922,25 @@ def apply_delta(cursor, conn, arquivo_gm_id,
         except (TypeError, ValueError):
             num = num_p_raw
         cursor.execute(
+            """
+            SELECT id FROM parcela
+            WHERE id_contrato = %s AND numero_parcela = %s AND status = 'aberto'
+            LIMIT 1
+            """,
+            (cid, num_p_raw),
+        )
+        row_parc = cursor.fetchone()
+        cursor.execute(
             "UPDATE parcela SET status = 'fechado' WHERE id_contrato = %s AND numero_parcela = %s",
             (cid, num_p_raw),
         )
-        insert_ocorrencia(cursor, cid, arquivo_gm_id, OCORRENCIA_PARCELA_PAGA, f"parcela {num} paga")
+        if row_parc and row_parc.get("id") is not None:
+            _liberar_negativacao_parcela_paga(
+                cursor, conn, int(row_parc["id"]), cid, arquivo_gm_id
+            )
+        insert_ocorrencia(
+            cursor, cid, arquivo_gm_id, OCORRENCIA_PARCELA_PAGA, f"parcela {num} paga"
+        )
 
     conn.commit()
     return len(missing_contracts), len(added_parcels), len(paid_parcels)
@@ -816,6 +1042,29 @@ def main():
             print(
                 f" -> Tracking Delta Concluido: {n_miss} contratos ausentes no registro_1, {n_add} parcelas novas, {n_paid} parcelas pagas."
             )
+
+        # Historico Serasa: gera ocorrencia na tabela `negativacao` (por parcela,
+        # 1 linha/parcela, sem repeticoes) alinhada a *data do arquivo* GM, para
+        # o painel "Falta negativar" bater com o fato de dias anteriores.
+        cursor.execute(
+            "SELECT data_arquivo FROM arquivos_gm WHERE id_arquivo_gm = %s",
+            (arquivo_gm_id,),
+        )
+        row_da = cursor.fetchone()
+        if row_da and row_da.get("data_arquivo") is not None:
+            n_neg = negativacao_inserir_elegiveis_apos_gm(
+                cursor, conn, row_da["data_arquivo"], int(arquivo_gm_id)
+            )
+            print(
+                f" -> Negativacao: {n_neg} ocorrencia(s) nova(s) inserida(s) em "
+                f"`negativacao` (mesma parcela nunca e duplicada: UNIQUE id_parcela)."
+            )
+            n_cob = registrar_snapshot_cobranca_dia(cursor, conn, row_da["data_arquivo"])
+            print(
+                f" -> Snapshot `cobranca`: {n_cob} contrato(s) em aberto registrado(s) "
+                f"para a data {row_da['data_arquivo']}."
+            )
+        conn.commit()
 
         # distribuir_operadores(cursor, conn, arquivo_gm_id)
         # NOTA: a tabela 'operador' nao e mais usada neste projeto. A

@@ -63,7 +63,10 @@ document.addEventListener('DOMContentLoaded', function () {
     if (negativacaoSelect) {
         negativacaoSelect.addEventListener('change', function () {
             var wrapper = negativacaoSelect.closest('.negativacao-filter');
-            if (wrapper) wrapper.classList.toggle('filter-active', !!this.value);
+            if (wrapper) {
+                wrapper.classList.toggle('filter-active', !!this.value);
+                wrapper.classList.toggle('neg-filtro-ativo', this.value === 'ativo');
+            }
             applyFilter();
         });
     }
@@ -125,6 +128,15 @@ document.addEventListener('DOMContentLoaded', function () {
         searchInput.focus();
     }
 
+    function syncNegativacaoFilterStyle() {
+        if (!negativacaoSelect) return;
+        const wrapper = negativacaoSelect.closest('.negativacao-filter');
+        if (!wrapper) return;
+        const v = negativacaoSelect.value;
+        wrapper.classList.toggle('filter-active', !!v);
+        wrapper.classList.toggle('neg-filtro-ativo', v === 'ativo');
+    }
+
     function applyFilter() {
         if (!currentData) return;
 
@@ -134,6 +146,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (!termo && !negFilter) {
             renderView(currentData);
+            syncNegativacaoFilterStyle();
             return;
         }
 
@@ -145,14 +158,37 @@ document.addEventListener('DOMContentLoaded', function () {
         };
 
         renderView(filtered);
+        syncNegativacaoFilterStyle();
     }
 
-    // Aplica o filtro de negativação (pendente / negativado / todos)
+    // Aplica o filtro de negativação (pendente / negativado / ativo / todos).
+    //
+    // O backend entrega status_negativacao:
+    //   'negativado'   -> parcela-alvo já na tabela negativacao
+    //   'pendente'     -> 31–89 dias na parcela-alvo, ainda não negativada
+    //   'nao_elegivel' -> fora da janela Serasa (<=30 ou >=90) ou regra ainda
+    //                     fora do fluxo de envio.
+    //
+    //   'ativo' (só no filtro): cobrança "recente" = **uma** parcela aberta
+    //   e atraso < 31 dias. Não inclui crítico/atenção com 1 parcela; esses
+    //   vão a pendente (janela) ou nao_elegivel (ex.: 90+).
     function matchNegativacao(c, negFilter) {
         if (!negFilter) return true;
-        var isNeg = !!c.negativado;
-        if (negFilter === 'negativado') return isNeg;
-        if (negFilter === 'pendente')  return !isNeg;
+        var st = c.status_negativacao;
+        if (!st) {
+            if (c.negativado) st = 'negativado';
+            else if (c.elegivel_negativacao) st = 'pendente';
+            else st = 'nao_elegivel';
+        }
+        if (negFilter === 'negativado') return st === 'negativado';
+        if (negFilter === 'pendente')   return st === 'pendente';
+        if (negFilter === 'ativo') {
+            var nparc = parseInt(c.parcelas_abertas, 10);
+            if (!isFinite(nparc)) nparc = 0;
+            var d = parseInt(c.dias_atraso, 10);
+            if (!isFinite(d)) d = 0;
+            return st === 'nao_elegivel' && nparc === 1 && d < 31;
+        }
         return true;
     }
 

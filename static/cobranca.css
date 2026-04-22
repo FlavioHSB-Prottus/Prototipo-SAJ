@@ -189,6 +189,12 @@
     color: #991b1b;
     font-weight: 600;
 }
+/* Filtro "Ativo" (fora da fila de negativacao): destaque verde */
+.negativacao-filter.filter-active.neg-filtro-ativo select {
+    border-color: rgba(22, 101, 52, 0.4);
+    background-color: #f0fdf4;
+    color: #166534;
+}
 
 .toolbar-right {
     display: flex;
