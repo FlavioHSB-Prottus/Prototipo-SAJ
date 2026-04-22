@@ -19,20 +19,27 @@
             <h1 class="login-title">SAJ</h1>
             <p class="login-subtitle">Gestão e Cobrança de Consórcios</p>
 
-            <form action="#" method="POST" class="login-form">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            <div class="login-flash" role="alert">
+                {% for category, message in messages %}
+                <p class="login-flash-msg login-flash-{{ category }}">{{ message }}</p>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endwith %}
+
+            <form action="{{ url_for('login') }}" method="POST" class="login-form">
                 <div class="input-group">
-                    <label for="username">Usuário/E-mail</label>
-                    <input type="text" id="username" name="username" placeholder="Digite seu usuário ou e-mail" required
-                        autofocus>
+                    <label for="login">Login</label>
+                    <input type="text" id="login" name="login" placeholder="Login do funcionário" required
+                        autocomplete="username" autofocus>
                 </div>
 
                 <div class="input-group">
-                    <label for="password">Senha</label>
-                    <input type="password" id="password" name="password" placeholder="Digite sua senha" required>
-                </div>
-
-                <div class="forgot-password">
-                    <a href="{{ url_for('recuperar_senha') }}">Esqueceu a senha?</a>
+                    <label for="senha">Senha</label>
+                    <input type="password" id="senha" name="senha" placeholder="Senha cadastrada no sistema" required
+                        autocomplete="current-password">
                 </div>
 
                 <button type="submit" class="login-button">Entrar</button>
