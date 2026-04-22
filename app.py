@@ -1417,7 +1417,7 @@ def _fetch_relatorio_rows(tipo, data_inicial, data_final, prioridade=None):
     try:
         if tipo == 'abertos':
             _ensure_cobranca_table(cursor)
-            data_ref = _relatorio_data_ref_abertos(cursor, data_final)
+            data_ref = _parse_data_final_relatorio_abertos(data_final)
             sql, params = _build_relatorio_query_abertos(data_ref, prioridade)
         else:
             sql, params = _build_relatorio_query(tipo, data_inicial, data_final, prioridade)
@@ -1437,8 +1437,17 @@ def _validate_relatorio_params():
 
     if not tipo:
         return None, None, None, None, 'Parametro tipo e obrigatorio.'
-    # Para 'abertos', so a data final importa (snapshot `cobranca` nesse dia;
-    # se omitida, usa a ultima data de arquivos_gm). Demais tipos: ambas obrigatorias.
+    # 'abertos': Data Final = data_arquivo em `cobranca` (obrigatoria; Data Inicial ignorada).
+    if tipo == 'abertos' and not data_final:
+        return (
+            None, None, None, None,
+            "Para 'Contratos Abertos', informe a Data Final (data_arquivo na tabela cobranca).",
+        )
+    if tipo == 'abertos' and data_final:
+        try:
+            datetime.date.fromisoformat(str(data_final).strip()[:10])
+        except ValueError:
+            return None, None, None, None, "Data Final invalida. Use o formato AAAA-MM-DD (ex.: 2026-04-22)."
     if tipo != 'abertos' and (not data_inicial or not data_final):
         return None, None, None, None, 'Parametros data_inicial e data_final sao obrigatorios.'
     return tipo, data_inicial or None, data_final or None, prioridade or None, None
@@ -1768,8 +1777,16 @@ def _em_cobranca_count_por_data_ref(cursor, data_ref):
     return int(row.get('n') or 0) if row else 0
 
 
+def _parse_data_final_relatorio_abertos(data_final):
+    """Converte a Data Final do relatorio (YYYY-MM-DD) em date — obrigatoria para tipo abertos."""
+    s = str(data_final).strip()[:10]
+    if len(s) != 10:
+        raise ValueError('Data Final invalida')
+    return datetime.date.fromisoformat(s)
+
+
 def _relatorio_data_ref_abertos(cursor, data_final):
-    """Data do snapshot: Data Final do filtro ou ultima `arquivos_gm` se omitida."""
+    """Data de snapshot para textos de export. Preferir Data Final; fallback so ultima GM se vazio."""
     if data_final:
         s = str(data_final).strip()[:10]
         if len(s) == 10:
@@ -1781,7 +1798,14 @@ def _relatorio_data_ref_abertos(cursor, data_final):
 
 
 def _build_relatorio_query_abertos(data_ref, prioridade=None):
-    """Relatorio Contratos Abertos: lista a partir do snapshot `cobranca` no dia `data_ref`."""
+    """Contratos abertos: 1 linha por linha de `cobranca` na data (id_contrato, data_arquivo).
+
+    Nao se usa INNER JOIN em parcela aberto para nao excluir contratos que
+    constavam no snapshot daquela `data_arquivo` mas cujas parcelas hoje estao
+    fechadas (bater count(*) em cobranca = COUNT no relatorio "Todas").
+
+    Vencimento/dias de atraso: estado *atual* das parcelas abertas (ou NULL se nao houver).
+    """
     if isinstance(data_ref, datetime.datetime):
         d = data_ref.date()
     elif isinstance(data_ref, datetime.date):
@@ -1793,25 +1817,51 @@ def _build_relatorio_query_abertos(data_ref, prioridade=None):
     sql = (
         "SELECT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
         "       p.nome_completo AS nome_devedor, p.cpf_cnpj, "
-        "       %s AS data_arquivo, "
-        "       MIN(par.vencimento) AS vencimento_mais_antigo, "
-        "       DATEDIFF(%s, MIN(par.vencimento)) AS dias_atraso "
+        "       snap.data_arquivo AS data_arquivo, "
+        "       parc.min_v AS vencimento_mais_antigo, "
+        "       (CASE WHEN parc.min_v IS NOT NULL "
+        "             THEN DATEDIFF(snap.data_arquivo, parc.min_v) END) AS dias_atraso "
         "FROM contrato c "
-        "INNER JOIN cobranca cb ON cb.id_contrato = c.id AND cb.data_arquivo = %s "
+        "INNER JOIN ( "
+        "  SELECT id, id_contrato, data_arquivo "
+        "  FROM cobranca "
+        "  WHERE data_arquivo = %s "
+        ") AS snap ON snap.id_contrato = c.id "
         "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
-        "INNER JOIN parcela par ON par.id_contrato = c.id AND par.status = 'aberto' "
-        "GROUP BY c.id, c.grupo, c.cota, c.numero_contrato, c.status, p.nome_completo, p.cpf_cnpj "
+        "LEFT JOIN ( "
+        "  SELECT id_contrato, MIN(vencimento) AS min_v "
+        "  FROM parcela "
+        "  WHERE status = 'aberto' "
+        "  GROUP BY id_contrato "
+        ") parc ON parc.id_contrato = c.id "
+        "WHERE 1=1 "
     )
-    params = [s, s, s]
+    params = [s]
 
     if prioridade == 'critico':
-        sql += "HAVING dias_atraso >= 60 "
+        sql += (
+            "AND parc.min_v IS NOT NULL "
+            "AND DATEDIFF(snap.data_arquivo, parc.min_v) >= 60 "
+        )
     elif prioridade == 'atencao':
-        sql += "HAVING dias_atraso >= 30 AND dias_atraso < 60 "
+        sql += (
+            "AND parc.min_v IS NOT NULL "
+            "AND DATEDIFF(snap.data_arquivo, parc.min_v) >= 30 "
+            "AND DATEDIFF(snap.data_arquivo, parc.min_v) < 60 "
+        )
     elif prioridade == 'recente':
-        sql += "HAVING dias_atraso >= 1 AND dias_atraso < 30 "
+        sql += (
+            "AND parc.min_v IS NOT NULL "
+            "AND DATEDIFF(snap.data_arquivo, parc.min_v) >= 1 "
+            "AND DATEDIFF(snap.data_arquivo, parc.min_v) < 30 "
+        )
 
-    sql += "ORDER BY dias_atraso DESC, c.grupo, c.cota"
+    # Contratos sem parcela aberta hoje: NULL em dias; ordena por atraso depois por grupo
+    sql += (
+        "ORDER BY (parc.min_v IS NULL) ASC, "
+        "         DATEDIFF(snap.data_arquivo, parc.min_v) DESC, "
+        "         c.grupo, c.cota"
+    )
     return sql, params
 
 
@@ -2137,17 +2187,25 @@ def api_avalistas():
 def api_operadores_dashboard():
     """Retorna estatisticas e lista de contratos agrupados por operador.
 
-    Adaptado para o schema atual:
-      - 'operador' <=> registro em `funcionario`
-      - vinculo operador <-> contrato <=> `funcionario_cobranca`
-      - situacao (critico/atencao/recente), valor_credito e dias_atraso sao
-        calculados on-the-fly via JOIN com contrato/parcela.
-      - status_operador vem do campo `ativo` (tinyint) em `funcionario`
-        (1 -> 'ativo', 0 -> 'inativo'). Os rotulos 'afastado'/'ferias' ficam
-        disponiveis no filtro para uso futuro, caso novas colunas surjam.
+    Contratos considerados: snapshot `cobranca` na data do ultimo `arquivos_gm`
+    (mesma base do KPI "Em cobranca" do Dashboard e do modulo Cobranca), cruzado
+    com `funcionario_cobranca`. dias_atraso = DATEDIFF(data_GM, vencimento mais
+    antigo em aberto), nao CURDATE().
     """
     conn = _get_db()
     cursor = conn.cursor()
+    try:
+        _ensure_cobranca_table(cursor)
+    except Exception:
+        app.logger.exception('api_operadores_dashboard: falha ao garantir tabela cobranca')
+    data_ref = _get_data_referencia_arquivos_gm(cursor)
+    if isinstance(data_ref, datetime.datetime):
+        dref = data_ref.date()
+    elif isinstance(data_ref, datetime.date):
+        dref = data_ref
+    else:
+        dref = datetime.date.fromisoformat(str(data_ref)[:10])
+    s_ref = dref.isoformat()
 
     # 1) Lista todos os funcionarios (para que operadores sem contratos ainda
     #    apareçam no <select> de filtros e no bloco do dashboard).
@@ -2177,14 +2235,15 @@ def api_operadores_dashboard():
             'stats': {'total': 0, 'critico': 0, 'atencao': 0, 'recente': 0},
         }
 
-    # 2) Contratos atribuidos em funcionario_cobranca (apenas contratos abertos),
-    #    com situacao/dias_atraso calculados a partir da parcela mais antiga em aberto.
+    # 2) Mesma logica de /api/cobranca e do KPI Dashboard: so contratos no
+    #    snapshot `cobranca` na data do ultimo GM; atraso com DATEDIFF nessa
+    #    data (nao CURDATE()).
     cursor.execute(
         """
         SELECT fc.id_funcionario,
                c.id, c.grupo, c.cota, c.numero_contrato, c.valor_credito,
                p.nome_completo AS nome_devedor, p.cpf_cnpj,
-               (SELECT DATEDIFF(CURDATE(), MIN(vencimento))
+               (SELECT DATEDIFF(%s, MIN(vencimento))
                   FROM parcela
                  WHERE id_contrato = c.id AND status = 'aberto') AS dias_atraso,
                (SELECT COUNT(*)
@@ -2195,10 +2254,12 @@ def api_operadores_dashboard():
                  WHERE id_contrato = c.id AND status = 'aberto') AS vencimento_mais_antigo
         FROM funcionario_cobranca fc
         INNER JOIN contrato c ON c.id = fc.id_contrato
+        INNER JOIN cobranca cob ON cob.id_contrato = c.id AND cob.data_arquivo = %s
         LEFT JOIN pessoa p    ON p.id = c.id_pessoa
         WHERE c.status = 'aberto'
         ORDER BY fc.id_funcionario, c.valor_credito DESC
-        """
+        """,
+        (s_ref, s_ref),
     )
     rows = _clean_rows(cursor.fetchall())
 

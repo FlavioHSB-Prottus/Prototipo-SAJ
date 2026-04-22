@@ -70,6 +70,10 @@ document.addEventListener('DOMContentLoaded', function () {
     function validar() {
         var isAbertos = tipoSelect.value === 'abertos';
 
+        if (isAbertos && !dataFinal.value) {
+            alert('Informe a Data Final. Ela corresponde a data_arquivo na tabela cobranca (snapshot do dia).');
+            return false;
+        }
         if (!isAbertos && !dataInicial.value) {
             alert('Informe a Data Inicial.');
             return false;
