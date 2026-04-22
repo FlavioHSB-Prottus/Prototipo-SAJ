@@ -231,6 +231,41 @@ def connect_db():
     )
 
 
+def _ensure_empresa(cursor, conn, apelido, *, bradesco=False):
+    """Garante que existe uma linha em `empresa` com este apelido. Devolve o id.
+
+    A tabela `contrato` agora exige `id_empresa` e `id_seguradora` (NOT NULL),
+    entao precisamos garantir que esses registros existam antes de carregar
+    qualquer contrato. Funcao idempotente.
+    """
+    cursor.execute(
+        "SELECT id FROM empresa WHERE apelido = %s LIMIT 1", (apelido,)
+    )
+    row = cursor.fetchone()
+    if row:
+        return row["id"]
+    cursor.execute(
+        "INSERT INTO empresa (apelido, ativo, bradesco) VALUES (%s, 1, %s)",
+        (apelido, 1 if bradesco else 0),
+    )
+    conn.commit()
+    return cursor.lastrowid
+
+
+def ensure_default_empresas(cursor, conn):
+    """Resolve (id_empresa, id_seguradora) para uso em INSERT INTO contrato.
+
+    Apelidos podem ser sobrescritos pelas env vars EMPRESA_APELIDO e
+    SEGURADORA_APELIDO. Os defaults batem com a regra de negocio atual:
+    arquivos GM = montadora "GM"; cobranca = seguradora "Bradesco".
+    """
+    apelido_emp = os.environ.get("EMPRESA_APELIDO", "GM")
+    apelido_seg = os.environ.get("SEGURADORA_APELIDO", "Bradesco")
+    id_emp = _ensure_empresa(cursor, conn, apelido_emp, bradesco=False)
+    id_seg = _ensure_empresa(cursor, conn, apelido_seg, bradesco=True)
+    return id_emp, id_seg
+
+
 def insert_ocorrencia(cursor, id_contrato, arquivo_gm_id, status, descricao):
     if status not in OCORRENCIA_STATUS:
         raise ValueError(f"status de ocorrencia invalido: {status!r}")
@@ -298,6 +333,8 @@ def process_arquivo(
     arquivo_gm_id,
     conteudo,
     table_mappings,
+    id_empresa,
+    id_seguradora,
 ):
     count = 0
     r1_set = set()
@@ -379,9 +416,13 @@ def process_arquivo(
             p_id = cursor.fetchone()
             if p_id:
                 upsert_devedor_contatos(cursor, p_id["id"], row_dict)
+                # id_empresa/id_seguradora sao NOT NULL na tabela contrato.
+                # Setamos no INSERT inicial; no ON DUPLICATE NAO sobrescrevemos
+                # (preserva a empresa que ja estiver registrada para o contrato
+                # caso ele tenha sido criado por outro fluxo).
                 q_cnt = """INSERT INTO contrato
-                (id_pessoa, numero_contrato, grupo, cota, versao, status_txt, valor_credito, prazo_meses, data_adesao, encerramento_grupo, taxa_administracao, fundo_reserva, percentual_lance)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (id_pessoa, numero_contrato, grupo, cota, versao, status_txt, valor_credito, prazo_meses, data_adesao, encerramento_grupo, taxa_administracao, fundo_reserva, percentual_lance, id_empresa, id_seguradora)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     id_pessoa = VALUES(id_pessoa), numero_contrato = VALUES(numero_contrato),
                     versao = VALUES(versao), status_txt = VALUES(status_txt),
@@ -405,6 +446,8 @@ def process_arquivo(
                         row_dict.get("taxa_adm_do_grupo"),
                         row_dict.get("fundo_de_reserva_do_grupo"),
                         row_dict.get("percentual_lance"),
+                        id_empresa,
+                        id_seguradora,
                     ),
                 )
 
@@ -696,6 +739,14 @@ def main():
     conn = connect_db()
     cursor = conn.cursor()
 
+    # Garante que existem as empresas padrao (montadora + seguradora) ANTES de
+    # qualquer INSERT em contrato, pois ambas as colunas sao NOT NULL.
+    id_empresa, id_seguradora = ensure_default_empresas(cursor, conn)
+    print(
+        f"Empresas resolvidas -> id_empresa={id_empresa}, "
+        f"id_seguradora={id_seguradora}"
+    )
+
     print(f"Tracking cronologico do range de Datas {start_date_str} ate {end_date_str}...")
 
     cursor.execute(
@@ -747,7 +798,10 @@ def main():
 
         clear_staging_for_arquivo(cursor, conn, arquivo_gm_id)
 
-        count, curr_r1_set, curr_r2_set, curr_r2_venc = process_arquivo(cursor, conn, arquivo_gm_id, conteudo, table_mappings)
+        count, curr_r1_set, curr_r2_set, curr_r2_venc = process_arquivo(
+            cursor, conn, arquivo_gm_id, conteudo, table_mappings,
+            id_empresa, id_seguradora,
+        )
         print(f" -> Arquivo ID {arquivo_gm_id}: Base mapeada ({count} linhas, r1={len(curr_r1_set)}, r2={len(curr_r2_set)}).")
 
         for grupo, cota in curr_r1_set:
