@@ -25,18 +25,21 @@ document.addEventListener('DOMContentLoaded', function () {
     var hoje = new Date().toISOString().split('T')[0];
     dataFinal.value = hoje;
 
-    // --- Toggle Datas conforme tipo (Contratos Abertos desativa ambas as datas) ---
+    // --- Toggle Datas: "Contratos Abertos" usa snapshot `cobranca` — so Data Final (GM) ---
     function toggleDatasPorTipo() {
         var isAbertos = tipoSelect.value === 'abertos';
 
-        dataInicial.disabled = isAbertos;
-        dataFinal.disabled = isAbertos;
-
         if (isAbertos) {
+            dataInicial.disabled = true;
             dataInicial.value = '';
             dataInicialGroup.classList.add('field-disabled');
-            dataFinalGroup.classList.add('field-disabled');
+            dataFinal.disabled = false;
+            dataFinalGroup.classList.remove('field-disabled');
+            if (!dataFinal.value) {
+                dataFinal.value = hoje;
+            }
         } else {
+            dataInicial.disabled = false;
             dataInicialGroup.classList.remove('field-disabled');
             dataFinalGroup.classList.remove('field-disabled');
             if (!dataFinal.value) {
