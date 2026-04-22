@@ -143,4 +143,111 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+
+    // Configurações: card para enviar foto de perfil
+    const openConfigFotoBtn = document.getElementById('openConfigFotoBtn');
+    const configFotoOverlay = document.getElementById('configFotoOverlay');
+    const configFotoCard = document.getElementById('configFotoCard');
+    const configFotoCloseBtn = document.getElementById('configFotoCloseBtn');
+    const configFotoInput = document.getElementById('configFotoInput');
+    const configFotoSubmitBtn = document.getElementById('configFotoSubmitBtn');
+    const configFotoMsg = document.getElementById('configFotoMsg');
+
+    function closeConfigFoto() {
+        if (!configFotoOverlay) return;
+        configFotoOverlay.classList.remove('show');
+        configFotoOverlay.setAttribute('aria-hidden', 'true');
+        if (configFotoMsg) {
+            configFotoMsg.textContent = '';
+            configFotoMsg.hidden = true;
+        }
+    }
+
+    function openConfigFoto() {
+        if (!configFotoOverlay) return;
+        if (profileDropdown) profileDropdown.classList.remove('show');
+        if (profileBtn) profileBtn.classList.remove('active');
+        configFotoOverlay.classList.add('show');
+        configFotoOverlay.setAttribute('aria-hidden', 'false');
+        if (configFotoMsg) {
+            configFotoMsg.textContent = '';
+            configFotoMsg.hidden = true;
+        }
+    }
+
+    if (openConfigFotoBtn && configFotoOverlay) {
+        openConfigFotoBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            openConfigFoto();
+        }, true);
+    }
+
+    if (configFotoCard) {
+        configFotoCard.addEventListener('click', function (e) {
+            e.stopPropagation();
+        });
+    }
+
+    if (configFotoOverlay) {
+        configFotoOverlay.addEventListener('click', function (e) {
+            if (e.target === configFotoOverlay) closeConfigFoto();
+        });
+    }
+
+    if (configFotoCloseBtn) {
+        configFotoCloseBtn.addEventListener('click', function () {
+            closeConfigFoto();
+        });
+    }
+
+    if (configFotoSubmitBtn && configFotoOverlay && configFotoInput) {
+        configFotoSubmitBtn.addEventListener('click', function () {
+            const url = configFotoOverlay.getAttribute('data-minha-foto-url');
+            if (!url) return;
+            const file = configFotoInput.files && configFotoInput.files[0];
+            if (!file) {
+                if (configFotoMsg) {
+                    configFotoMsg.textContent = 'Selecione uma imagem.';
+                    configFotoMsg.hidden = false;
+                }
+                return;
+            }
+            const formData = new FormData();
+            formData.append('foto', file);
+            configFotoSubmitBtn.disabled = true;
+            fetch(url, { method: 'POST', body: formData, credentials: 'include' })
+                .then(function (r) {
+                    return r.text().then(function (t) {
+                        var j = {};
+                        try {
+                            j = t ? JSON.parse(t) : {};
+                        } catch (ignore) {
+                            j = {};
+                        }
+                        return { ok: r.ok, body: j };
+                    });
+                })
+                .then(function (res) {
+                    if (res.ok && res.body && res.body.ok) {
+                        const img = document.querySelector('.header-avatar-img');
+                        if (img) img.src = url + '?t=' + Date.now();
+                        closeConfigFoto();
+                        configFotoInput.value = '';
+                    } else if (configFotoMsg) {
+                        configFotoMsg.textContent = (res.body && res.body.error) || 'Erro ao enviar.';
+                        configFotoMsg.hidden = false;
+                    }
+                })
+                .catch(function () {
+                    if (configFotoMsg) {
+                        configFotoMsg.textContent = 'Erro de rede.';
+                        configFotoMsg.hidden = false;
+                    }
+                })
+                .finally(function () {
+                    configFotoSubmitBtn.disabled = false;
+                });
+        });
+    }
 });
