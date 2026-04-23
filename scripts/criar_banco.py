@@ -1,24 +1,18 @@
 # -*- coding: utf-8 -*-
-"""
-Cria o banco `consorcio_gm` e TODAS as tabelas usadas pelo sistema.
-"""
 import argparse
 import os
 import sys
 import re
-
 import pymysql
 
+# 1. AJUSTE O NOME DO BANCO AQUI SE NECESSÁRIO
 DB_HOST = os.environ.get("DB_HOST", "localhost")
 DB_USER = os.environ.get("DB_USER", "root")
 DB_PASSWORD = os.environ.get("DB_PASSWORD", "root")
-DB_NAME = os.environ.get("DB_NAME", "consorcio_gm")
+DB_NAME = os.environ.get("DB_NAME", "consorciogm2")
 
+# 2. SQL PURO E COM PONTO-E-VÍRGULA
 RAW_SQL = """
-
-Aqui está o seu SQL limpo, sem os comentários e com todas as definições de engine, charset e auto-incremento removidas após o fechamento do bloco `CREATE TABLE`:
-
-```sql
 CREATE TABLE `arquivos_gm` (
   `id_arquivo_gm` int(11) NOT NULL AUTO_INCREMENT,
   `data_arquivo` date DEFAULT NULL,
@@ -29,7 +23,7 @@ CREATE TABLE `arquivos_gm` (
   PRIMARY KEY (`id_arquivo_gm`),
   UNIQUE KEY `arquivos_gm_data_arquivo_IDX` (`data_arquivo`) USING BTREE,
   KEY `idx_dt_arq` (`data_arquivo`)
-)
+);
 
 CREATE TABLE `funcionario` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
@@ -59,14 +53,14 @@ CREATE TABLE `funcionario` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `cpf_cnpj` (`cpf_cnpj`),
   UNIQUE KEY `funcionario_login_IDX` (`login`) USING BTREE
-)
+);
 
 CREATE TABLE `grupo` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `nome` varchar(255) NOT NULL,
   `descricao` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`id`)
-)
+);
 
 CREATE TABLE `pessoa` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
@@ -79,7 +73,7 @@ CREATE TABLE `pessoa` (
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `cpf_cnpj` (`cpf_cnpj`)
-)
+);
 
 CREATE TABLE `email` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
@@ -92,7 +86,7 @@ CREATE TABLE `email` (
   UNIQUE KEY `uk_email_pessoa_tipo` (`id_pessoa`,`tipo`),
   KEY `idx_email_pessoa` (`id_pessoa`),
   CONSTRAINT `fk_email_pessoa` FOREIGN KEY (`id_pessoa`) REFERENCES `pessoa` (`id`) ON DELETE CASCADE
-)
+);
 
 CREATE TABLE `empresa` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
@@ -103,7 +97,7 @@ CREATE TABLE `empresa` (
   PRIMARY KEY (`id`),
   KEY `id_pessoa` (`id_pessoa`),
   CONSTRAINT `empresa_ibfk_1` FOREIGN KEY (`id_pessoa`) REFERENCES `pessoa` (`id`) ON DELETE CASCADE
-)
+);
 
 CREATE TABLE `endereco` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
@@ -121,7 +115,7 @@ CREATE TABLE `endereco` (
   UNIQUE KEY `uk_endereco_pessoa_tipo` (`id_pessoa`,`tipo`),
   KEY `idx_endereco_pessoa` (`id_pessoa`),
   CONSTRAINT `fk_endereco_pessoa` FOREIGN KEY (`id_pessoa`) REFERENCES `pessoa` (`id`) ON DELETE CASCADE
-)
+);
 
 CREATE TABLE `funcionario_grupo` (
   `id_funcionario` int(11) NOT NULL,
@@ -130,7 +124,7 @@ CREATE TABLE `funcionario_grupo` (
   KEY `fk_grupo` (`id_grupo`),
   CONSTRAINT `fk_funcionario` FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_grupo` FOREIGN KEY (`id_grupo`) REFERENCES `grupo` (`id`) ON DELETE CASCADE
-)
+);
 
 CREATE TABLE `header` (
   `id_registro` int(11) NOT NULL AUTO_INCREMENT,
@@ -145,7 +139,7 @@ CREATE TABLE `header` (
   PRIMARY KEY (`id_registro`),
   KEY `fk_header_arquivos` (`id_arquivo_gm`),
   CONSTRAINT `fk_header_arquivos` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE
-)
+);
 
 CREATE TABLE `mensagem` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
@@ -162,7 +156,7 @@ CREATE TABLE `mensagem` (
   CONSTRAINT `mensagem_ibfk_1` FOREIGN KEY (`id_remetente`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE,
   CONSTRAINT `mensagem_ibfk_2` FOREIGN KEY (`id_destinatario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE,
   CONSTRAINT `mensagem_ibfk_3` FOREIGN KEY (`id_resposta`) REFERENCES `mensagem` (`id`) ON DELETE CASCADE
-)
+);
 
 CREATE TABLE `registro2` (
   `id_registro` int(11) NOT NULL AUTO_INCREMENT,
@@ -199,7 +193,7 @@ CREATE TABLE `registro2` (
   KEY `idx_r2_valor` (`valortot`),
   KEY `idx_r2_juros` (`multajur`),
   CONSTRAINT `fk_registro2_arquivos` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE
-)
+);
 
 CREATE TABLE `registro3` (
   `id_registro` int(11) NOT NULL AUTO_INCREMENT,
@@ -230,7 +224,7 @@ CREATE TABLE `registro3` (
   KEY `idx_r3_grupo_cota` (`grupo`,`cota`),
   KEY `idx_r3_join` (`id_arquivo_gm`,`grupo`,`cota`),
   CONSTRAINT `fk_registro3_arquivos` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE
-)
+);
 
 CREATE TABLE `registro4` (
   `id_registro` int(11) NOT NULL AUTO_INCREMENT,
@@ -252,7 +246,7 @@ CREATE TABLE `registro4` (
   PRIMARY KEY (`id_registro`),
   KEY `fk_registro4_arquivos` (`id_arquivo_gm`),
   CONSTRAINT `fk_registro4_arquivos` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE
-)
+);
 
 CREATE TABLE `registro5` (
   `id_registro` int(11) NOT NULL AUTO_INCREMENT,
@@ -317,7 +311,7 @@ CREATE TABLE `registro5` (
   KEY `idx_r5_grupo_cota` (`grupo`,`cota`),
   KEY `idx_r5_join` (`id_arquivo_gm`,`grupo`,`cota`),
   CONSTRAINT `fk_registro5_arquivos` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE
-)
+);
 
 CREATE TABLE `registro_1` (
   `id_registro` int(11) NOT NULL AUTO_INCREMENT,
@@ -396,7 +390,7 @@ CREATE TABLE `registro_1` (
   KEY `idx_r1_updated` (`updated_at`),
   KEY `idx_r1_encerramento` (`dt_ult_ass_gr`),
   CONSTRAINT `fk_registro_1_arquivos` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE
-)
+);
 
 CREATE TABLE `registro_6` (
   `id_registro` int(11) NOT NULL AUTO_INCREMENT,
@@ -425,7 +419,7 @@ CREATE TABLE `registro_6` (
   PRIMARY KEY (`id_registro`),
   KEY `fk_registro_6_arquivos` (`id_arquivo_gm`),
   CONSTRAINT `fk_registro_6_arquivos` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE
-)
+);
 
 CREATE TABLE `telefone` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
@@ -442,7 +436,7 @@ CREATE TABLE `telefone` (
   UNIQUE KEY `uk_telefone_pessoa_tipo` (`id_pessoa`,`tipo`),
   KEY `idx_telefone_pessoa` (`id_pessoa`),
   CONSTRAINT `fk_telefone_pessoa` FOREIGN KEY (`id_pessoa`) REFERENCES `pessoa` (`id`) ON DELETE CASCADE
-)
+);
 
 CREATE TABLE `trailer` (
   `id_registro` int(11) NOT NULL AUTO_INCREMENT,
@@ -460,7 +454,7 @@ CREATE TABLE `trailer` (
   PRIMARY KEY (`id_registro`),
   KEY `fk_trailer_arquivos` (`id_arquivo_gm`),
   CONSTRAINT `fk_trailer_arquivos` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE
-)
+);
 
 CREATE TABLE `contrato` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
@@ -493,7 +487,7 @@ CREATE TABLE `contrato` (
   CONSTRAINT `contrato_ibfk_2` FOREIGN KEY (`id_avalista`) REFERENCES `pessoa` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contrato_ibfk_3` FOREIGN KEY (`id_empresa`) REFERENCES `empresa` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contrato_ibfk_4` FOREIGN KEY (`id_seguradora`) REFERENCES `empresa` (`id`) ON DELETE SET NULL
-)
+);
 
 CREATE TABLE `funcionario_cobranca` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
@@ -508,7 +502,7 @@ CREATE TABLE `funcionario_cobranca` (
   KEY `id_contrato` (`id_contrato`),
   CONSTRAINT `funcionario_cobranca_ibfk_1` FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`),
   CONSTRAINT `funcionario_cobranca_ibfk_2` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`)
-)
+);
 
 CREATE TABLE `ocorrencia` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
@@ -526,7 +520,7 @@ CREATE TABLE `ocorrencia` (
   CONSTRAINT `fk_ocorrencia_data` FOREIGN KEY (`data_arquivo`) REFERENCES `arquivos_gm` (`data_arquivo`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `ocorrencia_ibfk_1` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
   CONSTRAINT `ocorrencia_ibfk_2` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE
-)
+);
 
 CREATE TABLE `parcela` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
@@ -542,7 +536,7 @@ CREATE TABLE `parcela` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_contrato_parcela` (`id_contrato`,`numero_parcela`,`vencimento`),
   CONSTRAINT `parcela_ibfk_1` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE
-)
+);
 
 CREATE TABLE `protocolo` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
@@ -563,7 +557,7 @@ CREATE TABLE `protocolo` (
   CONSTRAINT `protocolo_contrato_fk` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
   CONSTRAINT `protocolo_ibfk_1` FOREIGN KEY (`id_remetente`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE,
   CONSTRAINT `protocolo_ibfk_2` FOREIGN KEY (`id_destinatario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE
-)
+);
 
 CREATE TABLE `solicitacao` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
@@ -583,7 +577,7 @@ CREATE TABLE `solicitacao` (
   CONSTRAINT `solicitacao_ibfk_1` FOREIGN KEY (`id_remetente`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE,
   CONSTRAINT `solicitacao_ibfk_2` FOREIGN KEY (`id_destinatario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE,
   CONSTRAINT `solicitacao_ibfk_3` FOREIGN KEY (`resposta_solicitacao`) REFERENCES `solicitacao` (`id`) ON DELETE CASCADE
-)
+);
 
 CREATE TABLE `tramitacao` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
@@ -604,7 +598,7 @@ CREATE TABLE `tramitacao` (
   CONSTRAINT `fk_tramitacao_contrato` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_tramitacao_funcionario` FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`),
   CONSTRAINT `fk_tramitacao_pessoa` FOREIGN KEY (`id_pessoa`) REFERENCES `pessoa` (`id`) ON DELETE CASCADE
-)
+);
 
 CREATE TABLE `agenda` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
@@ -620,7 +614,7 @@ CREATE TABLE `agenda` (
   KEY `fk_agenda_funcionario` (`id_funcionario`),
   CONSTRAINT `fk_agenda_contrato` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `fk_agenda_funcionario` FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`)
-)
+);
 
 CREATE TABLE `bens` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
@@ -641,7 +635,7 @@ CREATE TABLE `bens` (
   PRIMARY KEY (`id`),
   KEY `fk_bens_contrato` (`id_contrato`),
   CONSTRAINT `fk_bens_contrato` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE
-)
+);
 
 CREATE TABLE `cobranca` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
@@ -651,7 +645,7 @@ CREATE TABLE `cobranca` (
   UNIQUE KEY `cobranca_id_contrato_IDX` (`id_contrato`,`data_arquivo`) USING BTREE,
   KEY `cobranca_arquivos_gm_fk` (`data_arquivo`),
   CONSTRAINT `cobranca_contrato_fk` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE
-)
+);
 
 CREATE TABLE `negativacao` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
@@ -670,134 +664,60 @@ CREATE TABLE `negativacao` (
   KEY `negativacao_id_contrato_IDX` (`id_contrato`,`id_parcela`) USING BTREE,
   CONSTRAINT `fk_negativacao_contrato` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
   CONSTRAINT `negativacao_parcela_FK` FOREIGN KEY (`id_parcela`) REFERENCES `parcela` (`id`)
-)
-```
-
+);
 """
-
 
 def connect_server():
     return pymysql.connect(
-        host=DB_HOST,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        charset="utf8mb4",
-        autocommit=True,
+        host=DB_HOST, user=DB_USER, password=DB_PASSWORD,
+        charset="utf8mb4", autocommit=True
     )
-
 
 def connect_db():
     return pymysql.connect(
-        host=DB_HOST,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        database=DB_NAME,
-        charset="utf8mb4",
-        autocommit=True,
+        host=DB_HOST, user=DB_USER, password=DB_PASSWORD,
+        database=DB_NAME, charset="utf8mb4", autocommit=True
     )
-
 
 def criar_database():
     conn = connect_server()
     cursor = conn.cursor()
-    cursor.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{DB_NAME}` "
-        "DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"
-    )
-    print(f" -> Database `{DB_NAME}` OK (criado ou ja existia).")
+    cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{DB_NAME}` CHARACTER SET utf8mb4")
     cursor.close()
     conn.close()
-
-
-def drop_tables(cursor):
-    cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
-    
-    # Extrair nomes de tabelas usando regex
-    table_names = re.findall(r"CREATE TABLE IF NOT EXISTS `([^`]+)`", RAW_SQL)
-    for nome in reversed(table_names):
-        cursor.execute(f"DROP TABLE IF EXISTS `{nome}`")
-        print(f"    - DROP `{nome}`")
-    cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
-
 
 def criar_tabelas(cursor):
     cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
     criadas = 0
-    
-    # Divide as statements por ; para executar individualmente
+    # O segredo está aqui: split pelo ponto e vírgula e ignorar strings vazias
     statements = [s.strip() for s in RAW_SQL.split(";") if s.strip()]
     
     for stmt in statements:
-        # Pega nome da tabela 
-        match = re.search(r"CREATE TABLE IF NOT EXISTS `([^`]+)`", stmt)
-        if not match:
-            continue
-        nome = match.group(1)
+        # Regex flexível para achar o nome da tabela no comando
+        match = re.search(r"CREATE TABLE.*?`([^`]+)`", stmt, re.S | re.I)
+        nome = match.group(1) if match else "desconhecida"
         
         try:
             cursor.execute(stmt)
             criadas += 1
-            print(f"    - `{nome}` processada.")
+            print(f"    - Tabela `{nome}` OK.")
         except Exception as e:
-            print(f"    - ERRO ao processar `{nome}`: {e}")
-            raise
-
+            print(f"    - ERRO na tabela `{nome}`: {e}")
+    
     cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
     return criadas
 
-
 def main():
-    parser = argparse.ArgumentParser(
-        description="Cria banco e tabelas do consorcio_gm baseando-se no DDL hardcoded."
-    )
-    parser.add_argument(
-        "--drop", action="store_true",
-        help="Apaga TODAS as tabelas de RAW_SQL antes de recriar (destrutivo).",
-    )
-    parser.add_argument(
-        "-y", "--yes", action="store_true",
-        help="Nao pede confirmacao interativa (use com --drop).",
-    )
-    args = parser.parse_args()
-
-    if args.drop and not args.yes:
-        resp = input(
-            f"ATENCAO: isso vai APAGAR TODAS as tabelas referenciadas de `{DB_NAME}`.\n"
-            "Confirma? (digite 'SIM' para prosseguir): "
-        )
-        if resp.strip() != "SIM":
-            print("Abortado.")
-            sys.exit(0)
-
-    print(f"Conectando em {DB_USER}@{DB_HOST} ...")
-    try:
-        criar_database()
-    except Exception as e:
-        print(f"ERRO ao criar database `{DB_NAME}`: {e}")
-        sys.exit(1)
-
-    try:
-        conn = connect_db()
-        cursor = conn.cursor()
-    except Exception as e:
-        print(f"ERRO ao conectar em `{DB_NAME}`: {e}")
-        sys.exit(1)
-
-    if args.drop:
-        print("Apagando tabelas...")
-        drop_tables(cursor)
-
-    print("Criando/atualizando tabelas baseadas no Dump...")
-    criadas = criar_tabelas(cursor)
-
-    print("")
-    print("=" * 60)
-    print(f"Concluido: operacoes efetuadas em {criadas} tabelas.")
-    print("=" * 60)
-
+    print(f"Iniciando processo no banco: {DB_NAME}...")
+    criar_database()
+    conn = connect_db()
+    cursor = conn.cursor()
+    
+    num = criar_tabelas(cursor)
+    print(f"\nSucesso! {num} comandos SQL processados.")
+    
     cursor.close()
     conn.close()
-
 
 if __name__ == "__main__":
     main()
