@@ -1274,15 +1274,32 @@ def api_busca():
     conn = _get_db()
     cursor = conn.cursor()
 
+    _status_validos = ('aberto', 'fechado', 'indenizado')
+
     results = []
     if tipo == 'pessoa':
-        cursor.execute(
-            "SELECT id, cpf_cnpj, nome_completo, profissao "
-            "FROM pessoa "
-            "WHERE cpf_cnpj LIKE %s OR nome_completo LIKE %s "
-            "LIMIT 50",
-            (f'%{termo}%', f'%{termo}%'),
-        )
+        status_filtro = request.args.get('status', '').strip()
+        if status_filtro and status_filtro not in _status_validos:
+            status_filtro = ''
+        if status_filtro:
+            # Pessoas (devedor ou avalista) com ao menos um contrato nesse status
+            cursor.execute(
+                "SELECT DISTINCT p.id, p.cpf_cnpj, p.nome_completo, p.profissao "
+                "FROM pessoa p "
+                "INNER JOIN contrato c ON (c.id_pessoa = p.id OR c.id_avalista = p.id) "
+                "WHERE (p.cpf_cnpj LIKE %s OR p.nome_completo LIKE %s) "
+                "AND c.status = %s "
+                "LIMIT 50",
+                (f'%{termo}%', f'%{termo}%', status_filtro),
+            )
+        else:
+            cursor.execute(
+                "SELECT id, cpf_cnpj, nome_completo, profissao "
+                "FROM pessoa "
+                "WHERE cpf_cnpj LIKE %s OR nome_completo LIKE %s "
+                "LIMIT 50",
+                (f'%{termo}%', f'%{termo}%'),
+            )
         results = _clean_rows(cursor.fetchall())
 
     elif tipo == 'contrato':
@@ -1480,6 +1497,151 @@ def api_contrato_detalhe(contrato_id):
         except Exception: pass
         try: conn.close()
         except Exception: pass
+
+
+TRAMITACAO_TIPOS = ('ligacao', 'whatsapp', 'email')
+TRAMITACAO_CPCS = ('sim', 'nao', 'parente', 'amigo', 'avalista')
+
+
+def _parse_tramitacao_timestamp(s):
+    """Aceita 'YYYY-MM-DDTHH:MM' (datetime-local) ou 'YYYY-MM-DD HH:MM:SS' etc."""
+    if s is None:
+        return None
+    s = str(s).strip()
+    if not s:
+        return None
+    s = s.replace('T', ' ')
+    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d'):
+        try:
+            lim = 19 if fmt != '%Y-%m-%d' else 10
+            return datetime.datetime.strptime(s[:lim], fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _tramitacao_row_by_id(cursor, tramitacao_id):
+    cursor.execute(
+        "SELECT t.*, f.nome AS funcionario_nome "
+        "FROM tramitacao t "
+        "LEFT JOIN funcionario f ON t.id_funcionario = f.id "
+        "WHERE t.id = %s",
+        (tramitacao_id,),
+    )
+    return _clean_row(cursor.fetchone())
+
+
+@app.route('/api/contrato/<int:contrato_id>/tramitacao', methods=['POST'])
+def api_tramitacao_criar(contrato_id):
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Sessao invalida. Faca login novamente.'}), 401
+    data = request.get_json(silent=True) or {}
+    tipo = (data.get('tipo') or '').strip().lower()
+    cpc = (data.get('cpc') or '').strip().lower()
+    descricao = (data.get('descricao') or '')
+    if isinstance(descricao, str) and len(descricao) > 20000:
+        return jsonify({'error': 'Descricao muito longa.'}), 400
+    if tipo not in TRAMITACAO_TIPOS:
+        return jsonify({'error': 'Tipo invalido.'}), 400
+    if cpc not in TRAMITACAO_CPCS:
+        return jsonify({'error': 'CPC invalido.'}), 400
+    ts = _parse_tramitacao_timestamp(data.get('data'))
+    if not ts:
+        return jsonify({'error': 'Data invalida.'}), 400
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id, id_pessoa FROM contrato WHERE id = %s", (contrato_id,))
+        c_row = cursor.fetchone()
+        if not c_row:
+            return jsonify({'error': 'Contrato nao encontrado.'}), 404
+        id_pessoa = c_row.get('id_pessoa')
+        if not id_pessoa:
+            return jsonify({'error': 'Contrato sem pessoa (devedor) vinculada.'}), 400
+        cursor.execute(
+            "INSERT INTO tramitacao (id_pessoa, id_contrato, tipo, cpc, data, descricao, id_funcionario) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (id_pessoa, contrato_id, tipo, cpc, ts, descricao or None, int(fid)),
+        )
+        conn.commit()
+        new_id = cursor.lastrowid
+        row = _tramitacao_row_by_id(cursor, new_id)
+        return jsonify({'tramitacao': row})
+    except Exception as exc:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        app.logger.exception('api_tramitacao_criar')
+        return jsonify({'error': 'Erro ao salvar: ' + str(exc)}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+@app.route('/api/tramitacao/<int:tramitacao_id>', methods=['PUT', 'DELETE'])
+def api_tramitacao_item(tramitacao_id):
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Sessao invalida. Faca login novamente.'}), 401
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id FROM tramitacao WHERE id = %s", (tramitacao_id,))
+        t_row = cursor.fetchone()
+        if not t_row:
+            return jsonify({'error': 'Tramitacao nao encontrada.'}), 404
+
+        if request.method == 'DELETE':
+            cursor.execute("DELETE FROM tramitacao WHERE id = %s", (tramitacao_id,))
+            conn.commit()
+            return jsonify({'success': True})
+
+        data = request.get_json(silent=True) or {}
+        tipo = (data.get('tipo') or '').strip().lower()
+        cpc = (data.get('cpc') or '').strip().lower()
+        descricao = (data.get('descricao') or '')
+        if isinstance(descricao, str) and len(descricao) > 20000:
+            return jsonify({'error': 'Descricao muito longa.'}), 400
+        if tipo not in TRAMITACAO_TIPOS:
+            return jsonify({'error': 'Tipo invalido.'}), 400
+        if cpc not in TRAMITACAO_CPCS:
+            return jsonify({'error': 'CPC invalido.'}), 400
+        ts = _parse_tramitacao_timestamp(data.get('data'))
+        if not ts:
+            return jsonify({'error': 'Data invalida.'}), 400
+        cursor.execute(
+            "UPDATE tramitacao SET tipo = %s, cpc = %s, data = %s, descricao = %s WHERE id = %s",
+            (tipo, cpc, ts, descricao or None, tramitacao_id),
+        )
+        conn.commit()
+        row = _tramitacao_row_by_id(cursor, tramitacao_id)
+        return jsonify({'tramitacao': row})
+    except Exception as exc:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        app.logger.exception('api_tramitacao_item')
+        return jsonify({'error': 'Erro ao processar: ' + str(exc)}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -2424,8 +2586,101 @@ def api_operadores_dashboard():
 
 
 # ---------------------------------------------------------------------------
-# API: Performance (safras x ocorrencias)
+# API: Performance (faixas de calendario x desempenho)
 # ---------------------------------------------------------------------------
+
+_FAIXA_NOMES = [
+    'Faixa 1 (01 - 09)',
+    'Faixa 2 (10 - 12)',
+    'Faixa 3 (13 - 19)',
+    'Faixa 4 (20 - fim)',
+]
+
+
+def _seg_from_delay_days(dd):
+    """Recente, Atencao, Critico a partir do atraso (dias) da parcela aberta mais antiga."""
+    if dd is None or dd < 1:
+        return 'recente'
+    if dd <= 30:
+        return 'recente'
+    if dd <= 60:
+        return 'atencao'
+    return 'critico'
+
+
+def _aggregate_performance_faixa(cursor, y, m, parte):
+    """Contratos em cobranca (aberto + parcela aberta) na faixa de calendario,
+    segmentados em Performado vs Nao performado (pagamento em ocorrencia fechado/indenizado
+    no periodo M0 U M1 U M2) e sub-faixas de atraso (Recente 1-30d, Atencao 31-60, Critico 61+)."""
+    d_m0a, d_m0b = _safra_bounds(y, m, parte)
+    y1, m1 = _shift_month(y, m, 1)
+    d_m1a, d_m1b = _safra_bounds(y1, m1, parte)
+    y2, m2 = _shift_month(y, m, 2)
+    d_m2a, d_m2b = _safra_bounds(y2, m2, parte)
+
+    cursor.execute(
+        """
+        SELECT
+            c.id,
+            c.valor_credito,
+            (
+                SELECT MIN(DATEDIFF(CURDATE(), p.vencimento))
+                FROM parcela p
+                WHERE p.id_contrato = c.id AND p.status = 'aberto' AND p.vencimento < CURDATE()
+            ) AS delay_open,
+            EXISTS (
+                SELECT 1 FROM ocorrencia o
+                WHERE o.id_contrato = c.id
+                  AND o.status IN ('fechado', 'indenizado')
+                  AND (
+                        (o.data_arquivo >= %s AND o.data_arquivo <= %s)
+                     OR (o.data_arquivo >= %s AND o.data_arquivo <= %s)
+                     OR (o.data_arquivo >= %s AND o.data_arquivo <= %s)
+                  )
+            ) AS is_performado
+        FROM contrato c
+        WHERE c.status = 'aberto'
+          AND EXISTS (
+              SELECT 1 FROM parcela px WHERE px.id_contrato = c.id AND px.status = 'aberto'
+          )
+        """,
+        [d_m0a.isoformat(), d_m0b.isoformat(), d_m1a.isoformat(), d_m1b.isoformat(), d_m2a.isoformat(), d_m2b.isoformat()],
+    )
+    rows = cursor.fetchall()
+
+    segs = {
+        'performado': {'recente': 0, 'atencao': 0, 'critico': 0},
+        'nao_performado': {'recente': 0, 'atencao': 0, 'critico': 0},
+    }
+    val = {
+        'performado': {'recente': 0.0, 'atencao': 0.0, 'critico': 0.0},
+        'nao_performado': {'recente': 0.0, 'atencao': 0.0, 'critico': 0.0},
+    }
+    for r in rows:
+        dd = r.get('delay_open')
+        raw = r.get('is_performado')
+        if isinstance(raw, (int, float)):
+            is_p = int(raw) != 0
+        elif isinstance(raw, (bytes, bytearray)):
+            is_p = bool(raw) and raw not in (b'\x00', b'0')
+        else:
+            is_p = bool(raw)
+        seg = _seg_from_delay_days(int(dd) if dd is not None else None)
+        keyg = 'performado' if is_p else 'nao_performado'
+        v = r.get('valor_credito')
+        v = 0.0 if v is None or v == '' else float(v)
+        segs[keyg][seg] += 1
+        val[keyg][seg] += v
+
+    # Volume de ocorrencias (qualquer) na faixa (compativel com metrica antiga)
+    volume = _count_distinct_ocorrencias(cursor, [(d_m0a, d_m0b)], None, False)
+
+    return {
+        'volume': volume,
+        'segmentos': segs,
+        'valor_por_segmento_brl': val,
+    }
+
 
 def _safra_bounds(year, month, parte):
     """parte 0..3: (1-9), (10-12), (13-19), (20-fim). Retorna (date_start, date_end)."""
@@ -2539,13 +2794,7 @@ def api_performance():
         if d1 <= today <= d2:
             parte_hoje = p
             break
-    safra_labels = [
-        'Safra 1 (01 - 09)',
-        'Safra 2 (10 - 12)',
-        'Safra 3 (13 - 19)',
-        'Safra 4 (20 - fim)',
-    ]
-    kpi_safra_label = safra_labels[parte_hoje] if parte_hoje is not None else '—'
+    kpi_faixa_label = _FAIXA_NOMES[parte_hoje] if parte_hoje is not None else '—'
 
     # KPI: taxa recuperacao no mes (fechado+indenizado vs total ocorrencias com status relevante)
     cursor.execute(
@@ -2577,6 +2826,14 @@ def api_performance():
     bar_novos = []
     bar_pagos = []
     bar_indenizados = []
+    ch_perf = {
+        'performado': {'recente': [], 'atencao': [], 'critico': []},
+        'nao_performado': {'recente': [], 'atencao': [], 'critico': []},
+    }
+    ch_val = {
+        'performado': {'recente': [], 'atencao': [], 'critico': []},
+        'nao_performado': {'recente': [], 'atencao': [], 'critico': []},
+    }
 
     for parte in range(4):
         d_m0a, d_m0b = _safra_bounds(y, m, parte)
@@ -2589,6 +2846,12 @@ def api_performance():
         ranges_m_m1 = [(d_m0a, d_m0b), (d_m1a, d_m1b)]
         ranges_m_m2 = [(d_m0a, d_m0b), (d_m1a, d_m1b), (d_m2a, d_m2b)]
 
+        ag = _aggregate_performance_faixa(cursor, y, m, parte)
+        for pk in ('performado', 'nao_performado'):
+            for sk in ('recente', 'atencao', 'critico'):
+                ch_perf[pk][sk].append(ag['segmentos'][pk][sk])
+                ch_val[pk][sk].append(round(ag['valor_por_segmento_brl'][pk][sk], 2))
+
         volume = _count_distinct_ocorrencias(cursor, ranges_m, None, False)
         d30 = _count_distinct_ocorrencias(cursor, ranges_m, ['fechado', 'indenizado'], False)
         d60 = _count_distinct_ocorrencias(cursor, ranges_m_m1, ['fechado', 'indenizado'], False)
@@ -2599,11 +2862,16 @@ def api_performance():
 
         safras_out.append({
             'index': parte,
-            'label': safra_labels[parte],
+            'label': _FAIXA_NOMES[parte],
             'volume': volume,
             'd30': d30,
             'd60': d60,
             'd90': d90,
+            'desempenho': {
+                'contratos_por_segmento': ag['segmentos'],
+                'valor_credito_por_segmento_brl': ag['valor_por_segmento_brl'],
+                'volume_ocorrencias_faixa': ag['volume'],
+            },
             'detail': {**detail, 'doughnut': doughnut_safra},
         })
 
@@ -2645,15 +2913,19 @@ def api_performance():
 
     return jsonify({
         'mes': mes,
+        'faixa_labels': _FAIXA_NOMES,
         'kpis': {
             'novos_mes': kpi_novos,
-            'safra_destaque': kpi_safra_label,
+            'faixa_destaque': kpi_faixa_label,
+            'safra_destaque': kpi_faixa_label,
             'recuperacao_pct': kpi_rec_pct,
             'parcelas_criticas_90d': kpi_parcelas_crit,
         },
         'safras': safras_out,
         'chart_all': {
-            'barLabels': safra_labels,
+            'barLabels': _FAIXA_NOMES,
+            'count': ch_perf,
+            'valor_brl': ch_val,
             'novos': bar_novos,
             'pagos': bar_pagos,
             'indenizados': bar_indenizados,
@@ -3744,139 +4016,263 @@ def api_agenda_item(id_agenda):
 
 
 # =============================================================================
-# Mural de Avisos (persistencia em JSON, pasta data/)
+# Mural de Avisos (tabela `aviso` no MySQL; migracao de data/avisos.json na 1a carga)
 # =============================================================================
 
-_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
-_AVISOS_FILE = os.path.join(_DATA_DIR, 'avisos.json')
-
-
-def _avisos_load():
-    """Le a lista de avisos do arquivo JSON. Cria seed na 1a execucao."""
-    if not os.path.isdir(_DATA_DIR):
-        os.makedirs(_DATA_DIR, exist_ok=True)
-    if not os.path.isfile(_AVISOS_FILE):
-        hoje = datetime.date.today()
-        seed = [
-            {
-                'id': 1,
-                'titulo': 'Nova Politica de Juros',
-                'descricao': 'Atualizacao nas planilhas de calculo exigidas para grupos GM.',
-                'data_iso': hoje.isoformat(),
-            },
-            {
-                'id': 2,
-                'titulo': 'Manutencao no Servidor',
-                'descricao': 'Agendada uma breve pausa no servidor neste domingo, as 02h.',
-                'data_iso': (hoje - datetime.timedelta(days=1)).isoformat(),
-            },
-            {
-                'id': 3,
-                'titulo': 'Fechamento Mensal',
-                'descricao': 'Lembrete: Os arquivos de repasse devem ser consolidados ate o dia 15.',
-                'data_iso': (hoje - datetime.timedelta(days=10)).isoformat(),
-            },
-        ]
-        _avisos_save(seed)
-        return seed
-    try:
-        with open(_AVISOS_FILE, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        if isinstance(data, list):
-            return data
-        return []
-    except Exception:
-        return []
-
-
-def _avisos_save(lista):
-    os.makedirs(_DATA_DIR, exist_ok=True)
-    tmp = _AVISOS_FILE + '.tmp'
-    with open(tmp, 'w', encoding='utf-8') as f:
-        json.dump(lista, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, _AVISOS_FILE)
-
-
-def _avisos_next_id(lista):
-    if not lista:
-        return 1
-    return max(int(a.get('id') or 0) for a in lista) + 1
-
-
-def _avisos_sorted(lista):
-    """Ordena por data_iso desc (mais recentes primeiro)."""
-    return sorted(
-        lista,
-        key=lambda a: (a.get('data_iso') or '', a.get('id') or 0),
-        reverse=True,
+def _ensure_aviso_table(cursor):
+    """Cria a tabela `aviso` alinhada a scripts/criar_banco.py (idempotente)."""
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS aviso (
+            id BIGINT PRIMARY KEY AUTO_INCREMENT,
+            titulo VARCHAR(255) NOT NULL,
+            descricao TEXT,
+            data_ref DATE NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            KEY idx_aviso_data_ref (data_ref)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
     )
+
+
+def _aviso_row_to_api_dict(row):
+    """Converte linha do banco (dict) no formato esperado pelo front (data_iso)."""
+    if not row:
+        return None
+    dr = row.get("data_ref")
+    if dr is not None and hasattr(dr, "isoformat"):
+        data_iso = dr.isoformat()[:10]
+    else:
+        data_iso = (str(dr) if dr is not None else "")[:10]
+    out = {
+        "id": int(row["id"]),
+        "titulo": row.get("titulo") or "",
+        "descricao": row.get("descricao") or "",
+        "data_iso": data_iso,
+    }
+    for k in ("created_at", "updated_at"):
+        v = row.get(k)
+        if v is not None:
+            if hasattr(v, "isoformat"):
+                out[k] = v.isoformat(timespec="seconds")
+            else:
+                out[k] = str(v)[:19]
+    return out
+
+
+def _avisos_seed_or_migrate(cursor, conn):
+    """Tabela vazia: importa data/avisos.json se existir, senao insere avisos padrao; remove o JSON apos import."""
+    cursor.execute("SELECT COUNT(*) AS c FROM aviso")
+    c = int(cursor.fetchone().get("c") or 0)
+    if c > 0:
+        return
+    path_json = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "avisos.json")
+    if os.path.isfile(path_json):
+        try:
+            with open(path_json, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                for a in data:
+                    if not isinstance(a, dict):
+                        continue
+                    tit = (a.get("titulo") or "").strip()[:255]
+                    if not tit:
+                        continue
+                    d_s = (a.get("data_iso") or datetime.date.today().isoformat())[:10]
+                    try:
+                        datetime.date.fromisoformat(d_s)
+                    except ValueError:
+                        d_s = datetime.date.today().isoformat()
+                    cursor.execute(
+                        "INSERT INTO aviso (titulo, descricao, data_ref) VALUES (%s, %s, %s)",
+                        (tit, (a.get("descricao") or ""), d_s),
+                    )
+                conn.commit()
+        except Exception:
+            app.logger.exception("avisos: migracao a partir de data/avisos.json")
+        try:
+            os.remove(path_json)
+        except OSError:
+            pass
+        return
+
+    hoje = datetime.date.today()
+    seed = [
+        (
+            "Nova Politica de Juros",
+            "Atualizacao nas planilhas de calculo exigidas para grupos GM.",
+            hoje.isoformat(),
+        ),
+        (
+            "Manutencao no Servidor",
+            "Agendada uma breve pausa no servidor neste domingo, as 02h.",
+            (hoje - datetime.timedelta(days=1)).isoformat(),
+        ),
+        (
+            "Fechamento Mensal",
+            "Lembrete: Os arquivos de repasse devem ser consolidados ate o dia 15.",
+            (hoje - datetime.timedelta(days=10)).isoformat(),
+        ),
+    ]
+    for titulo, descricao, d in seed:
+        cursor.execute(
+            "INSERT INTO aviso (titulo, descricao, data_ref) VALUES (%s, %s, %s)",
+            (titulo, descricao, d),
+        )
+    conn.commit()
 
 
 @app.route('/api/avisos', methods=['GET', 'POST'])
 def api_avisos_collection():
-    if request.method == 'GET':
-        return jsonify(_avisos_sorted(_avisos_load()))
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        _ensure_aviso_table(cursor)
+        _avisos_seed_or_migrate(cursor, conn)
+    except Exception:
+        app.logger.exception("api/avisos: tabela aviso")
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+        if request.method == "GET":
+            return jsonify([]), 200
+        return jsonify({"error": "Falha ao preparar avisos"}), 500
 
+    if request.method == "GET":
+        try:
+            cursor.execute(
+                "SELECT id, titulo, descricao, data_ref, created_at, updated_at "
+                "FROM aviso ORDER BY data_ref DESC, id DESC"
+            )
+            rows = _clean_rows(cursor.fetchall())
+        finally:
+            cursor.close()
+            conn.close()
+        return jsonify([_aviso_row_to_api_dict(r) for r in rows])
+
+    # POST
     payload = request.get_json(silent=True) or {}
-    titulo = (payload.get('titulo') or '').strip()
-    descricao = (payload.get('descricao') or '').strip()
-    data_iso = (payload.get('data_iso') or '').strip()
+    titulo = (payload.get("titulo") or "").strip()[:255]
+    descricao = (payload.get("descricao") or "").strip()
+    data_iso = (payload.get("data_iso") or "").strip()
 
     if not titulo:
-        return jsonify({'error': 'titulo obrigatorio'}), 400
+        cursor.close()
+        conn.close()
+        return jsonify({"error": "titulo obrigatorio"}), 400
     if not data_iso:
         data_iso = datetime.date.today().isoformat()
     try:
         datetime.date.fromisoformat(data_iso)
     except ValueError:
-        return jsonify({'error': 'data_iso invalida (formato YYYY-MM-DD)'}), 400
+        cursor.close()
+        conn.close()
+        return jsonify({"error": "data_iso invalida (formato YYYY-MM-DD)"}), 400
 
-    lista = _avisos_load()
-    novo = {
-        'id': _avisos_next_id(lista),
-        'titulo': titulo,
-        'descricao': descricao,
-        'data_iso': data_iso,
-        'created_at': datetime.datetime.now().isoformat(timespec='seconds'),
-        'updated_at': datetime.datetime.now().isoformat(timespec='seconds'),
-    }
-    lista.append(novo)
-    _avisos_save(lista)
-    return jsonify(novo), 201
+    try:
+        cursor.execute(
+            "INSERT INTO aviso (titulo, descricao, data_ref) VALUES (%s, %s, %s)",
+            (titulo, descricao, data_iso[:10]),
+        )
+        conn.commit()
+        uid = cursor.lastrowid
+        cursor.execute(
+            "SELECT id, titulo, descricao, data_ref, created_at, updated_at "
+            "FROM aviso WHERE id = %s",
+            (uid,),
+        )
+        r = _clean_row(cursor.fetchone())
+    except Exception as e:
+        app.logger.exception("api/avisos POST")
+        conn.rollback()
+        cursor.close()
+        conn.close()
+        return jsonify({"error": str(e)}), 500
+    cursor.close()
+    conn.close()
+    return jsonify(_aviso_row_to_api_dict(r)), 201
 
 
-@app.route('/api/avisos/<int:aviso_id>', methods=['PUT', 'DELETE'])
+@app.route("/api/avisos/<int:aviso_id>", methods=["PUT", "DELETE"])
 def api_avisos_item(aviso_id):
-    lista = _avisos_load()
-    idx = next((i for i, a in enumerate(lista) if int(a.get('id') or 0) == aviso_id), -1)
-    if idx < 0:
-        return jsonify({'error': 'aviso nao encontrado'}), 404
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        _ensure_aviso_table(cursor)
+        _avisos_seed_or_migrate(cursor, conn)
+        cursor.execute(
+            "SELECT id, titulo, descricao, data_ref, created_at, updated_at "
+            "FROM aviso WHERE id = %s",
+            (aviso_id,),
+        )
+        row = _clean_row(cursor.fetchone())
+        if not row:
+            return jsonify({"error": "aviso nao encontrado"}), 404
 
-    if request.method == 'DELETE':
-        removido = lista.pop(idx)
-        _avisos_save(lista)
-        return jsonify({'success': True, 'removed': removido})
+        if request.method == "DELETE":
+            antigo = _aviso_row_to_api_dict(row)
+            cursor.execute("DELETE FROM aviso WHERE id = %s", (aviso_id,))
+            conn.commit()
+            return jsonify({"success": True, "removed": antigo})
 
-    payload = request.get_json(silent=True) or {}
-    atual = lista[idx]
-    if 'titulo' in payload:
-        titulo = (payload.get('titulo') or '').strip()
-        if not titulo:
-            return jsonify({'error': 'titulo obrigatorio'}), 400
-        atual['titulo'] = titulo
-    if 'descricao' in payload:
-        atual['descricao'] = (payload.get('descricao') or '').strip()
-    if 'data_iso' in payload:
-        data_iso = (payload.get('data_iso') or '').strip()
+        payload = request.get_json(silent=True) or {}
+        if "titulo" in payload:
+            titulo = (payload.get("titulo") or "").strip()[:255]
+            if not titulo:
+                return jsonify({"error": "titulo obrigatorio"}), 400
+        else:
+            titulo = row.get("titulo")
+        if "descricao" in payload:
+            descricao = (payload.get("descricao") or "").strip()
+        else:
+            descricao = row.get("descricao")
+        if "data_iso" in payload:
+            data_iso = (payload.get("data_iso") or "").strip()[:10]
+            try:
+                datetime.date.fromisoformat(data_iso)
+            except ValueError:
+                return jsonify({"error": "data_iso invalida (formato YYYY-MM-DD)"}), 400
+        else:
+            dr = row.get("data_ref")
+            if hasattr(dr, "isoformat"):
+                data_iso = dr.isoformat()[:10]
+            else:
+                data_iso = str(dr)[:10]
+
+        cursor.execute(
+            "UPDATE aviso SET titulo = %s, descricao = %s, data_ref = %s WHERE id = %s",
+            (titulo, descricao, data_iso, aviso_id),
+        )
+        conn.commit()
+        cursor.execute(
+            "SELECT id, titulo, descricao, data_ref, created_at, updated_at "
+            "FROM aviso WHERE id = %s",
+            (aviso_id,),
+        )
+        atual = _clean_row(cursor.fetchone())
+        return jsonify(_aviso_row_to_api_dict(atual))
+    except Exception as e:
+        app.logger.exception("api/avisos item")
         try:
-            datetime.date.fromisoformat(data_iso)
-        except ValueError:
-            return jsonify({'error': 'data_iso invalida (formato YYYY-MM-DD)'}), 400
-        atual['data_iso'] = data_iso
-    atual['updated_at'] = datetime.datetime.now().isoformat(timespec='seconds')
-    lista[idx] = atual
-    _avisos_save(lista)
-    return jsonify(atual)
+            conn.rollback()
+        except Exception:
+            pass
+        return jsonify({"error": str(e)}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 # =============================================================================

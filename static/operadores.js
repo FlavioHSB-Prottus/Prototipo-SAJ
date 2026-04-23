@@ -34,8 +34,56 @@ document.addEventListener('DOMContentLoaded', function () {
 
     let currentData = null;
     let searchDebounce = null;
+    /** Ordenação da tabela de contratos por nome do operador: { key, dir } */
+    const opTableSort = {};
 
     const colors = ['purple', 'teal', 'rose', 'amber', 'blue'];
+
+    function sitRank(s) {
+        const x = (s == null ? '' : String(s)).toLowerCase().trim();
+        if (x === 'crítico' || x === 'critico') return 2;
+        if (x === 'atenção' || x === 'atencao') return 1;
+        if (x === 'recente') return 0;
+        return 3;
+    }
+
+    function sortCompare(a, b, key, dir) {
+        const m = dir === 'desc' ? -1 : 1;
+        if (key === 'grupo') {
+            const sa = `${a.grupo || ''}/${a.cota || ''}`;
+            const sb = `${b.grupo || ''}/${b.cota || ''}`;
+            return m * sa.localeCompare(sb, 'pt-BR', { numeric: true, sensitivity: 'base' });
+        }
+        if (key === 'devedor') {
+            return m * (a.nome_devedor || '').toString().localeCompare((b.nome_devedor || '').toString(), 'pt-BR', { sensitivity: 'base' });
+        }
+        if (key === 'situacao') {
+            return m * (sitRank(a.situacao) - sitRank(b.situacao));
+        }
+        if (key === 'atraso') {
+            return m * ((Number(a.dias_atraso) || 0) - (Number(b.dias_atraso) || 0));
+        }
+        if (key === 'valor') {
+            return m * ((parseFloat(a.valor_credito) || 0) - (parseFloat(b.valor_credito) || 0));
+        }
+        return 0;
+    }
+
+    function updateTableSortHeaders(block, st) {
+        if (!block || !st) return;
+        block.querySelectorAll('thead th.th-sortable').forEach((th) => {
+            const field = th.getAttribute('data-field');
+            th.classList.remove('sorted-asc', 'sorted-desc');
+            const icon = th.querySelector('.sort-icon i');
+            if (!icon) return;
+            if (st.key === field) {
+                th.classList.add(st.dir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+                icon.className = 'fa-solid ' + (st.dir === 'asc' ? 'fa-sort-up' : 'fa-sort-down');
+            } else {
+                icon.className = 'fa-solid fa-sort';
+            }
+        });
+    }
 
     // ---- Carregamento Inicial ----
     loadDashboard();
@@ -55,6 +103,29 @@ document.addEventListener('DOMContentLoaded', function () {
         this.classList.remove('visible');
         applyFilters();
         filterSearch.focus();
+    });
+
+    operadorBlocksContainer.addEventListener('click', (e) => {
+        const th = e.target.closest('th.th-sortable');
+        if (!th) return;
+        e.stopPropagation();
+        const field = th.getAttribute('data-field');
+        if (!field) return;
+        const block = th.closest('.operador-block');
+        if (!block) return;
+        applyOperadorTableSort(block, field);
+    });
+
+    operadorBlocksContainer.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const th = e.target.closest('th.th-sortable');
+        if (!th) return;
+        e.preventDefault();
+        const field = th.getAttribute('data-field');
+        if (!field) return;
+        const block = th.closest('.operador-block');
+        if (!block) return;
+        applyOperadorTableSort(block, field);
     });
 
     // ---- Lógica de API ----
@@ -166,10 +237,66 @@ document.addEventListener('DOMContentLoaded', function () {
         updateFooterFromVisible();
     }
 
+    function fillContractTbody(tbody, op) {
+        tbody.innerHTML = '';
+        op.contratos.forEach((c) => {
+            const tr = document.createElement('tr');
+            tr.className = 'contract-row';
+            const sitLabel = c.situacao
+                ? c.situacao.charAt(0).toUpperCase() + c.situacao.slice(1)
+                : '-';
+            tr.innerHTML = `
+                <td class="fw-bold">${esc(c.grupo)}/${esc(c.cota)}</td>
+                <td>
+                    <div style="font-weight: 500">${esc(c.nome_devedor || '-')}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted)">${esc(c.cpf_cnpj || '-')}</div>
+                </td>
+                <td><span class="situacao-badge situacao-${c.situacao}">${sitLabel}</span></td>
+                <td><span class="dias-badge dias-${c.situacao}">${c.dias_atraso}d</span></td>
+                <td>${formatCurrency(c.valor_credito)}</td>
+                <td class="text-right"><button class="action-btn" type="button" tabindex="-1">Ver</button></td>
+            `;
+            tr.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleExpandRow(tr, c, tbody);
+            });
+            tbody.appendChild(tr);
+        });
+    }
+
+    function applyOperadorTableSort(block, field) {
+        const nome = block.dataset.operadorNome;
+        if (!field || !nome) return;
+        const op = renderedOperators.find((o) => o.nome === nome);
+        if (!op) return;
+        if (opTableSort[op.nome] === undefined) {
+            opTableSort[op.nome] = { key: 'grupo', dir: 'asc' };
+        }
+        const st = opTableSort[op.nome];
+        if (st.key === field) st.dir = st.dir === 'asc' ? 'desc' : 'asc';
+        else {
+            st.key = field;
+            st.dir = 'asc';
+        }
+        op.contratos.sort((a, b) => sortCompare(a, b, st.key, st.dir));
+        const tbody = block.querySelector('.op-tbody');
+        if (tbody) {
+            fillContractTbody(tbody, op);
+            updateTableSortHeaders(block, st);
+        }
+    }
+
     function createOperatorBlock(op, color) {
+        if (opTableSort[op.nome] === undefined) {
+            opTableSort[op.nome] = { key: 'grupo', dir: 'asc' };
+        }
+        const st = opTableSort[op.nome];
+        op.contratos.sort((a, b) => sortCompare(a, b, st.key, st.dir));
+
         const div = document.createElement('div');
         div.className = 'operador-block collapsed';
         div.setAttribute('data-color', color);
+        div.dataset.operadorNome = op.nome;
 
         const initials = op.nome.split(' ').map(n => n[0]).join('').substring(0, 2);
 
@@ -224,11 +351,21 @@ document.addEventListener('DOMContentLoaded', function () {
                         <table class="styled-table">
                             <thead>
                                 <tr>
-                                    <th>Grupo / Cota</th>
-                                    <th>Devedor</th>
-                                    <th>Situação</th>
-                                    <th>Atraso</th>
-                                    <th>Valor</th>
+                                    <th class="th-sortable" data-field="grupo" title="Ordenar por Grupo / Cota" role="button" tabindex="0">
+                                        <span class="th-sort-label">Grupo / Cota</span> <span class="sort-icon" aria-hidden="true"><i class="fa-solid fa-sort"></i></span>
+                                    </th>
+                                    <th class="th-sortable" data-field="devedor" title="Ordenar por devedor" role="button" tabindex="0">
+                                        <span class="th-sort-label">Devedor</span> <span class="sort-icon" aria-hidden="true"><i class="fa-solid fa-sort"></i></span>
+                                    </th>
+                                    <th class="th-sortable" data-field="situacao" title="Ordenar por situação" role="button" tabindex="0">
+                                        <span class="th-sort-label">Situação</span> <span class="sort-icon" aria-hidden="true"><i class="fa-solid fa-sort"></i></span>
+                                    </th>
+                                    <th class="th-sortable" data-field="atraso" title="Ordenar por atraso (dias)" role="button" tabindex="0">
+                                        <span class="th-sort-label">Atraso</span> <span class="sort-icon" aria-hidden="true"><i class="fa-solid fa-sort"></i></span>
+                                    </th>
+                                    <th class="th-sortable" data-field="valor" title="Ordenar por valor" role="button" tabindex="0">
+                                        <span class="th-sort-label">Valor</span> <span class="sort-icon" aria-hidden="true"><i class="fa-solid fa-sort"></i></span>
+                                    </th>
                                     <th class="text-right">Ações</th>
                                 </tr>
                             </thead>
@@ -247,29 +384,8 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
         const tbody = div.querySelector('.op-tbody');
-        op.contratos.forEach(c => {
-            const tr = document.createElement('tr');
-            tr.className = 'contract-row';
-            const sitLabel = c.situacao.charAt(0).toUpperCase() + c.situacao.slice(1);
-            
-            tr.innerHTML = `
-                <td class="fw-bold">${esc(c.grupo)}/${esc(c.cota)}</td>
-                <td>
-                    <div style="font-weight: 500">${esc(c.nome_devedor || '-')}</div>
-                    <div style="font-size: 0.75rem; color: var(--text-muted)">${esc(c.cpf_cnpj || '-')}</div>
-                </td>
-                <td><span class="situacao-badge situacao-${c.situacao}">${sitLabel}</span></td>
-                <td><span class="dias-badge dias-${c.situacao}">${c.dias_atraso}d</span></td>
-                <td>${formatCurrency(c.valor_credito)}</td>
-                <td class="text-right"><button class="action-btn">Ver</button></td>
-            `;
-
-            tr.addEventListener('click', (e) => {
-                e.stopPropagation();
-                toggleExpandRow(tr, c, tbody);
-            });
-            tbody.appendChild(tr);
-        });
+        fillContractTbody(tbody, op);
+        updateTableSortHeaders(div, st);
 
         return div;
     }
@@ -384,32 +500,18 @@ document.addEventListener('DOMContentLoaded', function () {
                     </table>
                 </div>
             </div>
-            ${data.tramitacoes && data.tramitacoes.length > 0 ? `
-            <div class="detail-section tramitacao-section">
-                <h3 style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onclick="var c = this.nextElementSibling; var i = this.querySelector('i.fa-chevron-down'); if (c.classList.contains('d-none')) { c.classList.remove('d-none'); i.style.transform = 'rotate(180deg)'; } else { c.classList.add('d-none'); i.style.transform = 'rotate(0deg)'; }">
-                    <span style="pointer-events:none;"><i class="fa-solid fa-comments"></i> Tramitações (${data.tramitacoes.length})</span>
-                    <i class="fa-solid fa-chevron-down" style="pointer-events:none; transition: transform 0.3s ease;"></i>
-                </h3>
-                <div class="tramitacao-container d-none">
-                    <div class="table-responsive"><table class="styled-table modal-table tramitacao-table"><thead><tr><th>Data</th><th>Tipo</th><th>CPC</th><th>Funcionário</th></tr></thead><tbody>
-                        ${data.tramitacoes.map(t => `
-                            <tr class="tramitacao-row-main">
-                                <td>${formatDateTime(t.data)}</td>
-                                <td><span class="status-badge status-active">${esc(t.tipo)}</span></td>
-                                <td><span class="status-badge ${String(t.cpc).toLowerCase()==='sim'?'status-success':(String(t.cpc).toLowerCase()==='nao'?'status-danger':'status-warning')}">${esc(t.cpc)}</span></td>
-                                <td>${esc(t.funcionario_nome)}</td>
-                            </tr>
-                            <tr class="tramitacao-row-desc"><td colspan="4">
-                                <span class="tramitacao-desc-label">Descrição:</span>
-                                <span class="tramitacao-desc-text">${esc(t.descricao)}</span>
-                            </td></tr>
-                        `).join('')}
-                    </tbody></table></div>
-                </div>
-            </div>
-            ` : ''}
         `;
+        html += (typeof TramitacoesDetalhe !== 'undefined')
+            ? TramitacoesDetalhe.buildSection(data.tramitacoes || [], c.id, { esc: esc, formatDateTime: formatDateTime })
+            : '';
         modalContent.innerHTML = html;
+        if (typeof TramitacoesDetalhe !== 'undefined') {
+            TramitacoesDetalhe.attachModal(modalContent, c.id, {
+                esc: esc,
+                formatDateTime: formatDateTime,
+                onReload: function () { return openContractDetails(c.id); }
+            });
+        }
     }
 
     closeModalBtn.addEventListener('click', () => detalhesModal.classList.remove('active'));

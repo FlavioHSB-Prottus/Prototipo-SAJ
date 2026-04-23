@@ -97,6 +97,36 @@
 .tj { background-color: #fce7f3; color: #be185d; } /* Pessoa Juridica */
 
 
+/* Ordenação nas tabelas */
+.styled-table thead th.th-sortable {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+    transition: background-color 0.15s, color 0.15s;
+}
+.styled-table thead th.th-sortable:hover {
+    background-color: #f1f5f9;
+    color: var(--primary-color, #1e3a5f);
+}
+.styled-table thead th.th-sortable .sort-icon {
+    display: inline-block;
+    margin-left: 4px;
+    color: #94a3b8;
+    font-size: 0.75em;
+    vertical-align: middle;
+}
+.styled-table thead th.th-sortable.sorted-asc .sort-icon,
+.styled-table thead th.th-sortable.sorted-desc .sort-icon {
+    color: var(--primary-color, #3b82f6);
+}
+.styled-table thead th.th-sortable.sorted-asc .sort-icon i,
+.styled-table thead th.th-sortable.sorted-desc .sort-icon i {
+    color: inherit;
+}
+.th-sort-label {
+    vertical-align: middle;
+}
+
 /* =========================== */
 /* MASTER-DETAIL ESTRUTURA CS  */
 /* =========================== */

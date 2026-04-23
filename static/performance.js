@@ -19,23 +19,28 @@ document.addEventListener('DOMContentLoaded', function () {
     // --- Estado ---
     var safraChartInstance = null;
     var vencimentoChartInstance = null;
-    var activeSafraIndex = null;        // null = Visao geral
+    var activeSafraIndex = null;        // null = visao geral (4 faixas)
     var safraData = { all: null };
     var currentResponse = null;
     var lastMes = '';
+    var viewMode = 'count';
 
-    var SERIES_META = {
-        novos:       { label: 'Contratos Novos',        color: '#3b82f6' },
-        pagos:       { label: 'Contratos Pagos',        color: '#10b981' },
-        indenizados: { label: 'Contratos Indenizados',  color: '#f59e0b' },
+    var OCORRENCIAS_META = {
+        novos:       { label: 'Ocorr. novos',        color: '#3b82f6' },
+        pagos:       { label: 'Ocorr. fechado',     color: '#10b981' },
+        indenizados: { label: 'Ocorr. indenizados', color: '#f59e0b' },
     };
     var PIE_META = [
-        { key: 'd30', label: 'Até 30 dias',       color: '#10b981' },
-        { key: 'd60', label: '31 a 60 dias',      color: '#f59e0b' },
-        { key: 'd90', label: 'Acima de 60 dias',  color: '#ef4444' },
+        { key: 'd30', label: 'Até 30 dias (atraso)',       color: '#10b981' },
+        { key: 'd60', label: '31 a 60 dias',               color: '#f59e0b' },
+        { key: 'd90', label: 'Acima de 60 dias',            color: '#ef4444' },
     ];
-
-    var selectedSeries = { novos: true, pagos: true, indenizados: true };
+    var PERF_SUB_KEYS = ['recente', 'atencao', 'critico'];
+    var PERF_DEF = [
+        { g: 'performado',     label: 'Performado',      color: '#10b981' },
+        { g: 'nao_performado', label: 'Não performado',  color: '#f97316' },
+    ];
+    var perfSelection = { performado: true, nao_performado: true };
     var pieSelection = { d30: true, d60: true, d90: true };
 
     // --- Utils ---
@@ -91,6 +96,8 @@ document.addEventListener('DOMContentLoaded', function () {
         var out = {
             all: {
                 barLabels: all.barLabels,
+                count: all.count,
+                valor_brl: all.valor_brl,
                 novos: all.novos,
                 pagos: all.pagos,
                 indenizados: all.indenizados,
@@ -113,7 +120,7 @@ document.addEventListener('DOMContentLoaded', function () {
         lastMes = mes;
         safraSelector.innerHTML =
             '<div class="safra-loading" style="color:var(--text-muted);font-size:0.85rem">' +
-            '<i class="fa-solid fa-spinner fa-spin"></i> Carregando safras...</div>';
+            '<i class="fa-solid fa-spinner fa-spin"></i> Carregando faixas...</div>';
 
         try {
             var resp = await fetch('/api/performance?mes=' + encodeURIComponent(mes));
@@ -129,7 +136,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
             document.getElementById('kpiNovos').textContent = formatInt(data.kpis.novos_mes);
             document.getElementById('kpiSafra').innerHTML =
-                escapeHtml(data.kpis.safra_destaque) +
+                escapeHtml((data.kpis && (data.kpis.faixa_destaque || data.kpis.safra_destaque)) || '—') +
                 ' <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-muted);">(mês corrente)</span>';
             document.getElementById('kpiRecuperacao').textContent = String(data.kpis.recuperacao_pct) + '%';
             document.getElementById('kpiParcelas').textContent = formatInt(data.kpis.parcelas_criticas_90d);
@@ -150,7 +157,7 @@ document.addEventListener('DOMContentLoaded', function () {
     function renderSafraSelector(safras) {
         safraSelector.innerHTML = '';
 
-        // Opcao "Visao geral (todas as safras)"
+        // Opcao "Visao geral (todas as faixas)"
         var allOption = document.createElement('label');
         allOption.className = 'safra-option';
         allOption.innerHTML =
@@ -159,7 +166,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 '<div class="safra-option-title">' +
                     '<i class="fa-solid fa-globe"></i>' +
                     '<strong>Visão geral</strong>' +
-                    '<span class="safra-option-tag">todas as safras</span>' +
+                    '<span class="safra-option-tag">todas as faixas</span>' +
                 '</div>' +
                 '<div class="safra-option-metrics">' +
                     metricPill('volume', totalField(safras, 'volume')) +
@@ -226,8 +233,42 @@ document.addEventListener('DOMContentLoaded', function () {
             var found = currentResponse.safras.find(function (s) { return s.index === activeSafraIndex; });
             if (found) safraName = found.label;
         }
+        var viewBar = document.getElementById('viewModeBar');
+        if (viewBar) viewBar.style.display = activeSafraIndex === null ? 'flex' : 'none';
         renderBarChart(d, safraName);
         renderDoughnutChart(d.doughnut);
+    }
+
+    function buildPerfDatasets() {
+        var out = [];
+        for (var i = 0; i < PERF_DEF.length; i++) {
+            var def = PERF_DEF[i];
+            if (!perfSelection[def.g]) continue;
+            out.push(def);
+        }
+        return out;
+    }
+
+    /** Soma recente+atencao+critico por faixa (a API ainda desagrega; o gráfico de barras mostra o total). */
+    function sumPerfSubsegments(block, g) {
+        if (!block || !block[g]) return [];
+        var gBlock = block[g];
+        var n = 0;
+        for (var i = 0; i < PERF_SUB_KEYS.length; i++) {
+            var a = gBlock[PERF_SUB_KEYS[i]];
+            if (a && a.length) n = Math.max(n, a.length);
+        }
+        if (!n) return [];
+        var out = new Array(n);
+        for (var j = 0; j < n; j++) {
+            var s = 0;
+            for (var k = 0; k < PERF_SUB_KEYS.length; k++) {
+                var arr = gBlock[PERF_SUB_KEYS[k]];
+                s += (arr && j < arr.length) ? (Number(arr[j]) || 0) : 0;
+            }
+            out[j] = s;
+        }
+        return out;
     }
 
     function renderBarChart(data, safraName) {
@@ -236,23 +277,63 @@ document.addEventListener('DOMContentLoaded', function () {
         if (safraChartInstance) safraChartInstance.destroy();
 
         if (safraName) {
-            barTitleEl.textContent = 'Detalhamento: ' + safraName;
-            barSubtitleEl.textContent = 'Subperíodos da safra em ' + formatMesLabel(lastMes);
+            barTitleEl.textContent = 'Detalhamento (ocorrências): ' + safraName;
+            barSubtitleEl.textContent = 'Dias do período — safra ' + formatMesLabel(lastMes);
         } else {
-            barTitleEl.textContent = 'Produtividade por Safra';
-            barSubtitleEl.textContent = 'Novos vs Fechado/Indenizado · ' + formatMesLabel(lastMes);
+            barTitleEl.textContent = 'Desempenho na cobrança por faixa (calendário)';
+            barSubtitleEl.textContent = (viewMode === 'valor' ? 'Soma do valor de crédito (R$) — ' : 'Contagem de contratos — ') +
+                formatMesLabel(lastMes);
         }
 
-        var activeKeys = Object.keys(selectedSeries).filter(function (k) { return selectedSeries[k]; });
-        var datasets = activeKeys.map(function (key) {
-            var meta = SERIES_META[key];
+        if (safraName) {
+            var keysO = Object.keys(OCORRENCIAS_META);
+            var datasets = keysO.map(function (key) {
+                var meta = OCORRENCIAS_META[key];
+                return {
+                    label: meta.label,
+                    data: data[key] || [],
+                    backgroundColor: meta.color,
+                    borderColor: meta.color,
+                    borderWidth: 1,
+                    tension: 0.25,
+                    pointRadius: 0,
+                    fill: false,
+                };
+            });
+            safraChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: { labels: data.barLabels, datasets: datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { position: 'top', align: 'end', labels: { usePointStyle: true, boxWidth: 8 } },
+                    },
+                    scales: {
+                        y: { beginAtZero: true, border: { display: false } },
+                        x: { grid: { display: false }, border: { display: false } },
+                    },
+                },
+            });
+            return;
+        }
+
+        var block = (viewMode === 'valor' && data.valor_brl) ? data.valor_brl : (data.count || {});
+        var defs = buildPerfDatasets();
+        var isValor = viewMode === 'valor';
+        var datasets = defs.map(function (def) {
             return {
-                label: meta.label,
-                data: data[key] || [],
-                backgroundColor: meta.color,
-                borderRadius: 4,
+                label: def.label,
+                data: sumPerfSubsegments(block, def.g),
+                backgroundColor: def.color,
+                borderRadius: 2,
             };
         });
+        if (!datasets.length) {
+            var nLabels = (data.barLabels && data.barLabels.length) ? data.barLabels.length : 4;
+            datasets = [{ label: 'Nenhum', data: new Array(nLabels).fill(0), backgroundColor: '#e2e8f0' }];
+        }
 
         safraChartInstance = new Chart(ctx, {
             type: 'bar',
@@ -262,12 +343,28 @@ document.addEventListener('DOMContentLoaded', function () {
                 maintainAspectRatio: false,
                 plugins: {
                     legend: { position: 'top', align: 'end', labels: { usePointStyle: true, boxWidth: 8 } },
-                    tooltip: { backgroundColor: 'rgba(30, 41, 59, 0.9)', padding: 12, cornerRadius: 8 },
+                    tooltip: {
+                        backgroundColor: 'rgba(30, 41, 59, 0.9)', padding: 12, cornerRadius: 8,
+                        callbacks: {
+                            label: function (x) {
+                                var v = x.parsed && x.parsed.y != null ? x.parsed.y : 0;
+                                if (isValor) {
+                                    return x.dataset.label + ': R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                }
+                                return x.dataset.label + ': ' + formatInt(v);
+                            }
+                        }
+                    }
                 },
                 scales: {
-                    y: { beginAtZero: true, border: { display: false }, ticks: { precision: 0 } },
-                    x: { grid: { display: false }, border: { display: false } },
-                },
+                    x: { stacked: true, grid: { display: false }, border: { display: false } },
+                    y: {
+                        stacked: true,
+                        beginAtZero: true,
+                        border: { display: false },
+                        ticks: isValor ? { callback: function (v) { return 'R$ ' + v.toLocaleString('pt-BR'); } } : { precision: 0 }
+                    }
+                }
             },
         });
     }
@@ -320,12 +417,20 @@ document.addEventListener('DOMContentLoaded', function () {
     //                              EVENTOS
     // ========================================================================
 
+    function syncPerfFromDom() {
+        if (!seriesBarSelector) return;
+        seriesBarSelector.querySelectorAll('input[type="checkbox"][data-perf]').forEach(function (cb) {
+            var k = cb.getAttribute('data-perf');
+            if (k === 'performado' || k === 'nao_performado') perfSelection[k] = cb.checked;
+        });
+    }
+
     seriesBarSelector.addEventListener('change', function (e) {
         var cb = e.target;
         if (!cb || cb.type !== 'checkbox') return;
-        var k = cb.getAttribute('data-serie');
-        if (!k) return;
-        selectedSeries[k] = cb.checked;
+        var k = cb.getAttribute('data-perf');
+        if (k !== 'performado' && k !== 'nao_performado') return;
+        perfSelection[k] = cb.checked;
         applyState();
     });
 
@@ -363,12 +468,31 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 
+    function resetPerfSelection() {
+        perfSelection = { performado: true, nao_performado: true };
+    }
+
+    document.querySelectorAll('input[name="viewMode"]').forEach(function (r) {
+        r.addEventListener('change', function () {
+            if (!this.checked) return;
+            viewMode = this.value === 'valor' ? 'valor' : 'count';
+            applyState();
+        });
+    });
+
     btnReset.addEventListener('click', function () {
         activeSafraIndex = null;
-        selectedSeries = { novos: true, pagos: true, indenizados: true };
+        resetPerfSelection();
+        viewMode = 'count';
+        var rc = document.querySelector('input[name="viewMode"][value="count"]');
+        if (rc) rc.checked = true;
         pieSelection = { d30: true, d60: true, d90: true };
-        seriesBarSelector.querySelectorAll('input[type="checkbox"]').forEach(function (cb) { cb.checked = true; });
-        piePerfSelector.querySelectorAll('input[type="checkbox"]').forEach(function (cb) { cb.checked = true; });
+        if (seriesBarSelector) {
+            seriesBarSelector.querySelectorAll('input[type="checkbox"]').forEach(function (cb) { cb.checked = true; });
+        }
+        if (piePerfSelector) {
+            piePerfSelector.querySelectorAll('input[type="checkbox"]').forEach(function (cb) { cb.checked = true; });
+        }
         mesAnoInput.value = currentMesAno();
         clearPresetActive();
         loadPerformance(mesAnoInput.value);
@@ -409,10 +533,11 @@ document.addEventListener('DOMContentLoaded', function () {
             hideExportFeedback();
             return;
         }
+        syncPerfFromDom();
         var payload = {
             mes: lastMes,
             safra_index: activeSafraIndex === null ? 'all' : activeSafraIndex,
-            series: Object.keys(selectedSeries).filter(function (k) { return selectedSeries[k]; }),
+            series: ['novos', 'pagos', 'indenizados'],
             faixas: Object.keys(pieSelection).filter(function (k) { return pieSelection[k]; }),
         };
         if (formato === 'pdf') {

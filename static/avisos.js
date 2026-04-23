@@ -1,5 +1,5 @@
 /* ==========================================================================
- * Mural de Avisos - CRUD persistido em /api/avisos (arquivo data/avisos.json).
+ * Mural de Avisos - CRUD persistido em /api/avisos (tabela MySQL `aviso`).
  *
  * Cuida de dois lugares:
  *   - #bulletinBoardHome   (card principal na home, editavel)

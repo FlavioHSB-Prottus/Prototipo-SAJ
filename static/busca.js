@@ -13,25 +13,27 @@ document.addEventListener('DOMContentLoaded', function () {
     const modalTitle = document.getElementById('modalTitle');
     const modalContent = document.getElementById('modalContent');
     const btnLimpar = document.getElementById('btnLimpar');
-    const statusGroup = document.getElementById('statusGroup');
     const statusFiltro = document.getElementById('status_filtro');
+    const buscaResultsFooter = document.getElementById('buscaResultsFooter');
+    const btnExportarBusca = document.getElementById('btnExportarBusca');
+
+    var searchResults = [];
+    var lastSearchTipo = 'pessoa';
+    var sortConfig = { column: null, order: 'asc' };
 
     let activeTipo = 'pessoa';
     var _pessoaCache = null;
     var _fromPessoa = false;
 
-    // Placeholder dinamico + mostrar/ocultar filtro de status
+    // Placeholder dinamico (filtro de status visivel em todos os tipos)
     tipoBusca.addEventListener('change', function () {
         activeTipo = this.value;
         if (activeTipo === 'pessoa') {
-            termoInput.placeholder = 'Digite o nome ou CPF...';
-            statusGroup.classList.add('d-none');
+            termoInput.placeholder = 'Digite o nome ou CPF/CNPJ...';
         } else if (activeTipo === 'bem') {
             termoInput.placeholder = 'Digite a descrição do bem (modelo, marca, etc)...';
-            statusGroup.classList.remove('d-none');
         } else {
             termoInput.placeholder = 'Digite grupo/cota (ex: 001234/0012)';
-            statusGroup.classList.remove('d-none');
         }
     });
 
@@ -39,7 +41,11 @@ document.addEventListener('DOMContentLoaded', function () {
     btnLimpar.addEventListener('click', function () {
         resultsSection.classList.add('d-none');
         resultsBody.innerHTML = '';
+        resultsHead.innerHTML = '';
         noResults.classList.add('d-none');
+        searchResults = [];
+        sortConfig = { column: null, order: 'asc' };
+        if (buscaResultsFooter) buscaResultsFooter.classList.add('d-none');
     });
 
     // Busca
@@ -55,33 +61,90 @@ document.addEventListener('DOMContentLoaded', function () {
 
         try {
             var url = '/api/busca?tipo=' + encodeURIComponent(activeTipo) + '&termo=' + encodeURIComponent(termo);
-            if ((activeTipo === 'contrato' || activeTipo === 'bem') && statusFiltro.value) {
+            if (statusFiltro.value) {
                 url += '&status=' + encodeURIComponent(statusFiltro.value);
             }
             const resp = await fetch(url);
             const data = await resp.json();
+            if (buscaResultsFooter) buscaResultsFooter.classList.add('d-none');
             renderResults(data.results, activeTipo);
         } catch (err) {
+            if (buscaResultsFooter) buscaResultsFooter.classList.add('d-none');
             resultsBody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:#ef4444">Erro ao buscar: ' + err.message + '</td></tr>';
         }
     });
 
-    function renderResults(results, tipo) {
-        resultsHead.innerHTML = '';
-        resultsBody.innerHTML = '';
+    function thSortable(label, dataColumn) {
+        return '<th class="sortable-header" data-column="' + esc(dataColumn) + '">' + label +
+            ' <i class="fa-solid fa-sort sort-icon"></i></th>';
+    }
 
-        if (!results || results.length === 0) {
-            resultsTitle.textContent = 'Resultados da Busca (0 encontrados)';
-            noResults.classList.remove('d-none');
-            return;
-        }
-
-        noResults.classList.add('d-none');
-        resultsTitle.textContent = 'Resultados da Busca (' + results.length + ' encontrado' + (results.length > 1 ? 's' : '') + ')';
-
+    function buildTheadHtml(tipo) {
         if (tipo === 'pessoa') {
-            resultsHead.innerHTML = '<th>Nome</th><th>CPF / CNPJ</th><th>Profissao</th><th class="text-right">Acoes</th>';
-            results.forEach(function (p) {
+            return thSortable('Nome', 'nome_completo') + thSortable('CPF / CNPJ', 'cpf_cnpj') +
+                thSortable('Profissao', 'profissao') + '<th class="text-right">Acoes</th>';
+        }
+        if (tipo === 'bem') {
+            return thSortable('Grupo / Cota', 'grupo') + thSortable('Bem', 'bem_descricao') +
+                thSortable('Nome Devedor', 'nome_devedor') + thSortable('Status', 'status') + '<th class="text-right">Acoes</th>';
+        }
+        return thSortable('Grupo / Cota', 'grupo') + thSortable('Nro Contrato', 'numero_contrato') +
+            thSortable('Nome Devedor', 'nome_devedor') + thSortable('Status', 'status') + '<th class="text-right">Acoes</th>';
+    }
+
+    function sortData() {
+        if (!sortConfig.column || !searchResults.length) return;
+        var col = sortConfig.column;
+        var order = sortConfig.order === 'asc' ? 1 : -1;
+        searchResults.sort(function (a, b) {
+            if (col === 'grupo') {
+                var aFull = (a.grupo || '') + (a.cota || '');
+                var bFull = (b.grupo || '') + (b.cota || '');
+                return aFull.localeCompare(bFull, 'pt-BR', { numeric: true }) * order;
+            }
+            if (col === 'numero_contrato') {
+                var nA = parseInt(String(a.numero_contrato == null ? '' : a.numero_contrato).replace(/\D/g, ''), 10);
+                var nB = parseInt(String(b.numero_contrato == null ? '' : b.numero_contrato).replace(/\D/g, ''), 10);
+                if (!isNaN(nA) && !isNaN(nB) && nA !== nB) {
+                    return (nA - nB) * order;
+                }
+            }
+            var valA = a[col];
+            var valB = b[col];
+            if (valA == null) valA = '';
+            if (valB == null) valB = '';
+            return String(valA).localeCompare(String(valB), 'pt-BR', { numeric: true, sensitivity: 'base' }) * order;
+        });
+    }
+
+    function updateSortHeaderClasses() {
+        if (!resultsHead) return;
+        resultsHead.querySelectorAll('th.sortable-header').forEach(function (th) {
+            th.classList.remove('asc', 'desc');
+            if (sortConfig.column && th.getAttribute('data-column') === sortConfig.column) {
+                th.classList.add(sortConfig.order);
+            }
+        });
+    }
+
+    function handleSort(column) {
+        if (sortConfig.column === column) {
+            sortConfig.order = sortConfig.order === 'asc' ? 'desc' : 'asc';
+        } else {
+            sortConfig.column = column;
+            sortConfig.order = 'asc';
+        }
+        sortData();
+        renderTableBody();
+        updateSortHeaderClasses();
+        bindDetailButtons();
+    }
+
+    function renderTableBody() {
+        resultsBody.innerHTML = '';
+        var tipo = lastSearchTipo;
+        if (tipo === 'pessoa') {
+            searchResults.forEach(function (p) {
                 var tr = document.createElement('tr');
                 tr.innerHTML =
                     '<td class="fw-bold">' + esc(p.nome_completo) + '</td>' +
@@ -91,8 +154,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 resultsBody.appendChild(tr);
             });
         } else if (tipo === 'bem') {
-            resultsHead.innerHTML = '<th>Grupo / Cota</th><th>Bem</th><th>Nome Devedor</th><th>Status</th><th class="text-right">Acoes</th>';
-            results.forEach(function (c) {
+            searchResults.forEach(function (c) {
                 var statusClass = getStatusClass(c.status);
                 var tr = document.createElement('tr');
                 tr.innerHTML =
@@ -104,8 +166,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 resultsBody.appendChild(tr);
             });
         } else {
-            resultsHead.innerHTML = '<th>Grupo / Cota</th><th>Nro Contrato</th><th>Nome Devedor</th><th>Status</th><th class="text-right">Acoes</th>';
-            results.forEach(function (c) {
+            searchResults.forEach(function (c) {
                 var statusClass = getStatusClass(c.status);
                 var tr = document.createElement('tr');
                 tr.innerHTML =
@@ -117,7 +178,88 @@ document.addEventListener('DOMContentLoaded', function () {
                 resultsBody.appendChild(tr);
             });
         }
+    }
 
+    if (resultsSection) {
+        resultsSection.addEventListener('click', function (e) {
+            var th = e.target && e.target.closest && e.target.closest('th.sortable-header');
+            if (!th) return;
+            e.preventDefault();
+            var col = th.getAttribute('data-column');
+            if (!col) return;
+            handleSort(col);
+        });
+    }
+
+    if (btnExportarBusca) {
+        btnExportarBusca.addEventListener('click', function () {
+            exportarListaBusca();
+        });
+    }
+
+    function exportarListaBusca() {
+        if (!searchResults || searchResults.length === 0) return;
+        var tipo = lastSearchTipo;
+        var headers;
+        var rows;
+        if (tipo === 'pessoa') {
+            headers = ['Nome', 'CPF/CNPJ', 'Profissao'];
+            rows = searchResults.map(function (p) {
+                return [p.nome_completo, p.cpf_cnpj, p.profissao != null ? p.profissao : ''];
+            });
+        } else if (tipo === 'bem') {
+            headers = ['Grupo', 'Cota', 'Bem', 'Nome Devedor', 'Status'];
+            rows = searchResults.map(function (c) {
+                return [c.grupo, c.cota, c.bem_descricao, c.nome_devedor, c.status];
+            });
+        } else {
+            headers = ['Grupo', 'Cota', 'Nro Contrato', 'Nome Devedor', 'Status'];
+            rows = searchResults.map(function (c) {
+                return [c.grupo, c.cota, c.numero_contrato, c.nome_devedor, c.status];
+            });
+        }
+        var lines = [headers].concat(rows);
+        var csv = '\uFEFF' + lines.map(function (row) {
+            return row.map(function (cell) {
+                var s = cell == null ? '' : String(cell);
+                if (/[;"\r\n]/.test(s)) {
+                    return '"' + s.replace(/"/g, '""') + '"';
+                }
+                return s;
+            }).join(';');
+        }).join('\r\n');
+        var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+        var a = document.createElement('a');
+        var name = 'busca_' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '.csv';
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+    }
+
+    function renderResults(results, tipo) {
+        searchResults = (results || []).slice();
+        lastSearchTipo = tipo;
+        sortConfig = { column: null, order: 'asc' };
+        resultsBody.innerHTML = '';
+
+        if (!searchResults || searchResults.length === 0) {
+            resultsHead.innerHTML = '';
+            resultsTitle.textContent = 'Resultados da Busca (0 encontrados)';
+            noResults.classList.remove('d-none');
+            if (buscaResultsFooter) buscaResultsFooter.classList.add('d-none');
+            return;
+        }
+
+        noResults.classList.add('d-none');
+        resultsTitle.textContent = 'Resultados da Busca (' + searchResults.length + ' encontrado' + (searchResults.length > 1 ? 's' : '') + ')';
+        resultsHead.innerHTML = buildTheadHtml(tipo);
+        renderTableBody();
+        updateSortHeaderClasses();
+        if (buscaResultsFooter) buscaResultsFooter.classList.remove('d-none');
         bindDetailButtons();
     }
 
@@ -340,30 +482,9 @@ document.addEventListener('DOMContentLoaded', function () {
             html += '</div></div>';
         }
 
-        // Tramitacoes (com toggle ocultar/exibir)
-        if (data.tramitacoes && data.tramitacoes.length > 0) {
-            html += '<div class="detail-section tramitacao-section">';
-            html += '<h3 style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onclick="var c = this.nextElementSibling; var i = this.querySelector(\'i.fa-chevron-down\'); if (c.classList.contains(\'d-none\')) { c.classList.remove(\'d-none\'); i.style.transform = \'rotate(180deg)\'; } else { c.classList.add(\'d-none\'); i.style.transform = \'rotate(0deg)\'; }">';
-            html += '<span style="pointer-events:none;"><i class="fa-solid fa-comments"></i> Tramitações (' + data.tramitacoes.length + ')</span>';
-            html += '<i class="fa-solid fa-chevron-down" style="pointer-events:none; transition: transform 0.3s ease;"></i></h3>';
-            html += '<div class="tramitacao-container d-none">'; // inicialmente oculto
-            html += '<div class="table-responsive"><table class="styled-table modal-table tramitacao-table"><thead><tr>';
-            html += '<th>Data</th><th>Tipo</th><th>CPC</th><th>Funcionário</th>';
-            html += '</tr></thead><tbody>';
-            data.tramitacoes.forEach(function (t) {
-                html += '<tr class="tramitacao-row-main">';
-                html += '<td>' + formatDateTime(t.data) + '</td>';
-                html += '<td><span class="status-badge status-active">' + esc(t.tipo) + '</span></td>';
-                html += '<td><span class="status-badge ' + (String(t.cpc).toLowerCase()==='sim'?'status-success':(String(t.cpc).toLowerCase()==='nao'?'status-danger':'status-warning')) + '">' + esc(t.cpc) + '</span></td>';
-                html += '<td>' + esc(t.funcionario_nome) + '</td>';
-                html += '</tr>';
-                html += '<tr class="tramitacao-row-desc"><td colspan="4">';
-                html += '<span class="tramitacao-desc-label">Descrição:</span> ';
-                html += '<span class="tramitacao-desc-text">' + esc(t.descricao) + '</span>';
-                html += '</td></tr>';
-            });
-            html += '</tbody></table></div></div></div>';
-        }
+        html += (typeof TramitacoesDetalhe !== 'undefined')
+            ? TramitacoesDetalhe.buildSection(data.tramitacoes || [], c.id, { esc: esc, formatDateTime: formatDateTime })
+            : '';
 
         modalContent.innerHTML = html;
 
@@ -376,6 +497,14 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                 });
             }
+        }
+
+        if (typeof TramitacoesDetalhe !== 'undefined') {
+            TramitacoesDetalhe.attachModal(modalContent, c.id, {
+                esc: esc,
+                formatDateTime: formatDateTime,
+                onReload: function () { return openDetails(c.id, 'contrato'); }
+            });
         }
     }
 

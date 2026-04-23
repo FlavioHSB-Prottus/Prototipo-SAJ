@@ -16,7 +16,7 @@
             <div class="form-group">
                 <label for="tipo_busca">Tipo de Busca</label>
                 <select id="tipo_busca" name="tipo_busca" class="form-control">
-                    <option value="pessoa">Nome ou CPF</option>
+                    <option value="pessoa">Nome ou CPF/CNPJ</option>
                     <option value="contrato">Grupo / Cota</option>
                     <option value="bem">Bem / Descrição</option>
                 </select>
@@ -24,10 +24,10 @@
             
             <div class="form-group">
                 <label for="termo">Termo da Busca</label>
-                <input type="text" id="termo" name="termo" class="form-control" placeholder="Digite o nome ou CPF...">
+                <input type="text" id="termo" name="termo" class="form-control" placeholder="Digite o nome ou CPF/CNPJ...">
             </div>
 
-            <div class="form-group d-none" id="statusGroup">
+            <div class="form-group" id="statusGroup">
                 <label for="status_filtro">Status</label>
                 <select id="status_filtro" name="status_filtro" class="form-control">
                     <option value="">Todos</option>
@@ -49,13 +49,18 @@
             <h3 id="resultsTitle">Resultados da Busca</h3>
         </div>
         <div class="table-responsive">
-            <table class="styled-table">
+            <table class="styled-table busca-results-table">
                 <thead id="resultsHead">
                     <tr></tr>
                 </thead>
                 <tbody id="resultsBody">
                 </tbody>
             </table>
+        </div>
+        <div class="busca-export-wrap d-none" id="buscaResultsFooter">
+            <button type="button" class="btn-export-busca" id="btnExportarBusca" title="Exporta a lista exibida (ordem atual)">
+                <i class="fa-solid fa-file-excel"></i> Exportar lista (Excel)
+            </button>
         </div>
         <div class="no-results d-none" id="noResults">
             <p><i class="fa-solid fa-circle-exclamation"></i> Nenhum resultado encontrado para o termo informado.</p>
