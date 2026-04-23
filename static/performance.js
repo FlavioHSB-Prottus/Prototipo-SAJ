@@ -249,7 +249,16 @@ document.addEventListener('DOMContentLoaded', function () {
         return out;
     }
 
-    /** Soma recente+atencao+critico por faixa (a API ainda desagrega; o gráfico de barras mostra o total). */
+    /** Subfaixas de atraso (API) alinhadas às fatias «Faixas de atraso» (d30/d60/d90). */
+    function perfSubKeysFromPieSelection() {
+        var keys = [];
+        if (pieSelection.d30) keys.push('recente');
+        if (pieSelection.d60) keys.push('atencao');
+        if (pieSelection.d90) keys.push('critico');
+        return keys;
+    }
+
+    /** Soma, por faixa no eixo X, apenas os sub-segmentos de atraso marcados em «Faixas de atraso». */
     function sumPerfSubsegments(block, g) {
         if (!block || !block[g]) return [];
         var gBlock = block[g];
@@ -259,11 +268,13 @@ document.addEventListener('DOMContentLoaded', function () {
             if (a && a.length) n = Math.max(n, a.length);
         }
         if (!n) return [];
+        var subKeys = perfSubKeysFromPieSelection();
+        if (!subKeys.length) return new Array(n).fill(0);
         var out = new Array(n);
         for (var j = 0; j < n; j++) {
             var s = 0;
-            for (var k = 0; k < PERF_SUB_KEYS.length; k++) {
-                var arr = gBlock[PERF_SUB_KEYS[k]];
+            for (var k = 0; k < subKeys.length; k++) {
+                var arr = gBlock[subKeys[k]];
                 s += (arr && j < arr.length) ? (Number(arr[j]) || 0) : 0;
             }
             out[j] = s;
@@ -281,8 +292,18 @@ document.addEventListener('DOMContentLoaded', function () {
             barSubtitleEl.textContent = 'Dias do período — safra ' + formatMesLabel(lastMes);
         } else {
             barTitleEl.textContent = 'Desempenho na cobrança por faixa (calendário)';
-            barSubtitleEl.textContent = (viewMode === 'valor' ? 'Soma do valor de crédito (R$) — ' : 'Contagem de contratos — ') +
+            var subBase = (viewMode === 'valor' ? 'Soma do valor de crédito (R$) — ' : 'Contagem de contratos — ') +
                 formatMesLabel(lastMes);
+            var parts = [];
+            if (!pieSelection.d30 || !pieSelection.d60 || !pieSelection.d90) {
+                if (pieSelection.d30) parts.push('até 30 d');
+                if (pieSelection.d60) parts.push('31–60 d');
+                if (pieSelection.d90) parts.push('60+ d');
+                subBase += parts.length
+                    ? ' · Atraso (barras): ' + parts.join(', ')
+                    : ' · Nenhuma faixa de atraso (barras zeradas)';
+            }
+            barSubtitleEl.textContent = subBase;
         }
 
         if (safraName) {

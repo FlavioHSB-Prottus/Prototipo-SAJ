@@ -2590,10 +2590,10 @@ def api_operadores_dashboard():
 # ---------------------------------------------------------------------------
 
 _FAIXA_NOMES = [
-    'Faixa 1 (01 - 09)',
-    'Faixa 2 (10 - 12)',
-    'Faixa 3 (13 - 19)',
-    'Faixa 4 (20 - fim)',
+    'Faixa 5 (01 - 09)',
+    'Faixa 10 (10 - 12)',
+    'Faixa 15 (13 - 19)',
+    'Faixa 20 (20 - fim)',
 ]
 
 
@@ -2643,8 +2643,18 @@ def _aggregate_performance_faixa(cursor, y, m, parte):
           AND EXISTS (
               SELECT 1 FROM parcela px WHERE px.id_contrato = c.id AND px.status = 'aberto'
           )
+          AND EXISTS (
+              SELECT 1 FROM ocorrencia ox
+              WHERE ox.id_contrato = c.id
+                AND ox.data_arquivo >= %s AND ox.data_arquivo <= %s
+          )
         """,
-        [d_m0a.isoformat(), d_m0b.isoformat(), d_m1a.isoformat(), d_m1b.isoformat(), d_m2a.isoformat(), d_m2b.isoformat()],
+        [
+            d_m0a.isoformat(), d_m0b.isoformat(),
+            d_m1a.isoformat(), d_m1b.isoformat(),
+            d_m2a.isoformat(), d_m2b.isoformat(),
+            d_m0a.isoformat(), d_m0b.isoformat(),
+        ],
     )
     rows = cursor.fetchall()
 
@@ -2948,12 +2958,7 @@ _FAIXA_LABELS_EXPORT = {
     'd60': '31 a 60 dias',
     'd90': 'Acima de 60 dias',
 }
-_SAFRA_LABELS_EXPORT = [
-    'Safra 1 (01 - 09)',
-    'Safra 2 (10 - 12)',
-    'Safra 3 (13 - 19)',
-    'Safra 4 (20 - fim)',
-]
+_SAFRA_LABELS_EXPORT = list(_FAIXA_NOMES)
 
 
 def _resolve_export_payload():
