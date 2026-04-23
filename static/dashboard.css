@@ -447,17 +447,18 @@
 .control-panel-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 20px;
+    gap: 16px;
+    align-items: start;
 }
 
 .control-card {
     background: #f8fafc;
     border: 1px solid var(--border-color);
     border-radius: 12px;
-    padding: 16px 18px 18px;
+    padding: 14px 16px 16px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
 }
 
 .control-card-title {
@@ -473,7 +474,137 @@
 .control-card-desc {
     font-size: 0.8rem;
     color: var(--text-muted);
-    margin: -4px 0 4px;
+    margin: -2px 0 2px;
+    line-height: 1.35;
+}
+
+/* Performance JB: safra (mês) em linha + cartão desempenho mais compacto */
+.control-card-period .period-body-inline {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 10px 14px;
+}
+.control-card-period .period-body-inline .period-field {
+    flex: 0 1 auto;
+    min-width: 150px;
+}
+.control-card-period .period-body-inline .period-presets {
+    margin-top: 0;
+    flex: 1 1 180px;
+}
+.control-card-period .control-card-desc {
+    font-size: 0.78rem;
+    margin-bottom: 0;
+}
+
+/* Performance JB: coluna direita (Safra + Desempenho empilhados) + 2ª linha */
+@media (min-width: 960px) {
+    .control-panel-grid--performance {
+        grid-template-columns: minmax(300px, 1.4fr) minmax(240px, 0.82fr);
+        align-content: start;
+    }
+    .control-panel-grid--performance .control-card-wide {
+        grid-column: 1;
+        grid-row: 1 / span 2;
+    }
+    .control-panel-grid--performance .control-stack-safra-perf {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-width: 0;
+        align-self: start;
+    }
+    .control-panel-grid--performance > .control-card:nth-child(3) {
+        grid-column: 1 / -1;
+        grid-row: 3;
+    }
+}
+@media (max-width: 959px) {
+    .control-panel-grid--performance .control-card-wide,
+    .control-panel-grid--performance .control-stack-safra-perf,
+    .control-panel-grid--performance > .control-card:nth-child(3) {
+        grid-column: auto;
+        grid-row: auto;
+    }
+    .control-stack-safra-perf {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+}
+
+.control-stack-safra-perf .control-card-export-inline {
+    padding: 10px 12px 12px;
+    gap: 6px;
+}
+.control-stack-safra-perf .control-card-export-inline .control-card-desc {
+    font-size: 0.75rem;
+    margin: 0 0 4px;
+    line-height: 1.3;
+}
+.control-stack-safra-perf .export-buttons {
+    grid-template-columns: 1fr;
+    gap: 8px;
+}
+.control-stack-safra-perf .export-btn {
+    padding: 10px 12px;
+}
+
+.control-card-perf-compact {
+    padding: 12px 14px 14px;
+    gap: 6px;
+}
+.control-card-perf-title-vertical {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 10px !important;
+    width: 100%;
+}
+.control-card-perf-compact .control-card-title {
+    font-size: 0.9rem;
+    justify-content: flex-start;
+}
+.perf-card-title-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+.control-card-perf-compact .view-mode-toggle {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+    font-size: 0.82rem;
+}
+.control-card-perf-compact .view-mode-label {
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    width: 100%;
+}
+.control-card-perf-compact .control-card-desc {
+    font-size: 0.78rem;
+    margin: 0 0 4px;
+    max-width: none;
+}
+.control-card-perf-chips {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    min-height: 0;
+}
+.control-card-perf-chips .chip-option {
+    justify-content: flex-start;
+}
+.chip-option.chip-compact {
+    padding: 5px 10px;
+    font-size: 0.82rem;
+    gap: 6px;
 }
 
 .control-card-body {

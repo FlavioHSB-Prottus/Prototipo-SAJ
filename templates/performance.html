@@ -78,7 +78,7 @@
             </button>
         </div>
 
-        <div class="control-panel-grid">
+        <div class="control-panel-grid control-panel-grid--performance">
 
             <!-- 1. Faixa de análise -->
             <div class="control-card control-card-wide">
@@ -89,19 +89,20 @@
                 <p class="control-card-desc">Selecione uma faixa do mês para detalhar ocorrências por dia, ou visão geral (todas as faixas)</p>
                 <div class="control-card-body safra-list" id="safraSelector">
                     <div class="safra-loading" style="color:var(--text-muted);font-size:0.85rem">
-                        <i class="fa-solid fa-spinner fa-spin"></i> Carregando safras...
+                        <i class="fa-solid fa-spinner fa-spin"></i> Carregando faixas...
                     </div>
                 </div>
             </div>
 
+            <div class="control-stack-safra-perf">
             <!-- 2. Safra (mês/ano) analisada -->
-            <div class="control-card">
+            <div class="control-card control-card-period">
                 <div class="control-card-title">
                     <i class="fa-regular fa-calendar-days"></i>
                     <span>Safra analisada</span>
                 </div>
-                <p class="control-card-desc">Mês de referência (formato MM/AAAA; afeta KPIs, faixas e gráficos)</p>
-                <div class="control-card-body period-body">
+                <p class="control-card-desc">Mês de referência (MM/AAAA) — KPIs, faixas e gráficos.</p>
+                <div class="control-card-body period-body period-body-inline">
                     <div class="period-field">
                         <label for="mesAnoFiltro">Mês / Ano</label>
                         <input type="month" id="mesAnoFiltro" class="form-control-sm">
@@ -114,54 +115,28 @@
                 </div>
             </div>
 
-            <!-- 3. Séries (desempenho) + modo quantidade/valor -->
-            <div class="control-card" style="grid-column: 1 / -1;">
-                <div class="control-card-title" style="justify-content: space-between; flex-wrap: wrap; gap: 12px;">
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                    <i class="fa-solid fa-chart-column"></i>
-                    <span>Desempenho no gráfico (faixas 1–4)</span>
+            <!-- 3. Desempenho performado (séries + modo) -->
+            <div class="control-card control-card-perf-compact">
+                <div class="control-card-title control-card-perf-title-vertical">
+                    <div class="perf-card-title-left">
+                        <i class="fa-solid fa-chart-column"></i>
+                        <span>Desempenho Performado</span>
                     </div>
-                    <div class="view-mode-toggle" id="viewModeBar" style="display: flex; align-items: center; gap: 6px; font-size: 0.85rem;">
-                        <span style="color: var(--text-muted);">Visualizar:</span>
-                        <label class="chip-option" style="margin:0;padding:4px 10px;"><input type="radio" name="viewMode" value="count" checked> Quantidade (contratos)</label>
-                        <label class="chip-option" style="margin:0;padding:4px 10px;"><input type="radio" name="viewMode" value="valor"> Valor (R$ credito)</label>
+                    <div class="view-mode-toggle" id="viewModeBar">
+                        <span class="view-mode-label">Visualizar:</span>
+                        <label class="chip-option chip-compact"><input type="radio" name="viewMode" value="count" checked> Quantidade</label>
+                        <label class="chip-option chip-compact"><input type="radio" name="viewMode" value="valor"> Valor (R$)</label>
                     </div>
                 </div>
-                <p class="control-card-desc">Performado: com ocorrência de quitação (fechado/indenizado) na janela analisada. Não performado: em cobrança com parcela aberta e sem quitação nesse período. Atraso (1–30 / 31–60 / 60+ dias) é visto no gráfico de vencimento abaixo (Faixas de atraso).</p>
-                <div class="control-card-body" id="seriesBarSelector" style="display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center;">
-                    <label class="chip-option"><input type="checkbox" data-perf="performado" checked><span class="chip-dot" style="background:#10b981"></span><span>Performado</span></label>
-                    <label class="chip-option"><input type="checkbox" data-perf="nao_performado" checked><span class="chip-dot" style="background:#f97316"></span><span>Não performado</span></label>
+                <p class="control-card-desc">Performado / não performado. «Faixas de atraso» restringe quais atrasos (1–30, 31–60, 60+ dias) entram no gráfico de barras e no rosca.</p>
+                <div class="control-card-body control-card-perf-chips" id="seriesBarSelector">
+                    <label class="chip-option chip-compact"><input type="checkbox" data-perf="performado" checked><span class="chip-dot" style="background:#10b981"></span><span>Performado</span></label>
+                    <label class="chip-option chip-compact"><input type="checkbox" data-perf="nao_performado" checked><span class="chip-dot" style="background:#f97316"></span><span>Não performado</span></label>
                 </div>
             </div>
 
-            <!-- 4. Fatias da pizza -->
-            <div class="control-card">
-                <div class="control-card-title">
-                    <i class="fa-solid fa-chart-pie"></i>
-                    <span>Faixas de atraso</span>
-                </div>
-                <p class="control-card-desc">Fatias exibidas no gráfico de vencimento</p>
-                <div class="control-card-body" id="piePerfSelector">
-                    <label class="chip-option">
-                        <input type="checkbox" data-faixa="d30" checked>
-                        <span class="chip-dot" style="background:#10b981"></span>
-                        <span>Até 30 dias</span>
-                    </label>
-                    <label class="chip-option">
-                        <input type="checkbox" data-faixa="d60" checked>
-                        <span class="chip-dot" style="background:#f59e0b"></span>
-                        <span>31 a 60 dias</span>
-                    </label>
-                    <label class="chip-option">
-                        <input type="checkbox" data-faixa="d90" checked>
-                        <span class="chip-dot" style="background:#ef4444"></span>
-                        <span>Acima de 60 dias</span>
-                    </label>
-                </div>
-            </div>
-
-            <!-- 5. Exportacao -->
-            <div class="control-card control-card-export">
+            <!-- Exportação: na mesma coluna, logo abaixo de Desempenho (evita vazio da grelha) -->
+            <div class="control-card control-card-export control-card-export-inline">
                 <div class="control-card-title">
                     <i class="fa-solid fa-file-export"></i>
                     <span>Exportar dados e gráficos</span>
@@ -185,6 +160,33 @@
                     </button>
                 </div>
                 <div class="export-feedback" id="exportFeedback" style="display:none;"></div>
+            </div>
+            </div>
+
+            <!-- 4. Fatias da pizza -->
+            <div class="control-card">
+                <div class="control-card-title">
+                    <i class="fa-solid fa-chart-pie"></i>
+                    <span>Faixas de atraso</span>
+                </div>
+                <p class="control-card-desc">Filtra o rosca de vencimento e os subtotais por atraso no gráfico de barras (visão geral).</p>
+                <div class="control-card-body" id="piePerfSelector">
+                    <label class="chip-option">
+                        <input type="checkbox" data-faixa="d30" checked>
+                        <span class="chip-dot" style="background:#10b981"></span>
+                        <span>Até 30 dias</span>
+                    </label>
+                    <label class="chip-option">
+                        <input type="checkbox" data-faixa="d60" checked>
+                        <span class="chip-dot" style="background:#f59e0b"></span>
+                        <span>31 a 60 dias</span>
+                    </label>
+                    <label class="chip-option">
+                        <input type="checkbox" data-faixa="d90" checked>
+                        <span class="chip-dot" style="background:#ef4444"></span>
+                        <span>Acima de 60 dias</span>
+                    </label>
+                </div>
             </div>
 
         </div>
