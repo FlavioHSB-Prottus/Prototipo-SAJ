@@ -21,7 +21,7 @@
         <div class="kpi-card neutral">
             <div class="kpi-icon"><i class="fa-solid fa-calendar-check"></i></div>
             <div class="kpi-content">
-                <p class="kpi-title">Safra Atual em Destaque</p>
+                <p class="kpi-title">Faixa em destaque (hoje)</p>
                 <h2 class="kpi-value" id="kpiSafra" style="font-size: 1.3rem; margin-top: 5px;">--</h2>
             </div>
         </div>
@@ -46,8 +46,8 @@
     <!-- Área de Gráficos -->
     <div class="charts-row">
         <div class="chart-container line-chart-container">
-            <div class="card-header-slim">
-                <h3 id="barChartTitle">Produtividade por Safra</h3>
+            <div class="card-header-slim" style="flex-wrap:wrap; gap:8px; align-items:flex-start;">
+                <h3 id="barChartTitle">Desempenho por faixa</h3>
                 <span class="subtitle" id="chartBarSubtitle">Carregando...</span>
             </div>
             <div class="chart-wrapper">
@@ -71,7 +71,7 @@
         <div class="control-panel-header">
             <div>
                 <h3><i class="fa-solid fa-sliders"></i> Painel de Controle</h3>
-                <span class="subtitle">Manipule safra, período e séries plotadas nos gráficos e KPIs acima</span>
+                <span class="subtitle">Manipule faixa de análise, safra (mês) e séries de desempenho nos gráficos e KPIs acima</span>
             </div>
             <button class="btn-ghost" id="btnResetControles" type="button">
                 <i class="fa-solid fa-rotate-right"></i> Restaurar padrão
@@ -80,13 +80,13 @@
 
         <div class="control-panel-grid">
 
-            <!-- 1. Safra analisada -->
+            <!-- 1. Faixa de análise -->
             <div class="control-card control-card-wide">
                 <div class="control-card-title">
                     <i class="fa-solid fa-layer-group"></i>
-                    <span>Safra em análise</span>
+                    <span>Faixa de análise</span>
                 </div>
-                <p class="control-card-desc">Selecione uma safra para detalhar ou mantenha a visão geral</p>
+                <p class="control-card-desc">Selecione uma faixa do mês para detalhar ocorrências por dia, ou visão geral (todas as faixas)</p>
                 <div class="control-card-body safra-list" id="safraSelector">
                     <div class="safra-loading" style="color:var(--text-muted);font-size:0.85rem">
                         <i class="fa-solid fa-spinner fa-spin"></i> Carregando safras...
@@ -94,13 +94,13 @@
                 </div>
             </div>
 
-            <!-- 2. Periodo -->
+            <!-- 2. Safra (mês/ano) analisada -->
             <div class="control-card">
                 <div class="control-card-title">
                     <i class="fa-regular fa-calendar-days"></i>
-                    <span>Período analisado</span>
+                    <span>Safra analisada</span>
                 </div>
-                <p class="control-card-desc">Mês de referência (afeta KPIs, safras e gráficos)</p>
+                <p class="control-card-desc">Mês de referência (formato MM/AAAA; afeta KPIs, faixas e gráficos)</p>
                 <div class="control-card-body period-body">
                     <div class="period-field">
                         <label for="mesAnoFiltro">Mês / Ano</label>
@@ -114,29 +114,23 @@
                 </div>
             </div>
 
-            <!-- 3. Series do grafico de barras -->
-            <div class="control-card">
-                <div class="control-card-title">
+            <!-- 3. Séries (desempenho) + modo quantidade/valor -->
+            <div class="control-card" style="grid-column: 1 / -1;">
+                <div class="control-card-title" style="justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
                     <i class="fa-solid fa-chart-column"></i>
-                    <span>Séries do gráfico</span>
+                    <span>Desempenho no gráfico (faixas 1–4)</span>
+                    </div>
+                    <div class="view-mode-toggle" id="viewModeBar" style="display: flex; align-items: center; gap: 6px; font-size: 0.85rem;">
+                        <span style="color: var(--text-muted);">Visualizar:</span>
+                        <label class="chip-option" style="margin:0;padding:4px 10px;"><input type="radio" name="viewMode" value="count" checked> Quantidade (contratos)</label>
+                        <label class="chip-option" style="margin:0;padding:4px 10px;"><input type="radio" name="viewMode" value="valor"> Valor (R$ credito)</label>
+                    </div>
                 </div>
-                <p class="control-card-desc">O que plotar na produtividade / detalhamento</p>
-                <div class="control-card-body" id="seriesBarSelector">
-                    <label class="chip-option">
-                        <input type="checkbox" data-serie="novos" checked>
-                        <span class="chip-dot" style="background:#3b82f6"></span>
-                        <span>Contratos Novos</span>
-                    </label>
-                    <label class="chip-option">
-                        <input type="checkbox" data-serie="pagos" checked>
-                        <span class="chip-dot" style="background:#10b981"></span>
-                        <span>Contratos Pagos</span>
-                    </label>
-                    <label class="chip-option">
-                        <input type="checkbox" data-serie="indenizados" checked>
-                        <span class="chip-dot" style="background:#f59e0b"></span>
-                        <span>Contratos Indenizados</span>
-                    </label>
+                <p class="control-card-desc">Performado: com ocorrência de quitação (fechado/indenizado) na janela analisada. Não performado: em cobrança com parcela aberta e sem quitação nesse período. Atraso (1–30 / 31–60 / 60+ dias) é visto no gráfico de vencimento abaixo (Faixas de atraso).</p>
+                <div class="control-card-body" id="seriesBarSelector" style="display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center;">
+                    <label class="chip-option"><input type="checkbox" data-perf="performado" checked><span class="chip-dot" style="background:#10b981"></span><span>Performado</span></label>
+                    <label class="chip-option"><input type="checkbox" data-perf="nao_performado" checked><span class="chip-dot" style="background:#f97316"></span><span>Não performado</span></label>
                 </div>
             </div>
 

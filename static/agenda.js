@@ -367,32 +367,19 @@ document.addEventListener('DOMContentLoaded', () => {
             html += '</div></div>';
         }
 
-        // Tramitacoes 
-        if (data.tramitacoes && data.tramitacoes.length > 0) {
-            html += '<div class="detail-section tramitacao-section">';
-            html += '<h3 style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onclick="var c = this.nextElementSibling; var i = this.querySelector(\'i.fa-chevron-down\'); if (c.classList.contains(\'d-none\')) { c.classList.remove(\'d-none\'); i.style.transform = \'rotate(180deg)\'; } else { c.classList.add(\'d-none\'); i.style.transform = \'rotate(0deg)\'; }">';
-            html += '<span style="pointer-events:none;"><i class="fa-solid fa-comments"></i> Tramitações (' + data.tramitacoes.length + ')</span>';
-            html += '<i class="fa-solid fa-chevron-down" style="pointer-events:none; transition: transform 0.3s ease;"></i></h3>';
-            html += '<div class="tramitacao-container d-none">'; 
-            html += '<div class="table-responsive"><table class="styled-table modal-table tramitacao-table"><thead><tr>';
-            html += '<th>Data</th><th>Tipo</th><th>CPC</th><th>Funcionário</th>';
-            html += '</tr></thead><tbody>';
-            data.tramitacoes.forEach(function (t) {
-                html += '<tr class="tramitacao-row-main">';
-                html += '<td>' + formatDateTime(t.data) + '</td>';
-                html += '<td><span class="status-badge status-active">' + escapeHtml(t.tipo) + '</span></td>';
-                html += '<td><span class="status-badge ' + (String(t.cpc).toLowerCase()==='sim'?'status-success':(String(t.cpc).toLowerCase()==='nao'?'status-danger':'status-warning')) + '">' + escapeHtml(t.cpc) + '</span></td>';
-                html += '<td>' + escapeHtml(t.funcionario_nome) + '</td>';
-                html += '</tr>';
-                html += '<tr class="tramitacao-row-desc"><td colspan="4">';
-                html += '<span class="tramitacao-desc-label">Descrição:</span> ';
-                html += '<span class="tramitacao-desc-text">' + escapeHtml(t.descricao) + '</span>';
-                html += '</td></tr>';
-            });
-            html += '</tbody></table></div></div></div>';
-        }
+        html += (typeof TramitacoesDetalhe !== 'undefined')
+            ? TramitacoesDetalhe.buildSection(data.tramitacoes || [], c.id, { esc: escapeHtml, formatDateTime: formatDateTime })
+            : '';
 
         modalContent.innerHTML = html;
+
+        if (typeof TramitacoesDetalhe !== 'undefined') {
+            TramitacoesDetalhe.attachModal(modalContent, c.id, {
+                esc: escapeHtml,
+                formatDateTime: formatDateTime,
+                onReload: function () { return window.openContratoModal(c.id); }
+            });
+        }
     }
 
     function renderBemSection(bens) {

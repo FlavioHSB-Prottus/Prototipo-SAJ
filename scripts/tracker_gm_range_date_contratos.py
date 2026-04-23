@@ -161,12 +161,12 @@ DECIMAL_COLS = {
     "total_reg_1",
 }
 
-# O layout do arquivo GM (EN002) envia montantes em "unidade de milhar" (inteiros
-# como se o real estivesse multiplicado por 1000). Ajustamos antes do INSERT.
-FATOR_MILHAR_VALOR_GM = 1000
+# O layout do arquivo GM (EN002) traz valores monetários em escala x100 em relação
+# ao real (dividir por 100 antes do INSERT). Campos de quantidade não entram aqui.
+FATOR_ESCALA_VALOR_GM = 100
 
 # Em DECIMAL_COLS, campos que são quantidade/contador, não R$ (não dividir).
-DECIMAL_COLS_SEM_ESCALA_MILHAR = frozenset({"qtd_parcelas", "total_reg_1"})
+DECIMAL_COLS_SEM_ESCALA_VALOR = frozenset({"qtd_parcelas", "total_reg_1"})
 
 
 def clean_name(name):
@@ -554,8 +554,8 @@ def process_arquivo(
                     except (TypeError, ValueError):
                         pass
                     else:
-                        if c_name not in DECIMAL_COLS_SEM_ESCALA_MILHAR:
-                            x = x / FATOR_MILHAR_VALOR_GM
+                        if c_name not in DECIMAL_COLS_SEM_ESCALA_VALOR:
+                            x = x / FATOR_ESCALA_VALOR_GM
                         # Precisao suficiente para decimal(16,4) / similar no MySQL
                         val = str(round(x, 6))
 

@@ -18,6 +18,14 @@ document.addEventListener('DOMContentLoaded', function () {
     var modalTitle = document.getElementById('modalTitle');
     var modalContent = document.getElementById('modalContent');
 
+    var listCache = { consorciados: [], avalistas: [] };
+    var lastLoadError = { consorciados: false, avalistas: false };
+    var sortState = {
+        consorciados: { key: 'nome', dir: 'asc' },
+        avalistas:    { key: 'nome', dir: 'asc' }
+    };
+    var cadastroWrapper = document.querySelector('.cadastro-wrapper');
+
     // ---- Placeholders dinâmicos ----
     var placeholders = {
         nome: 'Buscar por Nome...',
@@ -59,12 +67,104 @@ document.addEventListener('DOMContentLoaded', function () {
         if (e.key === 'Enter') loadList('avalistas', searchAvalistas.value.trim(), filterTypeAvalistas.value);
     });
 
+    function getSectionForTableSection(el) {
+        if (!el) return null;
+        if (el.id === 'consorciados-results') return 'consorciados';
+        if (el.id === 'avalistas-results') return 'avalistas';
+        return null;
+    }
+
+    function onlyDigits(s) {
+        return String(s == null ? '' : s).replace(/\D/g, '');
+    }
+
+    function sortPessoas(rows, key, dir) {
+        if (!rows || !rows.length) return [];
+        var copy = rows.slice();
+        var mul = dir === 'desc' ? -1 : 1;
+        copy.sort(function (a, b) {
+            if (key === 'nome') {
+                var an = (a.nome_completo || '').toString();
+                var bn = (b.nome_completo || '').toString();
+                return mul * an.localeCompare(bn, 'pt-BR', { sensitivity: 'base' });
+            }
+            if (key === 'cpf') {
+                var ad = onlyDigits(a.cpf_cnpj);
+                var bd = onlyDigits(b.cpf_cnpj);
+                if (ad && bd) {
+                    if (ad.length !== bd.length) return mul * (ad.length - bd.length);
+                    if (ad !== bd) return mul * (ad < bd ? -1 : 1);
+                }
+                return mul * String(a.cpf_cnpj || '').localeCompare(String(b.cpf_cnpj || ''), 'pt-BR', { numeric: true });
+            }
+            if (key === 'contratos') {
+                var ac = Number(a.total_contratos) || 0;
+                var bc = Number(b.total_contratos) || 0;
+                return mul * (ac - bc);
+            }
+            return 0;
+        });
+        return copy;
+    }
+
+    function updateSortHeaders(section) {
+        var wrap = document.getElementById(section === 'consorciados' ? 'consorciados-results' : 'avalistas-results');
+        if (!wrap) return;
+        var st = sortState[section];
+        wrap.querySelectorAll('thead th.th-sortable').forEach(function (th) {
+            var field = th.getAttribute('data-field');
+            th.classList.remove('sorted-asc', 'sorted-desc');
+            var icon = th.querySelector('.sort-icon i');
+            if (!icon) return;
+            if (st.key === field) {
+                th.classList.add(st.dir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+                icon.className = 'fa-solid ' + (st.dir === 'asc' ? 'fa-sort-up' : 'fa-sort-down');
+            } else {
+                icon.className = 'fa-solid fa-sort';
+            }
+        });
+    }
+
+    function applySortFromHeader(th) {
+        var field = th.getAttribute('data-field');
+        if (!field) return;
+        var tableSection = th.closest('.table-section');
+        var section = getSectionForTableSection(tableSection);
+        if (!section || lastLoadError[section]) return;
+        var st = sortState[section];
+        if (st.key === field) st.dir = st.dir === 'asc' ? 'desc' : 'asc';
+        else {
+            st.key = field;
+            st.dir = 'asc';
+        }
+        var sorted = sortPessoas(listCache[section] || [], st.key, st.dir);
+        var tbody = section === 'consorciados' ? consorciadosBody : avalistasBody;
+        renderTable(section, sorted, tbody);
+        updateSortHeaders(section);
+    }
+
+    if (cadastroWrapper) {
+        cadastroWrapper.addEventListener('click', function (e) {
+            var th = e.target.closest('th.th-sortable');
+            if (!th) return;
+            applySortFromHeader(th);
+        });
+        cadastroWrapper.addEventListener('keydown', function (e) {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            var th = e.target.closest('th.th-sortable');
+            if (!th) return;
+            e.preventDefault();
+            applySortFromHeader(th);
+        });
+    }
+
     // ---- Carregar Lista ----
     async function loadList(section, query, tipo) {
         var tbody = section === 'consorciados' ? consorciadosBody : avalistasBody;
         var countEl = section === 'consorciados' ? consorciadosCount : avalistasCount;
 
         tbody.innerHTML = '<tr><td colspan="4" class="loading-row"><i class="fa-solid fa-spinner fa-spin"></i> Carregando...</td></tr>';
+        lastLoadError[section] = false;
 
         try {
             var url = '/api/' + section;
@@ -80,8 +180,13 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!query) label += ' (primeiros 10)';
             countEl.textContent = label;
 
-            renderTable(section, data.results, tbody);
+            listCache[section] = (data.results || []).slice();
+            var st = sortState[section];
+            var rows = sortPessoas(listCache[section], st.key, st.dir);
+            renderTable(section, rows, tbody);
+            updateSortHeaders(section);
         } catch (err) {
+            lastLoadError[section] = true;
             tbody.innerHTML = '<tr><td colspan="4" class="loading-row" style="color:#ef4444"><i class="fa-solid fa-triangle-exclamation"></i> Erro: ' + esc(err.message) + '</td></tr>';
         }
     }
@@ -254,32 +359,19 @@ document.addEventListener('DOMContentLoaded', function () {
             html += '</tbody></table></div></div>';
         }
 
-        // Tramitacoes (com toggle ocultar/exibir)
-        if (data.tramitacoes && data.tramitacoes.length > 0) {
-            html += '<div class="detail-section tramitacao-section">';
-            html += '<h3 style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onclick="var c = this.nextElementSibling; var i = this.querySelector(\'i.fa-chevron-down\'); if (c.classList.contains(\'d-none\')) { c.classList.remove(\'d-none\'); i.style.transform = \'rotate(180deg)\'; } else { c.classList.add(\'d-none\'); i.style.transform = \'rotate(0deg)\'; }">';
-            html += '<span style="pointer-events:none;"><i class="fa-solid fa-comments"></i> Tramitações (' + data.tramitacoes.length + ')</span>';
-            html += '<i class="fa-solid fa-chevron-down" style="pointer-events:none; transition: transform 0.3s ease;"></i></h3>';
-            html += '<div class="tramitacao-container d-none">'; // inicialmente oculto
-            html += '<div class="table-responsive"><table class="styled-table modal-table tramitacao-table"><thead><tr>';
-            html += '<th>Data</th><th>Tipo</th><th>CPC</th><th>Funcionário</th>';
-            html += '</tr></thead><tbody>';
-            data.tramitacoes.forEach(function (t) {
-                html += '<tr class="tramitacao-row-main">';
-                html += '<td>' + formatDateTime(t.data) + '</td>';
-                html += '<td><span class="status-badge status-active">' + esc(t.tipo) + '</span></td>';
-                html += '<td><span class="status-badge ' + (String(t.cpc).toLowerCase()==='sim'?'status-success':(String(t.cpc).toLowerCase()==='nao'?'status-danger':'status-warning')) + '">' + esc(t.cpc) + '</span></td>';
-                html += '<td>' + esc(t.funcionario_nome) + '</td>';
-                html += '</tr>';
-                html += '<tr class="tramitacao-row-desc"><td colspan="4">';
-                html += '<span class="tramitacao-desc-label">Descrição:</span> ';
-                html += '<span class="tramitacao-desc-text">' + esc(t.descricao) + '</span>';
-                html += '</td></tr>';
-            });
-            html += '</tbody></table></div></div></div>';
-        }
+        html += (typeof TramitacoesDetalhe !== 'undefined')
+            ? TramitacoesDetalhe.buildSection(data.tramitacoes || [], c.id, { esc: esc, formatDateTime: formatDateTime })
+            : '';
 
         modalContent.innerHTML = html;
+
+        if (typeof TramitacoesDetalhe !== 'undefined') {
+            TramitacoesDetalhe.attachModal(modalContent, c.id, {
+                esc: esc,
+                formatDateTime: formatDateTime,
+                onReload: function () { return openContractModal(c.id); }
+            });
+        }
     }
 
     function renderBemSection(bens) {

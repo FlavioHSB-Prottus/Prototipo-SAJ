@@ -1274,15 +1274,32 @@ def api_busca():
     conn = _get_db()
     cursor = conn.cursor()
 
+    _status_validos = ('aberto', 'fechado', 'indenizado')
+
     results = []
     if tipo == 'pessoa':
-        cursor.execute(
-            "SELECT id, cpf_cnpj, nome_completo, profissao "
-            "FROM pessoa "
-            "WHERE cpf_cnpj LIKE %s OR nome_completo LIKE %s "
-            "LIMIT 50",
-            (f'%{termo}%', f'%{termo}%'),
-        )
+        status_filtro = request.args.get('status', '').strip()
+        if status_filtro and status_filtro not in _status_validos:
+            status_filtro = ''
+        if status_filtro:
+            # Pessoas (devedor ou avalista) com ao menos um contrato nesse status
+            cursor.execute(
+                "SELECT DISTINCT p.id, p.cpf_cnpj, p.nome_completo, p.profissao "
+                "FROM pessoa p "
+                "INNER JOIN contrato c ON (c.id_pessoa = p.id OR c.id_avalista = p.id) "
+                "WHERE (p.cpf_cnpj LIKE %s OR p.nome_completo LIKE %s) "
+                "AND c.status = %s "
+                "LIMIT 50",
+                (f'%{termo}%', f'%{termo}%', status_filtro),
+            )
+        else:
+            cursor.execute(
+                "SELECT id, cpf_cnpj, nome_completo, profissao "
+                "FROM pessoa "
+                "WHERE cpf_cnpj LIKE %s OR nome_completo LIKE %s "
+                "LIMIT 50",
+                (f'%{termo}%', f'%{termo}%'),
+            )
         results = _clean_rows(cursor.fetchall())
 
     elif tipo == 'contrato':
@@ -1480,6 +1497,151 @@ def api_contrato_detalhe(contrato_id):
         except Exception: pass
         try: conn.close()
         except Exception: pass
+
+
+TRAMITACAO_TIPOS = ('ligacao', 'whatsapp', 'email')
+TRAMITACAO_CPCS = ('sim', 'nao', 'parente', 'amigo', 'avalista')
+
+
+def _parse_tramitacao_timestamp(s):
+    """Aceita 'YYYY-MM-DDTHH:MM' (datetime-local) ou 'YYYY-MM-DD HH:MM:SS' etc."""
+    if s is None:
+        return None
+    s = str(s).strip()
+    if not s:
+        return None
+    s = s.replace('T', ' ')
+    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d'):
+        try:
+            lim = 19 if fmt != '%Y-%m-%d' else 10
+            return datetime.datetime.strptime(s[:lim], fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _tramitacao_row_by_id(cursor, tramitacao_id):
+    cursor.execute(
+        "SELECT t.*, f.nome AS funcionario_nome "
+        "FROM tramitacao t "
+        "LEFT JOIN funcionario f ON t.id_funcionario = f.id "
+        "WHERE t.id = %s",
+        (tramitacao_id,),
+    )
+    return _clean_row(cursor.fetchone())
+
+
+@app.route('/api/contrato/<int:contrato_id>/tramitacao', methods=['POST'])
+def api_tramitacao_criar(contrato_id):
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Sessao invalida. Faca login novamente.'}), 401
+    data = request.get_json(silent=True) or {}
+    tipo = (data.get('tipo') or '').strip().lower()
+    cpc = (data.get('cpc') or '').strip().lower()
+    descricao = (data.get('descricao') or '')
+    if isinstance(descricao, str) and len(descricao) > 20000:
+        return jsonify({'error': 'Descricao muito longa.'}), 400
+    if tipo not in TRAMITACAO_TIPOS:
+        return jsonify({'error': 'Tipo invalido.'}), 400
+    if cpc not in TRAMITACAO_CPCS:
+        return jsonify({'error': 'CPC invalido.'}), 400
+    ts = _parse_tramitacao_timestamp(data.get('data'))
+    if not ts:
+        return jsonify({'error': 'Data invalida.'}), 400
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id, id_pessoa FROM contrato WHERE id = %s", (contrato_id,))
+        c_row = cursor.fetchone()
+        if not c_row:
+            return jsonify({'error': 'Contrato nao encontrado.'}), 404
+        id_pessoa = c_row.get('id_pessoa')
+        if not id_pessoa:
+            return jsonify({'error': 'Contrato sem pessoa (devedor) vinculada.'}), 400
+        cursor.execute(
+            "INSERT INTO tramitacao (id_pessoa, id_contrato, tipo, cpc, data, descricao, id_funcionario) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (id_pessoa, contrato_id, tipo, cpc, ts, descricao or None, int(fid)),
+        )
+        conn.commit()
+        new_id = cursor.lastrowid
+        row = _tramitacao_row_by_id(cursor, new_id)
+        return jsonify({'tramitacao': row})
+    except Exception as exc:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        app.logger.exception('api_tramitacao_criar')
+        return jsonify({'error': 'Erro ao salvar: ' + str(exc)}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+@app.route('/api/tramitacao/<int:tramitacao_id>', methods=['PUT', 'DELETE'])
+def api_tramitacao_item(tramitacao_id):
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Sessao invalida. Faca login novamente.'}), 401
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id FROM tramitacao WHERE id = %s", (tramitacao_id,))
+        t_row = cursor.fetchone()
+        if not t_row:
+            return jsonify({'error': 'Tramitacao nao encontrada.'}), 404
+
+        if request.method == 'DELETE':
+            cursor.execute("DELETE FROM tramitacao WHERE id = %s", (tramitacao_id,))
+            conn.commit()
+            return jsonify({'success': True})
+
+        data = request.get_json(silent=True) or {}
+        tipo = (data.get('tipo') or '').strip().lower()
+        cpc = (data.get('cpc') or '').strip().lower()
+        descricao = (data.get('descricao') or '')
+        if isinstance(descricao, str) and len(descricao) > 20000:
+            return jsonify({'error': 'Descricao muito longa.'}), 400
+        if tipo not in TRAMITACAO_TIPOS:
+            return jsonify({'error': 'Tipo invalido.'}), 400
+        if cpc not in TRAMITACAO_CPCS:
+            return jsonify({'error': 'CPC invalido.'}), 400
+        ts = _parse_tramitacao_timestamp(data.get('data'))
+        if not ts:
+            return jsonify({'error': 'Data invalida.'}), 400
+        cursor.execute(
+            "UPDATE tramitacao SET tipo = %s, cpc = %s, data = %s, descricao = %s WHERE id = %s",
+            (tipo, cpc, ts, descricao or None, tramitacao_id),
+        )
+        conn.commit()
+        row = _tramitacao_row_by_id(cursor, tramitacao_id)
+        return jsonify({'tramitacao': row})
+    except Exception as exc:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        app.logger.exception('api_tramitacao_item')
+        return jsonify({'error': 'Erro ao processar: ' + str(exc)}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -2424,8 +2586,101 @@ def api_operadores_dashboard():
 
 
 # ---------------------------------------------------------------------------
-# API: Performance (safras x ocorrencias)
+# API: Performance (faixas de calendario x desempenho)
 # ---------------------------------------------------------------------------
+
+_FAIXA_NOMES = [
+    'Faixa 1 (01 - 09)',
+    'Faixa 2 (10 - 12)',
+    'Faixa 3 (13 - 19)',
+    'Faixa 4 (20 - fim)',
+]
+
+
+def _seg_from_delay_days(dd):
+    """Recente, Atencao, Critico a partir do atraso (dias) da parcela aberta mais antiga."""
+    if dd is None or dd < 1:
+        return 'recente'
+    if dd <= 30:
+        return 'recente'
+    if dd <= 60:
+        return 'atencao'
+    return 'critico'
+
+
+def _aggregate_performance_faixa(cursor, y, m, parte):
+    """Contratos em cobranca (aberto + parcela aberta) na faixa de calendario,
+    segmentados em Performado vs Nao performado (pagamento em ocorrencia fechado/indenizado
+    no periodo M0 U M1 U M2) e sub-faixas de atraso (Recente 1-30d, Atencao 31-60, Critico 61+)."""
+    d_m0a, d_m0b = _safra_bounds(y, m, parte)
+    y1, m1 = _shift_month(y, m, 1)
+    d_m1a, d_m1b = _safra_bounds(y1, m1, parte)
+    y2, m2 = _shift_month(y, m, 2)
+    d_m2a, d_m2b = _safra_bounds(y2, m2, parte)
+
+    cursor.execute(
+        """
+        SELECT
+            c.id,
+            c.valor_credito,
+            (
+                SELECT MIN(DATEDIFF(CURDATE(), p.vencimento))
+                FROM parcela p
+                WHERE p.id_contrato = c.id AND p.status = 'aberto' AND p.vencimento < CURDATE()
+            ) AS delay_open,
+            EXISTS (
+                SELECT 1 FROM ocorrencia o
+                WHERE o.id_contrato = c.id
+                  AND o.status IN ('fechado', 'indenizado')
+                  AND (
+                        (o.data_arquivo >= %s AND o.data_arquivo <= %s)
+                     OR (o.data_arquivo >= %s AND o.data_arquivo <= %s)
+                     OR (o.data_arquivo >= %s AND o.data_arquivo <= %s)
+                  )
+            ) AS is_performado
+        FROM contrato c
+        WHERE c.status = 'aberto'
+          AND EXISTS (
+              SELECT 1 FROM parcela px WHERE px.id_contrato = c.id AND px.status = 'aberto'
+          )
+        """,
+        [d_m0a.isoformat(), d_m0b.isoformat(), d_m1a.isoformat(), d_m1b.isoformat(), d_m2a.isoformat(), d_m2b.isoformat()],
+    )
+    rows = cursor.fetchall()
+
+    segs = {
+        'performado': {'recente': 0, 'atencao': 0, 'critico': 0},
+        'nao_performado': {'recente': 0, 'atencao': 0, 'critico': 0},
+    }
+    val = {
+        'performado': {'recente': 0.0, 'atencao': 0.0, 'critico': 0.0},
+        'nao_performado': {'recente': 0.0, 'atencao': 0.0, 'critico': 0.0},
+    }
+    for r in rows:
+        dd = r.get('delay_open')
+        raw = r.get('is_performado')
+        if isinstance(raw, (int, float)):
+            is_p = int(raw) != 0
+        elif isinstance(raw, (bytes, bytearray)):
+            is_p = bool(raw) and raw not in (b'\x00', b'0')
+        else:
+            is_p = bool(raw)
+        seg = _seg_from_delay_days(int(dd) if dd is not None else None)
+        keyg = 'performado' if is_p else 'nao_performado'
+        v = r.get('valor_credito')
+        v = 0.0 if v is None or v == '' else float(v)
+        segs[keyg][seg] += 1
+        val[keyg][seg] += v
+
+    # Volume de ocorrencias (qualquer) na faixa (compativel com metrica antiga)
+    volume = _count_distinct_ocorrencias(cursor, [(d_m0a, d_m0b)], None, False)
+
+    return {
+        'volume': volume,
+        'segmentos': segs,
+        'valor_por_segmento_brl': val,
+    }
+
 
 def _safra_bounds(year, month, parte):
     """parte 0..3: (1-9), (10-12), (13-19), (20-fim). Retorna (date_start, date_end)."""
@@ -2539,13 +2794,7 @@ def api_performance():
         if d1 <= today <= d2:
             parte_hoje = p
             break
-    safra_labels = [
-        'Safra 1 (01 - 09)',
-        'Safra 2 (10 - 12)',
-        'Safra 3 (13 - 19)',
-        'Safra 4 (20 - fim)',
-    ]
-    kpi_safra_label = safra_labels[parte_hoje] if parte_hoje is not None else '—'
+    kpi_faixa_label = _FAIXA_NOMES[parte_hoje] if parte_hoje is not None else '—'
 
     # KPI: taxa recuperacao no mes (fechado+indenizado vs total ocorrencias com status relevante)
     cursor.execute(
@@ -2577,6 +2826,14 @@ def api_performance():
     bar_novos = []
     bar_pagos = []
     bar_indenizados = []
+    ch_perf = {
+        'performado': {'recente': [], 'atencao': [], 'critico': []},
+        'nao_performado': {'recente': [], 'atencao': [], 'critico': []},
+    }
+    ch_val = {
+        'performado': {'recente': [], 'atencao': [], 'critico': []},
+        'nao_performado': {'recente': [], 'atencao': [], 'critico': []},
+    }
 
     for parte in range(4):
         d_m0a, d_m0b = _safra_bounds(y, m, parte)
@@ -2589,6 +2846,12 @@ def api_performance():
         ranges_m_m1 = [(d_m0a, d_m0b), (d_m1a, d_m1b)]
         ranges_m_m2 = [(d_m0a, d_m0b), (d_m1a, d_m1b), (d_m2a, d_m2b)]
 
+        ag = _aggregate_performance_faixa(cursor, y, m, parte)
+        for pk in ('performado', 'nao_performado'):
+            for sk in ('recente', 'atencao', 'critico'):
+                ch_perf[pk][sk].append(ag['segmentos'][pk][sk])
+                ch_val[pk][sk].append(round(ag['valor_por_segmento_brl'][pk][sk], 2))
+
         volume = _count_distinct_ocorrencias(cursor, ranges_m, None, False)
         d30 = _count_distinct_ocorrencias(cursor, ranges_m, ['fechado', 'indenizado'], False)
         d60 = _count_distinct_ocorrencias(cursor, ranges_m_m1, ['fechado', 'indenizado'], False)
@@ -2599,11 +2862,16 @@ def api_performance():
 
         safras_out.append({
             'index': parte,
-            'label': safra_labels[parte],
+            'label': _FAIXA_NOMES[parte],
             'volume': volume,
             'd30': d30,
             'd60': d60,
             'd90': d90,
+            'desempenho': {
+                'contratos_por_segmento': ag['segmentos'],
+                'valor_credito_por_segmento_brl': ag['valor_por_segmento_brl'],
+                'volume_ocorrencias_faixa': ag['volume'],
+            },
             'detail': {**detail, 'doughnut': doughnut_safra},
         })
 
@@ -2645,15 +2913,19 @@ def api_performance():
 
     return jsonify({
         'mes': mes,
+        'faixa_labels': _FAIXA_NOMES,
         'kpis': {
             'novos_mes': kpi_novos,
-            'safra_destaque': kpi_safra_label,
+            'faixa_destaque': kpi_faixa_label,
+            'safra_destaque': kpi_faixa_label,
             'recuperacao_pct': kpi_rec_pct,
             'parcelas_criticas_90d': kpi_parcelas_crit,
         },
         'safras': safras_out,
         'chart_all': {
-            'barLabels': safra_labels,
+            'barLabels': _FAIXA_NOMES,
+            'count': ch_perf,
+            'valor_brl': ch_val,
             'novos': bar_novos,
             'pagos': bar_pagos,
             'indenizados': bar_indenizados,
