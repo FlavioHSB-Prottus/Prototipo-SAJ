@@ -29,8 +29,8 @@
         <div class="kpi-card success">
             <div class="kpi-icon"><i class="fa-solid fa-arrow-trend-up"></i></div>
             <div class="kpi-content">
-                <p class="kpi-title">Taxa de Recuperação Global</p>
-                <h2 class="kpi-value" id="kpiRecuperacao">--</h2>
+                <p class="kpi-title">Taxa de recuperação (safra do mês)</p>
+                <h2 class="kpi-value" id="kpiRecuperacao" title="Contratos da safra com a parcela de entrada quitada, sobre o total da safra no mês.">--</h2>
             </div>
         </div>
 
@@ -71,7 +71,7 @@
         <div class="control-panel-header">
             <div>
                 <h3><i class="fa-solid fa-sliders"></i> Painel de Controle</h3>
-                <span class="subtitle">Manipule faixa de análise, safra (mês) e séries de desempenho nos gráficos e KPIs acima</span>
+                <span class="subtitle">Safra = contrato novo ou que voltou na cobrança no mês, com exatamente uma parcela vencida no mesmo arquivo GM; valor e “performado” consideram só essa parcela.</span>
             </div>
             <button class="btn-ghost" id="btnResetControles" type="button">
                 <i class="fa-solid fa-rotate-right"></i> Restaurar padrão
@@ -86,7 +86,7 @@
                     <i class="fa-solid fa-layer-group"></i>
                     <span>Faixa de análise</span>
                 </div>
-                <p class="control-card-desc">Selecione uma faixa do mês para detalhar ocorrências por dia, ou visão geral (todas as faixas)</p>
+                <p class="control-card-desc">Faixa de dias no mês da safra. Visão geral agrega as quatro faixas; em uma faixa, o rosca mostra performados por prazo de quitação da parcela de entrada.</p>
                 <div class="control-card-body safra-list" id="safraSelector">
                     <div class="safra-loading" style="color:var(--text-muted);font-size:0.85rem">
                         <i class="fa-solid fa-spinner fa-spin"></i> Carregando faixas...
@@ -101,7 +101,7 @@
                     <i class="fa-regular fa-calendar-days"></i>
                     <span>Safra analisada</span>
                 </div>
-                <p class="control-card-desc">Mês de referência (MM/AAAA) — KPIs, faixas e gráficos.</p>
+                <p class="control-card-desc">Mês/ano da <strong>data_arquivo</strong> das ocorrências de entrada (novo/voltou), alinhado ao arquivo GM.</p>
                 <div class="control-card-body period-body period-body-inline">
                     <div class="period-field">
                         <label for="mesAnoFiltro">Mês / Ano</label>
@@ -128,7 +128,7 @@
                         <label class="chip-option chip-compact"><input type="radio" name="viewMode" value="valor"> Valor (R$)</label>
                     </div>
                 </div>
-                <p class="control-card-desc">Performado / não performado. «Faixas de atraso» restringe quais atrasos (1–30, 31–60, 60+ dias) entram no gráfico de barras e no rosca.</p>
+                <p class="control-card-desc">Performado = parcela de entrada quitada (<em>parcela paga</em> ou parcela fechada). Valor = parcela de entrada, não o crédito total. «Faixas de atraso» filtra subfaixas de atraso dessa parcela (ainda aberta).</p>
                 <div class="control-card-body control-card-perf-chips" id="seriesBarSelector">
                     <label class="chip-option chip-compact"><input type="checkbox" data-perf="performado" checked><span class="chip-dot" style="background:#10b981"></span><span>Performado</span></label>
                     <label class="chip-option chip-compact"><input type="checkbox" data-perf="nao_performado" checked><span class="chip-dot" style="background:#f97316"></span><span>Não performado</span></label>
@@ -169,7 +169,7 @@
                     <i class="fa-solid fa-chart-pie"></i>
                     <span>Faixas de atraso</span>
                 </div>
-                <p class="control-card-desc">Filtra o rosca de vencimento e os subtotais por atraso no gráfico de barras (visão geral).</p>
+                <p class="control-card-desc">No rosca <strong>por faixa</strong>: dias entre entrada na safra e quitação da parcela-alvo. Na visão geral, o gráfico à direita continua sendo atraso global dos contratos abertos.</p>
                 <div class="control-card-body" id="piePerfSelector">
                     <label class="chip-option">
                         <input type="checkbox" data-faixa="d30" checked>
