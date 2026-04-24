@@ -33,8 +33,8 @@ Contratos ja presentes em funcionario_cobranca sao preservados
 naturalmente pelo passo (3) -- e tambem pelo "fixos" do passo inicial,
 para garantir compatibilidade com o comportamento anterior.
 
-Uso:
-    python distribuir_funcionarios_cobranca.py
+Uso (na raiz do projeto):
+    python Python/distribuir_funcionarios_cobranca.py
 
 Ambiente (opcional):
     DB_HOST, DB_USER, DB_PASSWORD, DB_NAME
