@@ -84,8 +84,29 @@ document.addEventListener('DOMContentLoaded', function() {
                 btn.addEventListener('click', function() {
                     const id = this.dataset.id;
                     const m = data.results.find(x => x.id == id);
+                    const responses = data.results.filter(x => x.id_resposta == id);
+                    
                     const modal = document.getElementById('detalhesModal');
                     const content = document.getElementById('modalContent');
+                    
+                    let responsesHtml = '';
+                    if (responses.length > 0) {
+                        responsesHtml = `
+                            <div class="responses-container">
+                                <h3 class="responses-title"><i class="fa-solid fa-reply-all"></i> Respostas</h3>
+                                ${responses.map(r => `
+                                    <div class="response-card">
+                                        <div class="response-header">
+                                            <span class="response-author"><strong>${r.remetente_nome}</strong></span>
+                                            <span class="response-date">${r.data_envio}</span>
+                                        </div>
+                                        <div class="response-body">${r.descricao || ''}</div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `;
+                    }
+
                     content.innerHTML = `
                         <div class="detail-grid">
                             <div class="detail-item"><strong>Assunto:</strong> ${m.assunto}</div>
@@ -94,6 +115,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div class="detail-item"><strong>Data Envio:</strong> ${m.data_envio}</div>
                             <div class="detail-item full-width"><strong>Mensagem:</strong><br>${m.descricao || 'Sem conteúdo'}</div>
                         </div>
+                        ${responsesHtml}
                     `;
                     modal.classList.add('active');
                 });
@@ -109,5 +131,12 @@ document.addEventListener('DOMContentLoaded', function() {
 .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 10px; }
 .detail-item { font-size: 0.95rem; }
 .detail-item.full-width { grid-column: span 2; border-top: 1px solid #eee; padding-top: 10px; }
+
+.responses-container { margin-top: 20px; border-top: 2px solid #ddd; padding-top: 15px; }
+.responses-title { font-size: 1.1rem; color: #2c3e50; margin-bottom: 15px; display: flex; align-items: center; gap: 8px; }
+.response-card { background: #f9f9f9; border-left: 4px solid #3498db; padding: 12px; margin-bottom: 12px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.response-header { display: flex; justify-content: space-between; font-size: 0.85rem; color: #666; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
+.response-author { color: #2c3e50; }
+.response-body { font-size: 0.95rem; line-height: 1.4; color: #333; }
 </style>
 {% endblock %}
