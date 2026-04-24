@@ -9,7 +9,7 @@ import pymysql
 DB_HOST = os.environ.get("DB_HOST", "localhost")
 DB_USER = os.environ.get("DB_USER", "root")
 DB_PASSWORD = os.environ.get("DB_PASSWORD", "root")
-DB_NAME = os.environ.get("DB_NAME", "consorciogm2")
+DB_NAME = os.environ.get("DB_NAME", "consorcio_gm")
 
 # 2. SQL PURO E COM PONTO-E-VÍRGULA
 RAW_SQL = """
