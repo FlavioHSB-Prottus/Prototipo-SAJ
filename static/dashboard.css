@@ -820,6 +820,15 @@
     font-weight: 700;
     color: var(--text-main);
 }
+.metric-pill .metric-currency {
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 0.65rem;
+    opacity: 0.9;
+    border-left: 1px solid rgba(0,0,0,0.1);
+    padding-left: 6px;
+    margin-left: 2px;
+}
 .metric-pill.metric-volume {
     background: #eff6ff;
     border-color: #bfdbfe;

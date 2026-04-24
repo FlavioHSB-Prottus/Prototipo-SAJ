@@ -262,6 +262,18 @@ def cobranca():
 def operadores():
     return render_template('operadores.html')
 
+@app.route('/protocolo')
+def protocolo():
+    return render_template('protocolo.html')
+
+@app.route('/solicitacao')
+def solicitacao():
+    return render_template('solicitacao.html')
+
+@app.route('/mensagem')
+def mensagem():
+    return render_template('mensagem.html')
+
 @app.route('/recuperar_senha')
 def recuperar_senha():
     return render_template('recuperar_senha.html')
@@ -2772,6 +2784,8 @@ def _aggregate_performance_faixa(cursor, y, m, parte):
         'nao_performado': {'recente': 0.0, 'atencao': 0.0, 'critico': 0.0},
     }
     d30 = d60 = d90 = 0
+    v30 = v60 = v90 = 0.0
+    vol_val = 0.0
     for r in rows:
         is_p = _bool_sql(r.get('is_performado'))
         dd = r.get('delay_open')
@@ -2779,6 +2793,7 @@ def _aggregate_performance_faixa(cursor, y, m, parte):
         keyg = 'performado' if is_p else 'nao_performado'
         v = r.get('valor_parcela')
         v = 0.0 if v is None or v == '' else float(v)
+        vol_val += v
         segs[keyg][seg] += 1
         val[keyg][seg] += v
         if is_p:
@@ -2786,18 +2801,25 @@ def _aggregate_performance_faixa(cursor, y, m, parte):
             if diff is not None:
                 if diff <= 30:
                     d30 += 1
+                    v30 += v
                 if diff <= 60:
                     d60 += 1
+                    v60 += v
                 if diff <= 90:
                     d90 += 1
+                    v90 += v
 
     return {
         'volume': len(rows),
+        'volume_val': vol_val,
         'segmentos': segs,
         'valor_por_segmento_brl': val,
         'recovery_d30': d30,
+        'recovery_v30': v30,
         'recovery_d60': d60,
+        'recovery_v60': v60,
         'recovery_d90': d90,
+        'recovery_v90': v90,
     }
 
 
@@ -2856,7 +2878,43 @@ def _daily_series(cursor, d1, d2):
         labels.append(cursor_d.strftime('%d/%m'))
         cursor_d = cursor_d + datetime.timedelta(days=1)
 
-    def _group_by_day(sql_where, params):
+    # Para obter valores, precisamos cruzar com a logica da safra (parcela-alvo)
+    # Pegamos todas as entradas da safra no periodo d1-d2
+    sql_safra = _SAFRA_ENTRADA_SQL
+    y_m0, m_m0 = d1.year, d1.month
+    cursor.execute(sql_safra, (d1.isoformat(), d2.isoformat(), y_m0, m_m0))
+    rows_cohort = cursor.fetchall()
+    
+    novos_map = {}
+    novos_val_map = {}
+    pagos_map = {}
+    pagos_val_map = {}
+    
+    for r in rows_cohort:
+        v = float(r.get('valor_parcela') or 0)
+        
+        # Entrada (Novos)
+        dt_e = r.get('dt_entrada')
+        if dt_e:
+            ke = str(dt_e)
+            novos_map[ke] = novos_map.get(ke, 0) + 1
+            novos_val_map[ke] = novos_val_map.get(ke, 0.0) + v
+            
+        # Pagamento (Performado)
+        if _bool_sql(r.get('is_performado')):
+            dt_p = r.get('dt_paga')
+            # Se performado mas sem dt_paga (fechado no banco), 
+            # para o grafico diario nao temos o dia exato. 
+            # Mas geralmente tem dt_paga se foi via ocorrencia.
+            if dt_p:
+                kp = str(dt_p)
+                pagos_map[kp] = pagos_map.get(kp, 0) + 1
+                pagos_val_map[kp] = pagos_val_map.get(kp, 0.0) + v
+
+    # Indenizados: ainda usamos a query de ocorrencia mas sem valor (ou valor estimado)
+    # Ja que indenizados nao sao necessariamente da "safra performada" da parcela alvo.
+    # Mas para manter consistencia, vamos buscar o valor do contrato/parcela se possivel.
+    def _group_by_day_count(sql_where, params):
         cursor.execute(
             "SELECT DATE(o.data_arquivo) AS dia, "
             "       COUNT(DISTINCT o.id_contrato) AS n "
@@ -2868,17 +2926,16 @@ def _daily_series(cursor, d1, d2):
         )
         return {str(r['dia']): int(r['n'] or 0) for r in cursor.fetchall()}
 
-    novos_map = _group_by_day(
-        " AND o.status = 'aberto' AND o.descricao LIKE '%%novo%%'", []
-    )
-    pagos_map = _group_by_day(" AND o.status = 'fechado'", [])
-    inden_map = _group_by_day(" AND o.status = 'indenizado'", [])
+    inden_map = _group_by_day_count(" AND o.status = 'indenizado'", [])
 
     return {
         'barLabels': labels,
         'novos': [novos_map.get(k, 0) for k in day_keys],
+        'novos_val': [round(novos_val_map.get(k, 0.0), 2) for k in day_keys],
         'pagos': [pagos_map.get(k, 0) for k in day_keys],
+        'pagos_val': [round(pagos_val_map.get(k, 0.0), 2) for k in day_keys],
         'indenizados': [inden_map.get(k, 0) for k in day_keys],
+        'indenizados_val': [0 for k in day_keys], # Indenizados valor nao mapeado aqui
     }
 
 
@@ -2968,9 +3025,13 @@ def api_performance():
             'index': parte,
             'label': _FAIXA_NOMES[parte],
             'volume': volume,
+            'volume_val': ag['volume_val'],
             'd30': d30,
+            'v30': ag['recovery_v30'],
             'd60': d60,
+            'v60': ag['recovery_v60'],
             'd90': d90,
+            'v90': ag['recovery_v90'],
             'desempenho': {
                 'contratos_por_segmento': ag['segmentos'],
                 'valor_parcela_entrada_por_segmento_brl': ag['valor_por_segmento_brl'],
@@ -4750,6 +4811,63 @@ def api_negativacao_enviar():
             f'{len(fora_janela)} fora da janela (30 < dias < 90).'
         ),
     })
+
+
+# ---------------------------------------------------------------------------
+# API: Protocolo, Solicitação e Mensagem
+# ---------------------------------------------------------------------------
+
+@app.route('/api/protocolos')
+def api_protocolos():
+    conn = _get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT p.*, f1.nome AS remetente_nome, f2.nome AS destinatario_nome,
+               c.grupo, c.cota
+        FROM protocolo p
+        JOIN funcionario f1 ON p.id_remetente = f1.id
+        JOIN funcionario f2 ON p.id_destinatario = f2.id
+        LEFT JOIN contrato c ON p.id_contrato = c.id
+        ORDER BY p.data_envio DESC
+    """)
+    rows = _clean_rows(cursor.fetchall())
+    cursor.close()
+    conn.close()
+    return jsonify({'results': rows, 'total': len(rows)})
+
+@app.route('/api/solicitacoes')
+def api_solicitacoes():
+    conn = _get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT s.*, f1.nome AS remetente_nome, f2.nome AS destinatario_nome,
+               c.grupo, c.cota
+        FROM solicitacao s
+        JOIN funcionario f1 ON s.id_remetente = f1.id
+        JOIN funcionario f2 ON s.id_destinatario = f2.id
+        LEFT JOIN contrato c ON s.id_contrato = c.id
+        ORDER BY s.data_envio DESC
+    """)
+    rows = _clean_rows(cursor.fetchall())
+    cursor.close()
+    conn.close()
+    return jsonify({'results': rows, 'total': len(rows)})
+
+@app.route('/api/mensagens')
+def api_mensagens():
+    conn = _get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT m.*, f1.nome AS remetente_nome, f2.nome AS destinatario_nome
+        FROM mensagem m
+        JOIN funcionario f1 ON m.id_remetente = f1.id
+        JOIN funcionario f2 ON m.id_destinatario = f2.id
+        ORDER BY m.data_envio DESC
+    """)
+    rows = _clean_rows(cursor.fetchall())
+    cursor.close()
+    conn.close()
+    return jsonify({'results': rows, 'total': len(rows)})
 
 
 if __name__ == '__main__':
