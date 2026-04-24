@@ -112,9 +112,20 @@ document.addEventListener('DOMContentLoaded', function () {
         data.safras.forEach(function (s) {
             out[s.index] = {
                 barLabels: s.detail.barLabels,
+                volume: s.volume,
+                volume_val: s.volume_val,
+                d30: s.d30,
+                v30: s.v30,
+                d60: s.d60,
+                v60: s.v60,
+                d90: s.d90,
+                v90: s.v90,
                 novos: s.detail.novos,
+                novos_val: s.detail.novos_val,
                 pagos: s.detail.pagos,
+                pagos_val: s.detail.pagos_val,
                 indenizados: s.detail.indenizados,
+                indenizados_val: s.detail.indenizados_val,
                 doughnut: s.detail.doughnut,
             };
         });
@@ -172,6 +183,15 @@ document.addEventListener('DOMContentLoaded', function () {
         // Opcao "Visao geral (todas as faixas)"
         var allOption = document.createElement('label');
         allOption.className = 'safra-option';
+        var sumV = totalField(safras, 'volume');
+        var sumV_val = totalField(safras, 'volume_val');
+        var sum30 = totalField(safras, 'd30');
+        var sum30_val = totalField(safras, 'v30');
+        var sum60 = totalField(safras, 'd60');
+        var sum60_val = totalField(safras, 'v60');
+        var sum90 = totalField(safras, 'd90');
+        var sum90_val = totalField(safras, 'v90');
+
         allOption.innerHTML =
             '<input type="radio" name="safraSel" value="all"' + (activeSafraIndex === null ? ' checked' : '') + '>' +
             '<div class="safra-option-body">' +
@@ -181,14 +201,14 @@ document.addEventListener('DOMContentLoaded', function () {
                     '<span class="safra-option-tag">todas as faixas</span>' +
                 '</div>' +
                 '<div class="safra-option-metrics">' +
-                    metricPill('volume', totalField(safras, 'volume'), 'Cohort safra') +
-                    metricPill('d30', totalField(safras, 'd30'), 'Quit. ≤30d') +
-                    metricPill('d60', totalField(safras, 'd60'), 'Quit. ≤60d') +
-                    metricPill('d90', totalField(safras, 'd90'), 'Quit. ≤90d') +
+                    metricPill('volume', sumV, 'Cohort safra', sumV_val) +
+                    metricPill('d30', sum30, 'Quit. ≤30d', sum30_val) +
+                    metricPill('d60', sum60, 'Quit. ≤60d', sum60_val) +
+                    metricPill('d90', sum90, 'Quit. ≤90d', sum90_val) +
                 '</div>' +
             '</div>';
         safraSelector.appendChild(allOption);
-
+ 
         safras.forEach(function (s) {
             var opt = document.createElement('label');
             opt.className = 'safra-option';
@@ -200,10 +220,10 @@ document.addEventListener('DOMContentLoaded', function () {
                         '<strong>' + escapeHtml(s.label) + '</strong>' +
                     '</div>' +
                     '<div class="safra-option-metrics">' +
-                        metricPill('volume', s.volume, 'Cohort safra') +
-                        metricPill('d30', s.d30, 'Quit. ≤30d') +
-                        metricPill('d60', s.d60, 'Quit. ≤60d') +
-                        metricPill('d90', s.d90, 'Quit. ≤90d') +
+                        metricPill('volume', s.volume, 'Cohort safra', s.volume_val) +
+                        metricPill('d30', s.d30, 'Quit. ≤30d', s.v30) +
+                        metricPill('d60', s.d60, 'Quit. ≤60d', s.v60) +
+                        metricPill('d90', s.d90, 'Quit. ≤90d', s.v90) +
                     '</div>' +
                 '</div>';
             safraSelector.appendChild(opt);
@@ -222,15 +242,22 @@ document.addEventListener('DOMContentLoaded', function () {
         return safras.reduce(function (acc, s) { return acc + (Number(s[key]) || 0); }, 0);
     }
 
-    function metricPill(kind, value, label) {
+    function metricPill(kind, value, label, value_brl) {
         var cls = 'metric-pill';
         if (kind === 'volume') cls += ' metric-volume';
         else if (kind === 'd30') cls += ' metric-success';
         else if (kind === 'd60') cls += ' metric-warning';
         else if (kind === 'd90') cls += ' metric-danger';
         var lbl = label || 'Volume';
-        return '<span class="' + cls + '"><span class="metric-label">' + escapeHtml(lbl) + '</span>' +
-               '<span class="metric-value">' + formatInt(value) + '</span></span>';
+        
+        var html = '<span class="' + cls + '">';
+        html += '<span class="metric-label">' + escapeHtml(lbl) + '</span>';
+        html += '<span class="metric-value">' + formatInt(value) + '</span>';
+        if (value_brl != null) {
+            html += '<span class="metric-currency">R$ ' + Number(value_brl).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</span>';
+        }
+        html += '</span>';
+        return html;
     }
 
     // ========================================================================
@@ -246,7 +273,8 @@ document.addEventListener('DOMContentLoaded', function () {
             if (found) safraName = found.label;
         }
         var viewBar = document.getElementById('viewModeBar');
-        if (viewBar) viewBar.style.display = activeSafraIndex === null ? 'flex' : 'none';
+        // Agora mostramos o toggle sempre, pois ambos os modos suportam valor/quantidade
+        if (viewBar) viewBar.style.display = 'flex';
         renderBarChart(d, safraName);
         renderDoughnutChart(d.doughnut, activeSafraIndex !== null);
     }
@@ -318,23 +346,26 @@ document.addEventListener('DOMContentLoaded', function () {
             barSubtitleEl.textContent = subBase;
         }
 
+        var isValor = viewMode === 'valor';
+        
         if (safraName) {
+            barTitleEl.textContent = 'Detalhamento (safra): ' + safraName;
+            barSubtitleEl.textContent = (isValor ? 'Soma do valor das parcelas (R$) ' : 'Contagem de ocorrências ') + ' — dias do período';
+            
             var keysO = Object.keys(OCORRENCIAS_META);
             var datasets = keysO.map(function (key) {
                 var meta = OCORRENCIAS_META[key];
+                var dataKey = isValor ? (key + '_val') : key;
                 return {
                     label: meta.label,
-                    data: data[key] || [],
+                    data: data[dataKey] || [],
                     backgroundColor: meta.color,
-                    borderColor: meta.color,
-                    borderWidth: 1,
-                    tension: 0.25,
-                    pointRadius: 0,
-                    fill: false,
+                    borderRadius: 2,
                 };
             });
+            
             safraChartInstance = new Chart(ctx, {
-                type: 'line',
+                type: 'bar',
                 data: { labels: data.barLabels, datasets: datasets },
                 options: {
                     responsive: true,
@@ -342,9 +373,25 @@ document.addEventListener('DOMContentLoaded', function () {
                     interaction: { mode: 'index', intersect: false },
                     plugins: {
                         legend: { position: 'top', align: 'end', labels: { usePointStyle: true, boxWidth: 8 } },
+                        tooltip: {
+                            backgroundColor: 'rgba(30, 41, 59, 0.9)', padding: 12, cornerRadius: 8,
+                            callbacks: {
+                                label: function (x) {
+                                    var v = x.parsed && x.parsed.y != null ? x.parsed.y : 0;
+                                    if (isValor) {
+                                        return x.dataset.label + ': R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                    }
+                                    return x.dataset.label + ': ' + formatInt(v);
+                                }
+                            }
+                        }
                     },
                     scales: {
-                        y: { beginAtZero: true, border: { display: false } },
+                        y: { 
+                            beginAtZero: true, 
+                            border: { display: false },
+                            ticks: isValor ? { callback: function (v) { return 'R$ ' + v.toLocaleString('pt-BR'); } } : { precision: 0 }
+                        },
                         x: { grid: { display: false }, border: { display: false } },
                     },
                 },
@@ -352,9 +399,8 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        var block = (viewMode === 'valor' && data.valor_brl) ? data.valor_brl : (data.count || {});
+        var block = (isValor && data.valor_brl) ? data.valor_brl : (data.count || {});
         var defs = buildPerfDatasets();
-        var isValor = viewMode === 'valor';
         var datasets = defs.map(function (def) {
             return {
                 label: def.label,
