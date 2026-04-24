@@ -17,7 +17,9 @@ from werkzeug.utils import secure_filename
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev-consorcio-gm-altere-em-producao')
 
-SCRIPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scripts')
+PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+SCRIPTS_DIR = os.path.join(PROJECT_DIR, 'scripts')
+PYTHON_DIR = os.path.join(PROJECT_DIR, 'Python')
 PYTHON_EXE = sys.executable
 
 _SUBPROCESS_ENV = {**os.environ, 'PYTHONUNBUFFERED': '1'}
@@ -408,7 +410,7 @@ def api_processar():
         yield _sse_event({'type': 'status', 'text': 'Fase 1/2 - Importando Arquivos para o Banco...'})
         yield _sse_event({'type': 'progress', 'value': 5})
 
-        script1 = os.path.join(SCRIPTS_DIR, 'import_only_arquivos_gm.py')
+        script1 = os.path.join(PYTHON_DIR, 'import_only_arquivos_gm.py')
         proc1 = subprocess.Popen(
             [PYTHON_EXE, '-u', script1, temp_dir],
             stdout=subprocess.PIPE,
@@ -482,7 +484,7 @@ def api_processar():
 
         yield _sse_event({'type': 'log', 'level': 'info', 'text': f'Range de datas detectado: {start_date} ate {end_date}'})
 
-        script2 = os.path.join(SCRIPTS_DIR, 'tracker_gm_range_date_contratos.py')
+        script2 = os.path.join(PYTHON_DIR, 'tracker_gm_range_date_contratos.py')
         proc2 = subprocess.Popen(
             [PYTHON_EXE, '-u', script2],
             stdin=subprocess.PIPE,
@@ -523,7 +525,7 @@ def api_processar():
         yield _sse_event({'type': 'status', 'text': 'Fase 3/3 - Distribuindo contratos entre os funcionarios de cobranca...'})
         yield _sse_event({'type': 'progress', 'value': 96})
 
-        script3 = os.path.join(SCRIPTS_DIR, 'distribuir_funcionarios_cobranca.py')
+        script3 = os.path.join(PYTHON_DIR, 'distribuir_funcionarios_cobranca.py')
         proc3 = subprocess.Popen(
             [PYTHON_EXE, '-u', script3],
             stdout=subprocess.PIPE,
@@ -742,7 +744,7 @@ def api_distribuicao_transferir():
 
     No modo 'igualitaria' os contratos sao re-balanceados entre os demais
     funcionarios seguindo as mesmas metricas do seed
-    (scripts/distribuir_funcionarios_cobranca.py): mesma media de valor e
+    (Python/distribuir_funcionarios_cobranca.py): mesma media de valor e
     mesma media de quantidade POR SITUACAO (critico / atencao / recente),
     usando LPT greedy a partir da carga atual dos destinos.
     """
@@ -967,7 +969,7 @@ def api_distribuicao_transferir():
 @app.route('/api/importacao/distribuicao/restaurar', methods=['POST'])
 def api_distribuicao_restaurar():
     """Reverte a distribuicao atual para a baseline gerada pelo algoritmo
-    original (scripts/distribuir_funcionarios_cobranca.py).
+    original (Python/distribuir_funcionarios_cobranca.py).
 
     Estrategia:
         1. Apaga TODAS as linhas de funcionario_cobranca (remove as
@@ -991,7 +993,7 @@ def api_distribuicao_restaurar():
         app.logger.exception('restaurar: falha ao apagar funcionario_cobranca')
         return jsonify({'error': f'Falha ao limpar a distribuicao atual: {exc}'}), 500
 
-    script = os.path.join(SCRIPTS_DIR, 'distribuir_funcionarios_cobranca.py')
+    script = os.path.join(PYTHON_DIR, 'distribuir_funcionarios_cobranca.py')
     try:
         proc = subprocess.run(
             [PYTHON_EXE, '-u', script],

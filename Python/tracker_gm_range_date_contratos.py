@@ -1,6 +1,11 @@
 """
 Tracker por intervalo de datas em arquivos_gm: parse TXT (layout EN002), upsert pessoa/contrato/parcela,
 delta vs arquivo anterior e ocorrencias. Baseado em tracker_gm_range_date_corrigido_v3.py.
+
+Requer layout.json e pessoa_satellite.py no mesmo diretorio (pasta Python/).
+
+Uso (na raiz do projeto):
+    python Python/tracker_gm_range_date_contratos.py
 """
 import datetime
 import json
