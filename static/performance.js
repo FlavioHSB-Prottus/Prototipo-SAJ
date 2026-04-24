@@ -27,13 +27,18 @@ document.addEventListener('DOMContentLoaded', function () {
 
     var OCORRENCIAS_META = {
         novos:       { label: 'Ocorr. novos',        color: '#3b82f6' },
-        pagos:       { label: 'Ocorr. fechado',     color: '#10b981' },
+        pagos:       { label: 'Safra performada',   color: '#10b981' },
         indenizados: { label: 'Ocorr. indenizados', color: '#f59e0b' },
     };
     var PIE_META = [
         { key: 'd30', label: 'Até 30 dias (atraso)',       color: '#10b981' },
         { key: 'd60', label: '31 a 60 dias',               color: '#f59e0b' },
         { key: 'd90', label: 'Acima de 60 dias',            color: '#ef4444' },
+    ];
+    var PIE_META_RECOVERY = [
+        { key: 'd30', label: 'Quitados até 30 dias após entrada', color: '#10b981' },
+        { key: 'd60', label: '31 a 60 dias após entrada',         color: '#f59e0b' },
+        { key: 'd90', label: '61 a 90 dias após entrada',         color: '#ef4444' },
     ];
     var PERF_SUB_KEYS = ['recente', 'atencao', 'critico'];
     var PERF_DEF = [
@@ -138,7 +143,14 @@ document.addEventListener('DOMContentLoaded', function () {
             document.getElementById('kpiSafra').innerHTML =
                 escapeHtml((data.kpis && (data.kpis.faixa_destaque || data.kpis.safra_destaque)) || '—') +
                 ' <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-muted);">(mês corrente)</span>';
-            document.getElementById('kpiRecuperacao').textContent = String(data.kpis.recuperacao_pct) + '%';
+            var elRec = document.getElementById('kpiRecuperacao');
+            elRec.textContent = String(data.kpis.recuperacao_pct) + '%';
+            if (data.kpis.safra_cohort_mes != null && data.kpis.safra_performados_mes != null) {
+                elRec.title = 'Safra no mês: ' + formatInt(data.kpis.safra_performados_mes) + ' de ' +
+                    formatInt(data.kpis.safra_cohort_mes) + ' contratos com parcela de entrada quitada.';
+            } else {
+                elRec.title = '';
+            }
             document.getElementById('kpiParcelas').textContent = formatInt(data.kpis.parcelas_criticas_90d);
 
             renderSafraSelector(data.safras);
@@ -169,10 +181,10 @@ document.addEventListener('DOMContentLoaded', function () {
                     '<span class="safra-option-tag">todas as faixas</span>' +
                 '</div>' +
                 '<div class="safra-option-metrics">' +
-                    metricPill('volume', totalField(safras, 'volume')) +
-                    metricPill('d30', totalField(safras, 'd30'), 'Até 30d') +
-                    metricPill('d60', totalField(safras, 'd60'), 'Até 60d') +
-                    metricPill('d90', totalField(safras, 'd90'), 'Até 90d') +
+                    metricPill('volume', totalField(safras, 'volume'), 'Cohort safra') +
+                    metricPill('d30', totalField(safras, 'd30'), 'Quit. ≤30d') +
+                    metricPill('d60', totalField(safras, 'd60'), 'Quit. ≤60d') +
+                    metricPill('d90', totalField(safras, 'd90'), 'Quit. ≤90d') +
                 '</div>' +
             '</div>';
         safraSelector.appendChild(allOption);
@@ -188,10 +200,10 @@ document.addEventListener('DOMContentLoaded', function () {
                         '<strong>' + escapeHtml(s.label) + '</strong>' +
                     '</div>' +
                     '<div class="safra-option-metrics">' +
-                        metricPill('volume', s.volume) +
-                        metricPill('d30', s.d30, 'Até 30d') +
-                        metricPill('d60', s.d60, 'Até 60d') +
-                        metricPill('d90', s.d90, 'Até 90d') +
+                        metricPill('volume', s.volume, 'Cohort safra') +
+                        metricPill('d30', s.d30, 'Quit. ≤30d') +
+                        metricPill('d60', s.d60, 'Quit. ≤60d') +
+                        metricPill('d90', s.d90, 'Quit. ≤90d') +
                     '</div>' +
                 '</div>';
             safraSelector.appendChild(opt);
@@ -236,7 +248,7 @@ document.addEventListener('DOMContentLoaded', function () {
         var viewBar = document.getElementById('viewModeBar');
         if (viewBar) viewBar.style.display = activeSafraIndex === null ? 'flex' : 'none';
         renderBarChart(d, safraName);
-        renderDoughnutChart(d.doughnut);
+        renderDoughnutChart(d.doughnut, activeSafraIndex !== null);
     }
 
     function buildPerfDatasets() {
@@ -292,7 +304,7 @@ document.addEventListener('DOMContentLoaded', function () {
             barSubtitleEl.textContent = 'Dias do período — safra ' + formatMesLabel(lastMes);
         } else {
             barTitleEl.textContent = 'Desempenho na cobrança por faixa (calendário)';
-            var subBase = (viewMode === 'valor' ? 'Soma do valor de crédito (R$) — ' : 'Contagem de contratos — ') +
+            var subBase = (viewMode === 'valor' ? 'Soma do valor da parcela de entrada (R$) — ' : 'Contagem de contratos (safra) — ') +
                 formatMesLabel(lastMes);
             var parts = [];
             if (!pieSelection.d30 || !pieSelection.d60 || !pieSelection.d90) {
@@ -390,7 +402,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    function renderDoughnutChart(doughnutData) {
+    function renderDoughnutChart(doughnutData, isRecoveryByFaixa) {
         var ctx = document.getElementById('vencimentoChart');
         if (!ctx) return;
         if (vencimentoChartInstance) vencimentoChartInstance.destroy();
@@ -399,7 +411,8 @@ document.addEventListener('DOMContentLoaded', function () {
         var labels = [];
         var values = [];
         var colors = [];
-        PIE_META.forEach(function (meta, idx) {
+        var metaList = isRecoveryByFaixa ? PIE_META_RECOVERY : PIE_META;
+        metaList.forEach(function (meta, idx) {
             if (!pieSelection[meta.key]) return;
             labels.push(meta.label);
             values.push(Number(full[idx]) || 0);
@@ -407,9 +420,15 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
         var total = values.reduce(function (a, b) { return a + b; }, 0);
-        pieSubtitleEl.textContent = total
-            ? formatInt(total) + ' contratos exibidos'
-            : 'Nenhuma fatia selecionada';
+        if (isRecoveryByFaixa) {
+            pieSubtitleEl.textContent = total
+                ? formatInt(total) + ' performados (por prazo após entrada na safra)'
+                : 'Nenhuma fatia selecionada';
+        } else {
+            pieSubtitleEl.textContent = total
+                ? formatInt(total) + ' contratos abertos com atraso'
+                : 'Nenhuma fatia selecionada';
+        }
 
         vencimentoChartInstance = new Chart(ctx, {
             type: 'doughnut',

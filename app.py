@@ -2630,55 +2630,136 @@ def _seg_from_delay_days(dd):
     return 'critico'
 
 
-def _aggregate_performance_faixa(cursor, y, m, parte):
-    """Contratos em cobranca (aberto + parcela aberta) na faixa de calendario,
-    segmentados em Performado vs Nao performado (pagamento em ocorrencia fechado/indenizado
-    no periodo M0 U M1 U M2) e sub-faixas de atraso (Recente 1-30d, Atencao 31-60, Critico 61+)."""
-    d_m0a, d_m0b = _safra_bounds(y, m, parte)
-    y1, m1 = _shift_month(y, m, 1)
-    d_m1a, d_m1b = _safra_bounds(y1, m1, parte)
-    y2, m2 = _shift_month(y, m, 2)
-    d_m2a, d_m2b = _safra_bounds(y2, m2, parte)
-
-    cursor.execute(
-        """
-        SELECT
-            c.id,
-            c.valor_credito,
-            (
-                SELECT MIN(DATEDIFF(CURDATE(), p.vencimento))
-                FROM parcela p
-                WHERE p.id_contrato = c.id AND p.status = 'aberto' AND p.vencimento < CURDATE()
-            ) AS delay_open,
-            EXISTS (
-                SELECT 1 FROM ocorrencia o
-                WHERE o.id_contrato = c.id
-                  AND o.status IN ('fechado', 'indenizado')
-                  AND (
-                        (o.data_arquivo >= %s AND o.data_arquivo <= %s)
-                     OR (o.data_arquivo >= %s AND o.data_arquivo <= %s)
-                     OR (o.data_arquivo >= %s AND o.data_arquivo <= %s)
-                  )
-            ) AS is_performado
-        FROM contrato c
-        WHERE c.status = 'aberto'
-          AND EXISTS (
-              SELECT 1 FROM parcela px WHERE px.id_contrato = c.id AND px.status = 'aberto'
-          )
-          AND EXISTS (
-              SELECT 1 FROM ocorrencia ox
-              WHERE ox.id_contrato = c.id
-                AND ox.data_arquivo >= %s AND ox.data_arquivo <= %s
-          )
-        """,
-        [
-            d_m0a.isoformat(), d_m0b.isoformat(),
-            d_m1a.isoformat(), d_m1b.isoformat(),
-            d_m2a.isoformat(), d_m2b.isoformat(),
-            d_m0a.isoformat(), d_m0b.isoformat(),
-        ],
+_SAFRA_ENTRADA_SQL = """
+WITH entrada AS (
+  SELECT DISTINCT o.id_contrato, o.id_arquivo_gm, o.data_arquivo AS dt_entrada
+  FROM ocorrencia o
+  WHERE o.status = 'aberto'
+    AND LOWER(TRIM(COALESCE(o.descricao, ''))) IN ('contrato novo', 'contrato voltou')
+    AND o.data_arquivo >= %s AND o.data_arquivo <= %s
+    AND YEAR(o.data_arquivo) = %s AND MONTH(o.data_arquivo) = %s
+),
+venc_agg AS (
+  SELECT e.id_contrato, e.id_arquivo_gm, e.dt_entrada, COUNT(*) AS n_venc
+  FROM entrada e
+  INNER JOIN ocorrencia ov ON ov.id_contrato = e.id_contrato
+    AND ov.id_arquivo_gm = e.id_arquivo_gm
+    AND ov.status = 'parcela vencida'
+    AND LOWER(ov.descricao) LIKE 'parcela%%'
+  GROUP BY e.id_contrato, e.id_arquivo_gm, e.dt_entrada
+  HAVING n_venc = 1
+),
+v_line AS (
+  SELECT va.id_contrato, va.id_arquivo_gm, va.dt_entrada, ov.descricao
+  FROM venc_agg va
+  INNER JOIN ocorrencia ov ON ov.id_contrato = va.id_contrato
+    AND ov.id_arquivo_gm = va.id_arquivo_gm
+    AND ov.status = 'parcela vencida'
+),
+num_extract AS (
+  SELECT id_contrato, id_arquivo_gm, dt_entrada,
+    CAST(
+      NULLIF(
+        TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(LOWER(descricao), 'parcela ', -1), ' ', 1)),
+        ''
+      ) AS UNSIGNED
+    ) AS num_p
+  FROM v_line
+),
+pr AS (
+  SELECT nx.id_contrato, nx.id_arquivo_gm, nx.dt_entrada, nx.num_p,
+    p.id AS id_parcela, p.vencimento, p.status AS st_parcela,
+    COALESCE(p.valor_total, p.valor_nominal, 0) AS valor_parcela
+  FROM num_extract nx
+  INNER JOIN parcela p ON p.id_contrato = nx.id_contrato
+    AND p.numero_parcela = nx.num_p
+    AND p.vencimento = (
+      SELECT MIN(p2.vencimento) FROM parcela p2
+      WHERE p2.id_contrato = nx.id_contrato AND p2.numero_parcela = nx.num_p
     )
-    rows = cursor.fetchall()
+  WHERE nx.num_p IS NOT NULL AND nx.num_p > 0
+)
+SELECT
+  pr.id_contrato,
+  pr.dt_entrada,
+  pr.num_p,
+  pr.valor_parcela,
+  pr.vencimento,
+  pr.st_parcela,
+  (
+    SELECT MIN(op.data_arquivo) FROM ocorrencia op
+    WHERE op.id_contrato = pr.id_contrato
+      AND op.status = 'parcela paga'
+      AND op.data_arquivo >= pr.dt_entrada
+      AND LOWER(TRIM(op.descricao)) = CONCAT('parcela ', pr.num_p, ' paga')
+  ) AS dt_paga,
+  (
+    (pr.st_parcela = 'fechado')
+    OR EXISTS (
+      SELECT 1 FROM ocorrencia op2
+      WHERE op2.id_contrato = pr.id_contrato
+        AND op2.status = 'parcela paga'
+        AND op2.data_arquivo >= pr.dt_entrada
+        AND LOWER(TRIM(op2.descricao)) = CONCAT('parcela ', pr.num_p, ' paga')
+    )
+  ) AS is_performado,
+  CASE
+    WHEN (
+      (pr.st_parcela = 'fechado')
+      OR EXISTS (
+        SELECT 1 FROM ocorrencia op3
+        WHERE op3.id_contrato = pr.id_contrato
+          AND op3.status = 'parcela paga'
+          AND op3.data_arquivo >= pr.dt_entrada
+          AND LOWER(TRIM(op3.descricao)) = CONCAT('parcela ', pr.num_p, ' paga')
+      )
+    ) THEN NULL
+    WHEN pr.vencimento < CURDATE() THEN DATEDIFF(CURDATE(), pr.vencimento)
+    ELSE NULL
+  END AS delay_open
+FROM pr
+"""
+
+
+def _safra_entrada_rows(cursor, d_a, d_b, y, m):
+    """Uma linha por (contrato, arquivo) da safra: entrada novo/voltou + exatamente 1 parcela vencida no arquivo."""
+    cursor.execute(
+        _SAFRA_ENTRADA_SQL,
+        (d_a.isoformat(), d_b.isoformat(), y, m),
+    )
+    return cursor.fetchall()
+
+
+def _bool_sql(val):
+    if isinstance(val, (int, float)):
+        return int(val) != 0
+    if isinstance(val, (bytes, bytearray)):
+        return bool(val) and val not in (b'\x00', b'0')
+    return bool(val)
+
+
+def _safra_recovery_diff_days(r):
+    """Dias entre entrada na safra e quitacao (parcela paga); se so fechado sem dt_paga, usa hoje."""
+    dt_ent = r.get('dt_entrada')
+    dt_paga = r.get('dt_paga')
+    if dt_ent is None:
+        return None
+    if hasattr(dt_ent, 'date'):
+        dt_ent = dt_ent.date()
+    if not isinstance(dt_ent, datetime.date):
+        return None
+    if dt_paga is not None and hasattr(dt_paga, 'date'):
+        dt_paga = dt_paga.date()
+    if isinstance(dt_paga, datetime.date):
+        return (dt_paga - dt_ent).days
+    return (datetime.date.today() - dt_ent).days
+
+
+def _aggregate_performance_faixa(cursor, y, m, parte):
+    """Safra na faixa: entrada (aberto novo/voltou) em data_arquivo, exatamente 1 ocorrencia
+    parcela vencida no mesmo id_arquivo_gm, valor da parcela-alvo, performado = parcela paga/fechado."""
+    d_m0a, d_m0b = _safra_bounds(y, m, parte)
+    rows = _safra_entrada_rows(cursor, d_m0a, d_m0b, y, m)
 
     segs = {
         'performado': {'recente': 0, 'atencao': 0, 'critico': 0},
@@ -2688,29 +2769,33 @@ def _aggregate_performance_faixa(cursor, y, m, parte):
         'performado': {'recente': 0.0, 'atencao': 0.0, 'critico': 0.0},
         'nao_performado': {'recente': 0.0, 'atencao': 0.0, 'critico': 0.0},
     }
+    d30 = d60 = d90 = 0
     for r in rows:
+        is_p = _bool_sql(r.get('is_performado'))
         dd = r.get('delay_open')
-        raw = r.get('is_performado')
-        if isinstance(raw, (int, float)):
-            is_p = int(raw) != 0
-        elif isinstance(raw, (bytes, bytearray)):
-            is_p = bool(raw) and raw not in (b'\x00', b'0')
-        else:
-            is_p = bool(raw)
         seg = _seg_from_delay_days(int(dd) if dd is not None else None)
         keyg = 'performado' if is_p else 'nao_performado'
-        v = r.get('valor_credito')
+        v = r.get('valor_parcela')
         v = 0.0 if v is None or v == '' else float(v)
         segs[keyg][seg] += 1
         val[keyg][seg] += v
-
-    # Volume de ocorrencias (qualquer) na faixa (compativel com metrica antiga)
-    volume = _count_distinct_ocorrencias(cursor, [(d_m0a, d_m0b)], None, False)
+        if is_p:
+            diff = _safra_recovery_diff_days(r)
+            if diff is not None:
+                if diff <= 30:
+                    d30 += 1
+                if diff <= 60:
+                    d60 += 1
+                if diff <= 90:
+                    d90 += 1
 
     return {
-        'volume': volume,
+        'volume': len(rows),
         'segmentos': segs,
         'valor_por_segmento_brl': val,
+        'recovery_d30': d30,
+        'recovery_d60': d60,
+        'recovery_d90': d90,
     }
 
 
@@ -2818,6 +2903,15 @@ def api_performance():
     )
     kpi_novos = int(cursor.fetchone()['n'] or 0)
 
+    # KPI: taxa recuperacao = performados (parcela-alvo paga/fechada) / cohort safra no mes
+    last_m = calendar.monthrange(y, m)[1]
+    d_m_start = datetime.date(y, m, 1)
+    d_m_end = datetime.date(y, m, last_m)
+    rows_safra_mes = _safra_entrada_rows(cursor, d_m_start, d_m_end, y, m)
+    n_safra_mes = len(rows_safra_mes)
+    n_perf_mes = sum(1 for r in rows_safra_mes if _bool_sql(r.get('is_performado')))
+    kpi_rec_pct = round(100.0 * n_perf_mes / n_safra_mes, 1) if n_safra_mes else 0.0
+
     # KPI: safra em destaque (hoje)
     today = datetime.date.today()
     parte_hoje = None
@@ -2827,23 +2921,6 @@ def api_performance():
             parte_hoje = p
             break
     kpi_faixa_label = _FAIXA_NOMES[parte_hoje] if parte_hoje is not None else '—'
-
-    # KPI: taxa recuperacao no mes (fechado+indenizado vs total ocorrencias com status relevante)
-    cursor.execute(
-        "SELECT COUNT(*) AS n FROM ocorrencia o "
-        "WHERE YEAR(o.data_arquivo) = %s AND MONTH(o.data_arquivo) = %s "
-        "AND o.status IN ('aberto', 'fechado', 'indenizado')",
-        (y, m),
-    )
-    total_mov = int(cursor.fetchone()['n'] or 0)
-    cursor.execute(
-        "SELECT COUNT(*) AS n FROM ocorrencia o "
-        "WHERE YEAR(o.data_arquivo) = %s AND MONTH(o.data_arquivo) = %s "
-        "AND o.status IN ('fechado', 'indenizado')",
-        (y, m),
-    )
-    mov_rec = int(cursor.fetchone()['n'] or 0)
-    kpi_rec_pct = round(100.0 * mov_rec / total_mov, 1) if total_mov else 0.0
 
     # KPI: parcelas criticas (aberto, vencimento ha mais de 90 dias)
     cursor.execute(
@@ -2869,14 +2946,7 @@ def api_performance():
 
     for parte in range(4):
         d_m0a, d_m0b = _safra_bounds(y, m, parte)
-        y1, m1 = _shift_month(y, m, 1)
-        d_m1a, d_m1b = _safra_bounds(y1, m1, parte)
-        y2, m2 = _shift_month(y, m, 2)
-        d_m2a, d_m2b = _safra_bounds(y2, m2, parte)
-
         ranges_m = [(d_m0a, d_m0b)]
-        ranges_m_m1 = [(d_m0a, d_m0b), (d_m1a, d_m1b)]
-        ranges_m_m2 = [(d_m0a, d_m0b), (d_m1a, d_m1b), (d_m2a, d_m2b)]
 
         ag = _aggregate_performance_faixa(cursor, y, m, parte)
         for pk in ('performado', 'nao_performado'):
@@ -2884,10 +2954,10 @@ def api_performance():
                 ch_perf[pk][sk].append(ag['segmentos'][pk][sk])
                 ch_val[pk][sk].append(round(ag['valor_por_segmento_brl'][pk][sk], 2))
 
-        volume = _count_distinct_ocorrencias(cursor, ranges_m, None, False)
-        d30 = _count_distinct_ocorrencias(cursor, ranges_m, ['fechado', 'indenizado'], False)
-        d60 = _count_distinct_ocorrencias(cursor, ranges_m_m1, ['fechado', 'indenizado'], False)
-        d90 = _count_distinct_ocorrencias(cursor, ranges_m_m2, ['fechado', 'indenizado'], False)
+        volume = ag['volume']
+        d30 = ag['recovery_d30']
+        d60 = ag['recovery_d60']
+        d90 = ag['recovery_d90']
 
         detail = _daily_series(cursor, d_m0a, d_m0b)
         doughnut_safra = [d30, max(0, d60 - d30), max(0, d90 - d60)]
@@ -2901,14 +2971,16 @@ def api_performance():
             'd90': d90,
             'desempenho': {
                 'contratos_por_segmento': ag['segmentos'],
+                'valor_parcela_entrada_por_segmento_brl': ag['valor_por_segmento_brl'],
                 'valor_credito_por_segmento_brl': ag['valor_por_segmento_brl'],
+                'volume_cohort_safra': ag['volume'],
                 'volume_ocorrencias_faixa': ag['volume'],
             },
             'detail': {**detail, 'doughnut': doughnut_safra},
         })
 
         novos_safra = _count_distinct_ocorrencias(cursor, ranges_m, None, desc_novo_only=True)
-        pagos_safra = _count_distinct_ocorrencias(cursor, ranges_m, ['fechado'], False)
+        pagos_safra = sum(ag['segmentos']['performado'][k] for k in ('recente', 'atencao', 'critico'))
         inden_safra = _count_distinct_ocorrencias(cursor, ranges_m, ['indenizado'], False)
         bar_novos.append(novos_safra)
         bar_pagos.append(pagos_safra)
@@ -2951,6 +3023,8 @@ def api_performance():
             'faixa_destaque': kpi_faixa_label,
             'safra_destaque': kpi_faixa_label,
             'recuperacao_pct': kpi_rec_pct,
+            'safra_cohort_mes': n_safra_mes,
+            'safra_performados_mes': n_perf_mes,
             'parcelas_criticas_90d': kpi_parcelas_crit,
         },
         'safras': safras_out,
@@ -2972,7 +3046,7 @@ def api_performance():
 
 _SERIES_LABELS_EXPORT = {
     'novos': 'Contratos Novos',
-    'pagos': 'Contratos Pagos',
+    'pagos': 'Safra performada (parcela de entrada quitada)',
     'indenizados': 'Contratos Indenizados',
 }
 _FAIXA_LABELS_EXPORT = {
@@ -3035,21 +3109,15 @@ def _fetch_export_dataset(cursor, ctx):
     safras_summary = []
     for parte in range(4):
         d_a, d_b = _safra_bounds(y, m, parte)
-        y1, m1 = _shift_month(y, m, 1)
-        y2, m2 = _shift_month(y, m, 2)
-        d_a1, d_b1 = _safra_bounds(y1, m1, parte)
-        d_a2, d_b2 = _safra_bounds(y2, m2, parte)
-        ranges_m = [(d_a, d_b)]
-        ranges_m1 = [(d_a, d_b), (d_a1, d_b1)]
-        ranges_m2 = [(d_a, d_b), (d_a1, d_b1), (d_a2, d_b2)]
+        ag_sum = _aggregate_performance_faixa(cursor, y, m, parte)
         safras_summary.append({
             'label': _SAFRA_LABELS_EXPORT[parte],
             'inicio': d_a.isoformat(),
             'fim': d_b.isoformat(),
-            'volume': _count_distinct_ocorrencias(cursor, ranges_m, None, False),
-            'd30': _count_distinct_ocorrencias(cursor, ranges_m, ['fechado', 'indenizado'], False),
-            'd60': _count_distinct_ocorrencias(cursor, ranges_m1, ['fechado', 'indenizado'], False),
-            'd90': _count_distinct_ocorrencias(cursor, ranges_m2, ['fechado', 'indenizado'], False),
+            'volume': ag_sum['volume'],
+            'd30': ag_sum['recovery_d30'],
+            'd60': ag_sum['recovery_d60'],
+            'd90': ag_sum['recovery_d90'],
         })
 
     # --- Serie para o grafico de barras ---
@@ -3059,9 +3127,10 @@ def _fetch_export_dataset(cursor, ctx):
         for parte in range(4):
             d_a, d_b = _safra_bounds(y, m, parte)
             ranges_m = [(d_a, d_b)]
+            rows_faixa = _safra_entrada_rows(cursor, d_a, d_b, y, m)
             values = {
                 'novos': _count_distinct_ocorrencias(cursor, ranges_m, None, desc_novo_only=True),
-                'pagos': _count_distinct_ocorrencias(cursor, ranges_m, ['fechado'], False),
+                'pagos': sum(1 for r in rows_faixa if _bool_sql(r.get('is_performado'))),
                 'indenizados': _count_distinct_ocorrencias(cursor, ranges_m, ['indenizado'], False),
             }
             for s in series:
@@ -3112,45 +3181,40 @@ def _fetch_export_dataset(cursor, ctx):
         for k in ctx['faixas']
     ]
 
-    # --- Contratos envolvidos na selecao ---
-    # Monta filtro de datas conforme safra selecionada (ou uniao das 4)
+    # --- Contratos do cohort safra (entrada + 1 parcela vencida no arquivo) ---
+    cohort_ids_ordered = []
+    seen_c = set()
     if safra_index is None:
-        date_ranges = [_safra_bounds(y, m, p) for p in range(4)]
+        for parte in range(4):
+            d1, d2 = _safra_bounds(y, m, parte)
+            for r in _safra_entrada_rows(cursor, d1, d2, y, m):
+                cid = r.get('id_contrato')
+                if cid is not None and cid not in seen_c:
+                    seen_c.add(cid)
+                    cohort_ids_ordered.append(cid)
     else:
-        date_ranges = [_safra_bounds(y, m, safra_index)]
+        d1, d2 = _safra_bounds(y, m, safra_index)
+        for r in _safra_entrada_rows(cursor, d1, d2, y, m):
+            cid = r.get('id_contrato')
+            if cid is not None and cid not in seen_c:
+                seen_c.add(cid)
+                cohort_ids_ordered.append(cid)
 
-    date_parts = []
-    date_params = []
-    for d1, d2 in date_ranges:
-        date_parts.append('(o.data_arquivo >= %s AND o.data_arquivo <= %s)')
-        date_params += [d1.isoformat(), d2.isoformat()]
-    where_date = '(' + ' OR '.join(date_parts) + ')'
-
-    status_filters = []
-    serie_params = []
-    if 'pagos' in series or 'indenizados' in series:
-        status_set = []
-        if 'pagos' in series: status_set.append('fechado')
-        if 'indenizados' in series: status_set.append('indenizado')
-        ph = ','.join(['%s'] * len(status_set))
-        status_filters.append('(o.status IN (' + ph + '))')
-        serie_params += status_set
-    if 'novos' in series:
-        status_filters.append("(o.status = 'aberto' AND o.descricao LIKE '%%novo%%')")
-    where_series = '(' + ' OR '.join(status_filters) + ')' if status_filters else '1=1'
-
-    sql = (
-        "SELECT DISTINCT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
-        "       c.valor_credito, c.data_adesao, "
-        "       p.nome_completo AS devedor, p.cpf_cnpj AS devedor_cpf_cnpj "
-        "FROM ocorrencia o "
-        "INNER JOIN contrato c ON c.id = o.id_contrato "
-        "LEFT JOIN pessoa p ON p.id = c.id_pessoa "
-        f"WHERE {where_date} AND {where_series} "
-        "ORDER BY c.grupo, c.cota"
-    )
-    cursor.execute(sql, tuple(date_params) + tuple(serie_params))
-    contratos = _clean_rows(cursor.fetchall())
+    if not cohort_ids_ordered:
+        contratos = []
+    else:
+        ph = ','.join(['%s'] * len(cohort_ids_ordered))
+        cursor.execute(
+            f"SELECT DISTINCT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
+            f"c.valor_credito, c.data_adesao, "
+            f"p.nome_completo AS devedor, p.cpf_cnpj AS devedor_cpf_cnpj "
+            f"FROM contrato c "
+            f"LEFT JOIN pessoa p ON p.id = c.id_pessoa "
+            f"WHERE c.id IN ({ph}) "
+            f"ORDER BY c.grupo, c.cota",
+            tuple(cohort_ids_ordered),
+        )
+        contratos = _clean_rows(cursor.fetchall())
 
     return {
         'resumo': safras_summary,
