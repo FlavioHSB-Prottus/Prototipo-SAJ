@@ -80,16 +80,30 @@
 
         <div class="control-panel-grid control-panel-grid--performance">
 
-            <!-- 1. Faixa de análise -->
+            <!-- 1. Faixa de análise e atraso (faixa de calendário + teto de prazo) -->
             <div class="control-card control-card-wide">
                 <div class="control-card-title">
                     <i class="fa-solid fa-layer-group"></i>
-                    <span>Faixa de análise</span>
+                    <span>Faixa de análise e atraso</span>
                 </div>
-                <p class="control-card-desc">Faixa de dias no mês da safra. Visão geral agrega as quatro faixas; em uma faixa, o rosca mostra performados por prazo de quitação da parcela de entrada.</p>
+                <p class="control-card-desc">Faixa de dias no mês (calendário da safra). Visão geral agrega as quatro faixas; com uma faixa, o gráfico à direita mostra a cobrança por prazo de quitação. O período de atraso aplica o mesmo teto a ambos os gráficos (cumulativo: 30, depois 60, depois até 90 dias; acima de 90 não entra nesses modos).</p>
                 <div class="control-card-body safra-list" id="safraSelector">
                     <div class="safra-loading" style="color:var(--text-muted);font-size:0.85rem">
                         <i class="fa-solid fa-spinner fa-spin"></i> Carregando faixas...
+                    </div>
+                </div>
+                <div class="atraso-teto-block" id="atrasoTetoBlock">
+                    <div class="atraso-teto-label">Período de atraso (quitação) — aplica a Desempenho e a Abertos por vencimento</div>
+                    <div class="atraso-teto-radios" id="atrasoTetoSelector" role="radiogroup" aria-label="Teto de dias de atraso">
+                        <label class="chip-option chip-option-radio">
+                            <input type="radio" name="atrasoTeto" value="30"> Até 30 dias
+                        </label>
+                        <label class="chip-option chip-option-radio">
+                            <input type="radio" name="atrasoTeto" value="60"> Até 60 dias
+                        </label>
+                        <label class="chip-option chip-option-radio">
+                            <input type="radio" name="atrasoTeto" value="90" checked> Até 90 dias
+                        </label>
                     </div>
                 </div>
             </div>
@@ -128,7 +142,7 @@
                         <label class="chip-option chip-compact"><input type="radio" name="viewMode" value="valor"> Valor (R$)</label>
                     </div>
                 </div>
-                <p class="control-card-desc">Performado = parcela de entrada quitada (<em>parcela paga</em> ou parcela fechada). Valor = parcela de entrada, não o crédito total. «Faixas de atraso» filtra subfaixas de atraso dessa parcela (ainda aberta).</p>
+                <p class="control-card-desc">Performado = parcela de entrada quitada no prazo de 0–90 dias. Valor = parcela de entrada. O teto de atraso no bloco <strong>Faixa de análise e atraso</strong> ajusta, na visão geral, o empilhamento de performado / não performado; não performado inclui atraso &gt; 90 dias e quitação &gt; 90 dias (fatia 90+), conforme a API.</p>
                 <div class="control-card-body control-card-perf-chips" id="seriesBarSelector">
                     <label class="chip-option chip-compact"><input type="checkbox" data-perf="performado" checked><span class="chip-dot" style="background:#10b981"></span><span>Performado</span></label>
                     <label class="chip-option chip-compact"><input type="checkbox" data-perf="nao_performado" checked><span class="chip-dot" style="background:#f97316"></span><span>Não performado</span></label>
@@ -161,37 +175,6 @@
                 </div>
                 <div class="export-feedback" id="exportFeedback" style="display:none;"></div>
             </div>
-            </div>
-
-            <!-- 4. Fatias da pizza -->
-            <div class="control-card">
-                <div class="control-card-title">
-                    <i class="fa-solid fa-chart-pie"></i>
-                    <span>Faixas de atraso</span>
-                </div>
-                <p class="control-card-desc">No rosca <strong>por faixa</strong>: dias entre entrada na safra e quitação da parcela-alvo. Na visão geral, o gráfico à direita continua sendo atraso global dos contratos abertos.</p>
-                <div class="control-card-body" id="piePerfSelector">
-                    <label class="chip-option">
-                        <input type="checkbox" data-faixa="d30" checked>
-                        <span class="chip-dot" style="background:#10b981"></span>
-                        <span>Até 30 dias</span>
-                    </label>
-                    <label class="chip-option">
-                        <input type="checkbox" data-faixa="d60" checked>
-                        <span class="chip-dot" style="background:#f59e0b"></span>
-                        <span>31 a 60 dias</span>
-                    </label>
-                    <label class="chip-option">
-                        <input type="checkbox" data-faixa="d90" checked>
-                        <span class="chip-dot" style="background:#f97316"></span>
-                        <span>61 a 90 dias</span>
-                    </label>
-                    <label class="chip-option">
-                        <input type="checkbox" data-faixa="dplus" checked>
-                        <span class="chip-dot" style="background:#ef4444"></span>
-                        <span>Acima de 90 dias</span>
-                    </label>
-                </div>
             </div>
 
         </div>

@@ -10,7 +10,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var presetBtns = document.querySelectorAll('.preset-btn');
     var btnReset = document.getElementById('btnResetControles');
     var seriesBarSelector = document.getElementById('seriesBarSelector');
-    var piePerfSelector = document.getElementById('piePerfSelector');
+    var atrasoTetoSelector = document.getElementById('atrasoTetoSelector');
 
     var barTitleEl = document.getElementById('barChartTitle');
     var barSubtitleEl = document.getElementById('chartBarSubtitle');
@@ -24,6 +24,8 @@ document.addEventListener('DOMContentLoaded', function () {
     var currentResponse = null;
     var lastMes = '';
     var viewMode = 'count';
+    /** 30, 60 ou 90: teto cumulativo de dias p/ atraso (barras Desempenho + “Abertos por venc.”). Sinc com radios no DOM. */
+    var atrasoTetoDias = 90;
 
     var OCORRENCIAS_META = {
         novos:       { label: 'Ocorr. novos',        color: '#3b82f6' },
@@ -31,9 +33,9 @@ document.addEventListener('DOMContentLoaded', function () {
         indenizados: { label: 'Ocorr. indenizados', color: '#f59e0b' },
     };
     var PIE_META = [
-        { key: 'd30', label: 'Até 30 dias (atraso)',       color: '#10b981' },
-        { key: 'd60', label: '31 a 60 dias',               color: '#f59e0b' },
-        { key: 'd90', label: 'Acima de 60 dias',            color: '#ef4444' },
+        { key: 'd30', label: 'Até 30 dias',       color: '#10b981' },
+        { key: 'd60', label: '31 a 60 dias',      color: '#f59e0b' },
+        { key: 'd90', label: 'Acima de 60 dias',  color: '#ef4444' },
     ];
     var PIE_META_RECOVERY = [
         { key: 'd30',   label: 'Até 30 dias',     color: '#10b981' },
@@ -47,7 +49,6 @@ document.addEventListener('DOMContentLoaded', function () {
         { g: 'nao_performado', label: 'Não performado',  color: '#f97316' },
     ];
     var perfSelection = { performado: true, nao_performado: true };
-    var pieSelection = { d30: true, d60: true, d90: true, dplus: true };
 
     // --- Utils ---
     function pad2(n) { return n < 10 ? '0' + n : String(n); }
@@ -267,6 +268,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function applyState() {
         if (!safraData || !safraData.all) return;
+        atrasoTetoDias = readAtrasoTetoFromDom();
         var d = activeSafraIndex === null ? safraData.all : safraData[activeSafraIndex];
         var safraName = null;
         if (activeSafraIndex !== null && currentResponse && currentResponse.safras) {
@@ -290,16 +292,30 @@ document.addEventListener('DOMContentLoaded', function () {
         return out;
     }
 
-    /** Subfaixas de atraso (API) alinhadas às fatias «Faixas de atraso» (d30/d60/d90). */
-    function perfSubKeysFromPieSelection() {
-        var keys = [];
-        if (pieSelection.d30) keys.push('recente');
-        if (pieSelection.d60) keys.push('atencao');
-        if (pieSelection.d90) keys.push('critico');
-        return keys;
+    function readAtrasoTetoFromDom() {
+        var el = document.querySelector('input[name="atrasoTeto"]:checked');
+        if (!el) return 90;
+        var n = parseInt(el.value, 10);
+        return n === 30 || n === 60 || n === 90 ? n : 90;
     }
 
-    /** Soma, por faixa no eixo X, apenas os sub-segmentos de atraso marcados em «Faixas de atraso». */
+    /** Teto cumulativo: 30 = só 0-30, 60 = 0-60, 90 = 0-90 (sub-segmentos recente|atencao|critico da API). */
+    function perfSubKeysFromAtrasoTeto() {
+        if (atrasoTetoDias <= 30) return ['recente'];
+        if (atrasoTetoDias <= 60) return ['recente', 'atencao'];
+        return ['recente', 'atencao', 'critico'];
+    }
+
+    /** d30|d60|d90|dplus: incluir bucket conforme teto (dplus nunca com 30/60/90 só; seria 90+ quitação). */
+    function includeDelayBucketKey(key) {
+        if (key === 'd30') return atrasoTetoDias >= 30;
+        if (key === 'd60') return atrasoTetoDias >= 60;
+        if (key === 'd90') return atrasoTetoDias >= 90;
+        if (key === 'dplus') return false;
+        return false;
+    }
+
+    /** Soma, por coluna, só os sub-segmentos (recente|atencao|critico) dentre o teto 30/60/90. */
     function sumPerfSubsegments(block, g) {
         if (!block || !block[g]) return [];
         var gBlock = block[g];
@@ -309,7 +325,7 @@ document.addEventListener('DOMContentLoaded', function () {
             if (a && a.length) n = Math.max(n, a.length);
         }
         if (!n) return [];
-        var subKeys = perfSubKeysFromPieSelection();
+        var subKeys = perfSubKeysFromAtrasoTeto();
         if (!subKeys.length) return new Array(n).fill(0);
         var out = new Array(n);
         for (var j = 0; j < n; j++) {
@@ -334,17 +350,8 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
             barTitleEl.textContent = 'Desempenho na cobrança por faixa (calendário)';
             var subBase = (viewMode === 'valor' ? 'Soma do valor da parcela de entrada (R$) — ' : 'Contagem de contratos (safra) — ') +
-                formatMesLabel(lastMes);
-            var parts = [];
-            if (!pieSelection.d30 || !pieSelection.d60 || !pieSelection.d90 || !pieSelection.dplus) {
-                if (pieSelection.d30) parts.push('até 30 d');
-                if (pieSelection.d60) parts.push('31–60 d');
-                if (pieSelection.d90) parts.push('61–90 d');
-                if (pieSelection.dplus) parts.push('90+ d');
-                subBase += parts.length
-                    ? ' · Atraso (barras): ' + parts.join(', ')
-                    : ' · Nenhuma faixa de atraso (barras zeradas)';
-            }
+                formatMesLabel(lastMes) +
+                ' · Atraso: até ' + atrasoTetoDias + ' dias (cumulativo)';
             barSubtitleEl.textContent = subBase;
         }
 
@@ -461,26 +468,40 @@ document.addEventListener('DOMContentLoaded', function () {
         var colors = [];
         var metaList = isRecoveryByFaixa ? PIE_META_RECOVERY : PIE_META;
         metaList.forEach(function (meta, idx) {
-            if (!pieSelection[meta.key]) return;
+            if (!includeDelayBucketKey(meta.key)) return;
             labels.push(meta.label);
             values.push(Number(full[idx]) || 0);
             colors.push(meta.color);
         });
 
+        if (labels.length === 0) {
+            labels = ['(nenhum bucket)'];
+            values = [0];
+            colors = ['#cbd5e1'];
+        }
+
         var total = values.reduce(function (a, b) { return a + b; }, 0);
         if (isRecoveryByFaixa) {
             pieSubtitleEl.textContent = total
-                ? formatInt(total) + ' performados (por prazo após entrada na safra)'
-                : 'Nenhuma fatia selecionada';
+                ? formatInt(total) + ' performados (prazo pós entrada) · teto de ' + atrasoTetoDias + ' d'
+                : 'Nada no teto de ' + atrasoTetoDias + ' d';
         } else {
             pieSubtitleEl.textContent = total
-                ? formatInt(total) + ' contratos abertos com atraso'
-                : 'Nenhuma fatia selecionada';
+                ? formatInt(total) + ' contratos (atraso) · teto de ' + atrasoTetoDias + ' d'
+                : 'Nada no teto de ' + atrasoTetoDias + ' d';
         }
 
         vencimentoChartInstance = new Chart(ctx, {
             type: 'bar',
-            data: { labels: labels, datasets: [{ data: values, backgroundColor: colors, borderRadius: 4 }] },
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: isRecoveryByFaixa ? 'Prazo após entrada' : 'Atraso (abertos)',
+                    data: values,
+                    backgroundColor: colors,
+                    borderRadius: 4,
+                }],
+            },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
@@ -513,23 +534,22 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    seriesBarSelector.addEventListener('change', function (e) {
-        var cb = e.target;
-        if (!cb || cb.type !== 'checkbox') return;
-        var k = cb.getAttribute('data-perf');
-        if (k !== 'performado' && k !== 'nao_performado') return;
-        perfSelection[k] = cb.checked;
-        applyState();
-    });
+    if (seriesBarSelector) {
+        seriesBarSelector.addEventListener('change', function (e) {
+            var cb = e.target;
+            if (!cb || cb.type !== 'checkbox') return;
+            var k = cb.getAttribute('data-perf');
+            if (k !== 'performado' && k !== 'nao_performado') return;
+            perfSelection[k] = cb.checked;
+            applyState();
+        });
+    }
 
-    piePerfSelector.addEventListener('change', function (e) {
-        var cb = e.target;
-        if (!cb || cb.type !== 'checkbox') return;
-        var k = cb.getAttribute('data-faixa');
-        if (!k) return;
-        pieSelection[k] = cb.checked;
-        applyState();
-    });
+    if (atrasoTetoSelector) {
+        atrasoTetoSelector.addEventListener('change', function (e) {
+            if (e.target && e.target.name === 'atrasoTeto') applyState();
+        });
+    }
 
     if (mesAnoInput) {
         mesAnoInput.value = currentMesAno();
@@ -572,14 +592,13 @@ document.addEventListener('DOMContentLoaded', function () {
         activeSafraIndex = null;
         resetPerfSelection();
         viewMode = 'count';
+        atrasoTetoDias = 90;
         var rc = document.querySelector('input[name="viewMode"][value="count"]');
         if (rc) rc.checked = true;
-        pieSelection = { d30: true, d60: true, d90: true, dplus: true };
+        var r90 = document.querySelector('input[name="atrasoTeto"][value="90"]');
+        if (r90) r90.checked = true;
         if (seriesBarSelector) {
             seriesBarSelector.querySelectorAll('input[type="checkbox"]').forEach(function (cb) { cb.checked = true; });
-        }
-        if (piePerfSelector) {
-            piePerfSelector.querySelectorAll('input[type="checkbox"]').forEach(function (cb) { cb.checked = true; });
         }
         mesAnoInput.value = currentMesAno();
         clearPresetActive();
@@ -615,6 +634,13 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    function faixasForExportFromAtrasoTeto() {
+        var t = readAtrasoTetoFromDom();
+        if (t <= 30) return ['d30'];
+        if (t <= 60) return ['d30', 'd60'];
+        return ['d30', 'd60', 'd90'];
+    }
+
     async function doExport(formato) {
         if (!currentResponse) {
             showExportFeedback('Carregue os dados antes de exportar.', 'err');
@@ -622,11 +648,13 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
         syncPerfFromDom();
+        atrasoTetoDias = readAtrasoTetoFromDom();
         var payload = {
             mes: lastMes,
             safra_index: activeSafraIndex === null ? 'all' : activeSafraIndex,
             series: ['novos', 'pagos', 'indenizados'],
-            faixas: Object.keys(pieSelection).filter(function (k) { return pieSelection[k]; }),
+            faixas: faixasForExportFromAtrasoTeto(),
+            atraso_teto: atrasoTetoDias,
         };
         if (formato === 'pdf') {
             payload.bar_image = chartToDataURL(safraChartInstance);

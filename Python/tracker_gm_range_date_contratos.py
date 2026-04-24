@@ -11,6 +11,7 @@ import datetime
 import json
 import os
 import re
+import subprocess
 import sys
 
 import pymysql
@@ -430,6 +431,7 @@ def insert_ocorrencia(cursor, id_contrato, arquivo_gm_id, status, descricao):
         """,
         (id_contrato, arquivo_gm_id, arquivo_gm_id, status, descricao),
     )
+    return cursor.lastrowid
 
 
 def _liberar_negativacao_parcela_paga(cursor, conn, id_parcela, id_contrato, arquivo_gm_id):
@@ -1054,6 +1056,25 @@ def main():
     cursor.close()
     conn.close()
     print("Sincronizacao global concluida!")
+
+    script_perf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "performance_sincronizar.py")
+    if os.path.isfile(script_perf):
+        try:
+            proc = subprocess.run(
+                [sys.executable, script_perf],
+                check=False,
+            )
+            if proc.returncode == 0:
+                print("Tabela `performance` sincronizada (script auxiliar concluiu com sucesso).")
+            else:
+                print(
+                    f"  [!] performance_sincronizar.py terminou com codigo {proc.returncode}. "
+                    "Execute manualmente: python3 Python/performance_sincronizar.py"
+                )
+        except OSError as exc:
+            print(f"  [!] Nao foi possivel executar performance_sincronizar.py: {exc}")
+    else:
+        print(f"  [!] Script nao encontrado: {script_perf} (pulei sincronizacao de performance).")
 
 
 if __name__ == "__main__":

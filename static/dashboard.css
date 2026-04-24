@@ -518,15 +518,10 @@
         min-width: 0;
         align-self: start;
     }
-    .control-panel-grid--performance > .control-card:nth-child(3) {
-        grid-column: 1 / -1;
-        grid-row: 3;
-    }
 }
 @media (max-width: 959px) {
     .control-panel-grid--performance .control-card-wide,
-    .control-panel-grid--performance .control-stack-safra-perf,
-    .control-panel-grid--performance > .control-card:nth-child(3) {
+    .control-panel-grid--performance .control-stack-safra-perf {
         grid-column: auto;
         grid-row: auto;
     }
@@ -647,6 +642,41 @@
     border-radius: 50%;
     display: inline-block;
     flex-shrink: 0;
+}
+.chip-option.chip-option-radio {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    font-size: 0.82rem;
+}
+.chip-option.chip-option-radio input[type="radio"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: #3b82f6;
+    flex-shrink: 0;
+    margin: 0;
+}
+.atraso-teto-block {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color, #e2e8f0);
+}
+.atraso-teto-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin: 0 0 8px 0;
+    line-height: 1.4;
+    text-transform: none;
+    letter-spacing: 0.01em;
+}
+.atraso-teto-radios {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
 }
 
 .period-body {
