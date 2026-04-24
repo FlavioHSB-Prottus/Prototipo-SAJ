@@ -218,7 +218,7 @@ CREATE TABLE `registro3` (
   `cartorio` varchar(50) DEFAULT NULL,
   `vl_avaliacao` varchar(30) DEFAULT NULL,
   `id_arquivo_gm` int(11) DEFAULT NULL,
-  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  `created_at" timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id_registro`),
   KEY `idx_r3_grupo_cota` (`grupo`,`cota`),
@@ -290,7 +290,7 @@ CREATE TABLE `registro5` (
   `endref_b_aval` varchar(40) DEFAULT NULL,
   `bairrob_refe_aval` varchar(25) DEFAULT NULL,
   `ddd_b_ref_aval` varchar(3) DEFAULT NULL,
-  `fon_b_aval` varchar(15) DEFAULT NULL,
+  `fon_b_aval" varchar(15) DEFAULT NULL,
   `ram_b_aval` varchar(4) DEFAULT NULL,
   `refer_c_aval` varchar(40) DEFAULT NULL,
   `endref_c_aval` varchar(40) DEFAULT NULL,
@@ -413,7 +413,7 @@ CREATE TABLE `registro_6` (
   `tx_adm` varchar(30) DEFAULT NULL,
   `fd_reserva` varchar(30) DEFAULT NULL,
   `seguro` varchar(30) DEFAULT NULL,
-  `id_arquivo_gm` int(11) DEFAULT NULL,
+  `id_arquivo_gm" int(11) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id_registro`),
@@ -426,7 +426,7 @@ CREATE TABLE `telefone` (
   `id_pessoa` bigint(20) NOT NULL,
   `tipo` varchar(40) NOT NULL COMMENT 'fixo, celular, comercial_devedor, comercial_conjuge, avalista_fixo, avalista_celular, ...',
   `ddd` varchar(5) DEFAULT NULL,
-  `numero` varchar(30) NOT NULL,
+  `numero" varchar(30) NOT NULL,
   `ramal` varchar(10) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
@@ -511,7 +511,7 @@ CREATE TABLE `ocorrencia` (
   `descricao` varchar(255) DEFAULT '',
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  `status` enum('aberto','fechado','indenizado','parcela paga','parcela vencida') DEFAULT NULL,
+  `status` enum('aberto','fechado','indenizado','parcela paga','parcela vencida','parcela indenizada') DEFAULT NULL,
   `data_arquivo` date DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `id_contrato` (`id_contrato`),
@@ -533,8 +533,11 @@ CREATE TABLE `parcela` (
   `status` enum('aberto','fechado','indenizado') DEFAULT 'aberto',
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `data_pagamento` date DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_contrato_parcela` (`id_contrato`,`numero_parcela`,`vencimento`),
+  KEY `parcela_arquivos_gm_FK` (`data_pagamento`),
+  CONSTRAINT `parcela_arquivos_gm_FK` FOREIGN KEY (`data_pagamento`) REFERENCES `arquivos_gm` (`data_arquivo`) ON DELETE CASCADE,
   CONSTRAINT `parcela_ibfk_1` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE
 );
 
@@ -561,22 +564,22 @@ CREATE TABLE `protocolo` (
 
 CREATE TABLE `solicitacao` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
-  `id_remetente` int(11) NOT NULL,
+  `id_remetente" int(11) NOT NULL,
   `id_destinatario` int(11) NOT NULL,
   `data_aguardar` date NOT NULL,
   `descricao` varchar(255) DEFAULT NULL,
-  `resposta_solicitacao` bigint(20) DEFAULT NULL,
+  `id_resposta` bigint(20) DEFAULT NULL,
   `data_envio` datetime NOT NULL DEFAULT current_timestamp(),
   `id_contrato` bigint(20) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `id_remetente` (`id_remetente`),
   KEY `id_destinatario` (`id_destinatario`),
-  KEY `resposta_solicitacao` (`resposta_solicitacao`),
+  KEY `resposta_solicitacao` (`id_resposta`),
   KEY `solicitacao_contrato_fk` (`id_contrato`),
   CONSTRAINT `solicitacao_contrato_fk` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
   CONSTRAINT `solicitacao_ibfk_1` FOREIGN KEY (`id_remetente`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE,
   CONSTRAINT `solicitacao_ibfk_2` FOREIGN KEY (`id_destinatario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `solicitacao_ibfk_3` FOREIGN KEY (`resposta_solicitacao`) REFERENCES `solicitacao` (`id`) ON DELETE CASCADE
+  CONSTRAINT `solicitacao_ibfk_3` FOREIGN KEY (`id_resposta`) REFERENCES `solicitacao` (`id`) ON DELETE CASCADE
 );
 
 CREATE TABLE `tramitacao` (

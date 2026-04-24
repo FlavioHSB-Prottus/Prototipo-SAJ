@@ -730,7 +730,7 @@ def process_arquivo(
                 ON DUPLICATE KEY UPDATE
                     vencimento = VALUES(vencimento), valor_nominal = VALUES(valor_nominal),
                     valor_total = VALUES(valor_total), multa_juros = VALUES(multa_juros),
-                    status = VALUES(status), updated_at = NOW();"""
+                    status = VALUES(status), data_pagamento = NULL, updated_at = NOW();"""
                 cursor.execute(
                     q_parc,
                     (
@@ -853,8 +853,8 @@ def apply_delta(cursor, conn, arquivo_gm_id,
             except (TypeError, ValueError):
                 num_p = 0
             cursor.execute(
-                "UPDATE parcela SET status = %s, updated_at = NOW() WHERE id_contrato = %s AND numero_parcela = %s",
-                (status_parc, cid, num_p),
+                "UPDATE parcela SET status = %s, data_pagamento = %s, updated_at = NOW() WHERE id_contrato = %s AND numero_parcela = %s",
+                (status_parc, data_arquivo if status_parc == 'fechado' else None, cid, num_p),
             )
 
         cursor.execute("UPDATE contrato SET status = %s WHERE id = %s", (status_o, cid))
@@ -901,8 +901,8 @@ def apply_delta(cursor, conn, arquivo_gm_id,
         )
         row_parc = cursor.fetchone()
         cursor.execute(
-            "UPDATE parcela SET status = 'fechado' WHERE id_contrato = %s AND numero_parcela = %s",
-            (cid, num_p_raw),
+            "UPDATE parcela SET status = 'fechado', data_pagamento = %s WHERE id_contrato = %s AND numero_parcela = %s AND status = 'aberto'",
+            (data_arquivo, cid, num_p_raw),
         )
         if row_parc and row_parc.get("id") is not None:
             _liberar_negativacao_parcela_paga(
