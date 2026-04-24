@@ -21,6 +21,10 @@ document.addEventListener('DOMContentLoaded', function () {
     const searchType = document.getElementById('searchType');
     const btnSearchClear = document.getElementById('btnSearchClear');
     const negativacaoSelect = document.getElementById('negativacaoSelect');
+    const btnParcelasDesordenadas = document.getElementById('btnParcelasDesordenadas');
+
+    /** Filtro da API: somente contratos com parcela em aberto anterior a parcela paga. */
+    let filtroParcelasDesordenadas = false;
 
     // Modal (reutiliza o mesmo padrão da busca)
     const detalhesModal = document.getElementById('detalhesModal');
@@ -68,6 +72,17 @@ document.addEventListener('DOMContentLoaded', function () {
                 wrapper.classList.toggle('neg-filtro-ativo', this.value === 'ativo');
             }
             applyFilter();
+        });
+    }
+
+    if (btnParcelasDesordenadas) {
+        btnParcelasDesordenadas.addEventListener('click', function () {
+            filtroParcelasDesordenadas = !filtroParcelasDesordenadas;
+            btnParcelasDesordenadas.classList.toggle('is-active', filtroParcelasDesordenadas);
+            if (btnParcelasDesordenadas.parentElement) {
+                btnParcelasDesordenadas.parentElement.classList.toggle('filter-active', filtroParcelasDesordenadas);
+            }
+            loadCobranca();
         });
     }
 
@@ -236,11 +251,12 @@ document.addEventListener('DOMContentLoaded', function () {
         showLoading();
 
         try {
-            let url = '/api/cobranca';
+            const q = new URLSearchParams();
             const funcId = operadorSelect.value;
-            if (funcId) {
-                url += '?funcionario_id=' + encodeURIComponent(funcId);
-            }
+            if (funcId) q.set('funcionario_id', funcId);
+            if (filtroParcelasDesordenadas) q.set('parcelas_desordenadas', '1');
+            const qs = q.toString();
+            const url = '/api/cobranca' + (qs ? '?' + qs : '');
 
             const resp = await fetch(url);
             const data = await resp.json();

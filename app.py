@@ -2161,6 +2161,11 @@ def api_cobranca():
         except ValueError:
             funcionario_id = None
 
+    # Filtro opcional: contratos com parcela aberta "antiga" e outra paga
+    # com número maior (parcelas fora de ordem).
+    pdes_raw = request.args.get("parcelas_desordenadas", "").strip().lower()
+    parcelas_desordenadas = pdes_raw in ("1", "true", "yes", "sim", "on")
+
     conn = _get_db()
     cursor = conn.cursor()
 
@@ -2241,6 +2246,23 @@ def api_cobranca():
     elif operador_nome:
         base_sql += " AND f.nome = %s "
         params.append(operador_nome)
+
+    if parcelas_desordenadas:
+        # Mesma regra de universo do painel: último snapshot GM em `cobranca`.
+        base_sql += (
+            "AND c.id IN ("
+            "SELECT DISTINCT p_aberta.id_contrato "
+            "FROM parcela p_aberta "
+            "INNER JOIN contrato con ON p_aberta.id_contrato = con.id "
+            "INNER JOIN parcela p_fechada ON p_aberta.id_contrato = p_fechada.id_contrato "
+            "INNER JOIN cobranca cob_d ON cob_d.id_contrato = con.id AND cob_d.data_arquivo = %s "
+            "WHERE p_aberta.status = 'aberto' "
+            "  AND p_fechada.status = 'fechado' "
+            "  AND p_fechada.numero_parcela > p_aberta.numero_parcela "
+            "  AND con.status = 'aberto'"
+            ") "
+        )
+        params.append(data_ref)
 
     base_sql += (
         "GROUP BY c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
