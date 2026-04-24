@@ -2645,93 +2645,49 @@ def _seg_from_delay_days(dd):
 
 
 _SAFRA_ENTRADA_SQL = """
-WITH entrada AS (
-  SELECT DISTINCT o.id_contrato, o.id_arquivo_gm, o.data_arquivo AS dt_entrada
-  FROM ocorrencia o
-  WHERE o.status = 'aberto'
-    AND LOWER(TRIM(COALESCE(o.descricao, ''))) IN ('contrato novo', 'contrato voltou')
-    AND o.data_arquivo >= %s AND o.data_arquivo <= %s
-    AND YEAR(o.data_arquivo) = %s AND MONTH(o.data_arquivo) = %s
-),
-venc_agg AS (
-  SELECT e.id_contrato, e.id_arquivo_gm, e.dt_entrada, COUNT(*) AS n_venc
-  FROM entrada e
-  INNER JOIN ocorrencia ov ON ov.id_contrato = e.id_contrato
-    AND ov.id_arquivo_gm = e.id_arquivo_gm
-    AND ov.status = 'parcela vencida'
-    AND LOWER(ov.descricao) LIKE 'parcela%%'
-  GROUP BY e.id_contrato, e.id_arquivo_gm, e.dt_entrada
-  HAVING n_venc = 1
-),
-v_line AS (
-  SELECT va.id_contrato, va.id_arquivo_gm, va.dt_entrada, ov.descricao
-  FROM venc_agg va
-  INNER JOIN ocorrencia ov ON ov.id_contrato = va.id_contrato
-    AND ov.id_arquivo_gm = va.id_arquivo_gm
-    AND ov.status = 'parcela vencida'
-),
-num_extract AS (
-  SELECT id_contrato, id_arquivo_gm, dt_entrada,
-    CAST(
-      NULLIF(
-        TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(LOWER(descricao), 'parcela ', -1), ' ', 1)),
-        ''
-      ) AS UNSIGNED
-    ) AS num_p
-  FROM v_line
-),
-pr AS (
-  SELECT nx.id_contrato, nx.id_arquivo_gm, nx.dt_entrada, nx.num_p,
-    p.id AS id_parcela, p.vencimento, p.status AS st_parcela,
-    COALESCE(p.valor_total, p.valor_nominal, 0) AS valor_parcela
-  FROM num_extract nx
-  INNER JOIN parcela p ON p.id_contrato = nx.id_contrato
-    AND p.numero_parcela = nx.num_p
-    AND p.vencimento = (
-      SELECT MIN(p2.vencimento) FROM parcela p2
-      WHERE p2.id_contrato = nx.id_contrato AND p2.numero_parcela = nx.num_p
-    )
-  WHERE nx.num_p IS NOT NULL AND nx.num_p > 0
-)
-SELECT
-  pr.id_contrato,
-  pr.dt_entrada,
-  pr.num_p,
-  pr.valor_parcela,
-  pr.vencimento,
-  pr.st_parcela,
-  (
-    SELECT MIN(op.data_arquivo) FROM ocorrencia op
-    WHERE op.id_contrato = pr.id_contrato
-      AND op.status = 'parcela paga'
-      AND op.data_arquivo >= pr.dt_entrada
-      AND LOWER(TRIM(op.descricao)) = CONCAT('parcela ', pr.num_p, ' paga')
-  ) AS dt_paga,
-  (
-    (pr.st_parcela = 'fechado')
-    OR EXISTS (
-      SELECT 1 FROM ocorrencia op2
-      WHERE op2.id_contrato = pr.id_contrato
-        AND op2.status = 'parcela paga'
-        AND op2.data_arquivo >= pr.dt_entrada
-        AND LOWER(TRIM(op2.descricao)) = CONCAT('parcela ', pr.num_p, ' paga')
-    )
-  ) AS is_performado,
-  CASE
-    WHEN (
-      (pr.st_parcela = 'fechado')
-      OR EXISTS (
-        SELECT 1 FROM ocorrencia op3
-        WHERE op3.id_contrato = pr.id_contrato
-          AND op3.status = 'parcela paga'
-          AND op3.data_arquivo >= pr.dt_entrada
-          AND LOWER(TRIM(op3.descricao)) = CONCAT('parcela ', pr.num_p, ' paga')
-      )
-    ) THEN NULL
-    WHEN pr.vencimento < CURDATE() THEN DATEDIFF(CURDATE(), pr.vencimento)
-    ELSE NULL
-  END AS delay_open
-FROM pr
+SELECT 
+    c.id AS id_contrato,
+    o.data_arquivo AS dt_entrada,
+    p_antiga.vencimento AS vencimento,
+    p_antiga.data_pagamento AS dt_paga,
+    p_antiga.valor_total AS valor_parcela,
+    CASE 
+        WHEN p_antiga.data_pagamento IS NULL THEN 'nao_performado'
+        WHEN DATEDIFF(p_antiga.data_pagamento, p_antiga.vencimento) <= 30 THEN 'd30'
+        WHEN DATEDIFF(p_antiga.data_pagamento, p_antiga.vencimento) <= 60 THEN 'd60'
+        WHEN DATEDIFF(p_antiga.data_pagamento, p_antiga.vencimento) <= 90 THEN 'd90'
+        ELSE 'dplus'
+    END AS recovery_group,
+    CASE WHEN p_antiga.id_contrato IS NOT NULL THEN 1 ELSE 0 END AS is_performado,
+    -- delay_open (for non-performados)
+    CASE 
+        WHEN p_antiga.id_contrato IS NOT NULL THEN NULL
+        ELSE (
+            SELECT DATEDIFF(CURDATE(), MIN(p2.vencimento))
+            FROM parcela p2
+            WHERE p2.id_contrato = c.id AND p2.status = 'aberto'
+        )
+    END AS delay_open
+FROM (
+    SELECT id_contrato, MIN(data_arquivo) as data_arquivo
+    FROM ocorrencia
+    WHERE status = 'aberto'
+      AND data_arquivo >= %s AND data_arquivo <= %s
+    GROUP BY id_contrato
+) o
+LEFT JOIN contrato c ON c.id = o.id_contrato
+LEFT JOIN (
+    -- Busca os dados exatos apenas da parcela mais antiga que foi paga (fechada)
+    SELECT p1.id_contrato, p1.vencimento, p1.data_pagamento, p1.valor_total
+    FROM parcela p1
+    INNER JOIN (
+        SELECT id_contrato, MIN(vencimento) as min_vencimento
+        FROM parcela
+        WHERE status = 'fechado'
+        GROUP BY id_contrato
+    ) p2 ON p1.id_contrato = p2.id_contrato AND p1.vencimento = p2.min_vencimento
+    WHERE p1.status = 'fechado'
+) p_antiga ON p_antiga.id_contrato = c.id
 """
 
 
@@ -2739,7 +2695,7 @@ def _safra_entrada_rows(cursor, d_a, d_b, y, m):
     """Uma linha por (contrato, arquivo) da safra: entrada novo/voltou + exatamente 1 parcela vencida no arquivo."""
     cursor.execute(
         _SAFRA_ENTRADA_SQL,
-        (d_a.isoformat(), d_b.isoformat(), y, m),
+        (d_a.isoformat(), d_b.isoformat()),
     )
     return cursor.fetchall()
 
@@ -2770,8 +2726,6 @@ def _safra_recovery_diff_days(r):
 
 
 def _aggregate_performance_faixa(cursor, y, m, parte):
-    """Safra na faixa: entrada (aberto novo/voltou) em data_arquivo, exatamente 1 ocorrencia
-    parcela vencida no mesmo id_arquivo_gm, valor da parcela-alvo, performado = parcela paga/fechado."""
     d_m0a, d_m0b = _safra_bounds(y, m, parte)
     rows = _safra_entrada_rows(cursor, d_m0a, d_m0b, y, m)
 
@@ -2783,8 +2737,8 @@ def _aggregate_performance_faixa(cursor, y, m, parte):
         'performado': {'recente': 0.0, 'atencao': 0.0, 'critico': 0.0},
         'nao_performado': {'recente': 0.0, 'atencao': 0.0, 'critico': 0.0},
     }
-    d30 = d60 = d90 = 0
-    v30 = v60 = v90 = 0.0
+    d30 = d60 = d90 = dplus = 0
+    v30 = v60 = v90 = vplus = 0.0
     vol_val = 0.0
     for r in rows:
         is_p = _bool_sql(r.get('is_performado'))
@@ -2796,18 +2750,17 @@ def _aggregate_performance_faixa(cursor, y, m, parte):
         vol_val += v
         segs[keyg][seg] += 1
         val[keyg][seg] += v
+        
         if is_p:
-            diff = _safra_recovery_diff_days(r)
-            if diff is not None:
-                if diff <= 30:
-                    d30 += 1
-                    v30 += v
-                if diff <= 60:
-                    d60 += 1
-                    v60 += v
-                if diff <= 90:
-                    d90 += 1
-                    v90 += v
+            rg = r.get('recovery_group')
+            if rg == 'd30':
+                d30 += 1; v30 += v
+            elif rg == 'd60':
+                d60 += 1; v60 += v
+            elif rg == 'd90':
+                d90 += 1; v90 += v
+            elif rg == 'dplus':
+                dplus += 1; vplus += v
 
     return {
         'volume': len(rows),
@@ -2820,6 +2773,8 @@ def _aggregate_performance_faixa(cursor, y, m, parte):
         'recovery_v60': v60,
         'recovery_d90': d90,
         'recovery_v90': v90,
+        'recovery_dplus': dplus,
+        'recovery_vplus': vplus,
     }
 
 
@@ -2882,7 +2837,7 @@ def _daily_series(cursor, d1, d2):
     # Pegamos todas as entradas da safra no periodo d1-d2
     sql_safra = _SAFRA_ENTRADA_SQL
     y_m0, m_m0 = d1.year, d1.month
-    cursor.execute(sql_safra, (d1.isoformat(), d2.isoformat(), y_m0, m_m0))
+    cursor.execute(sql_safra, (d1.isoformat(), d2.isoformat()))
     rows_cohort = cursor.fetchall()
     
     novos_map = {}
@@ -3017,9 +2972,11 @@ def api_performance():
         d30 = ag['recovery_d30']
         d60 = ag['recovery_d60']
         d90 = ag['recovery_d90']
+        dplus = ag['recovery_dplus']
 
         detail = _daily_series(cursor, d_m0a, d_m0b)
-        doughnut_safra = [d30, max(0, d60 - d30), max(0, d90 - d60)]
+        # Agora os valores ja vem em buckets (nao cumulativos)
+        doughnut_safra = [d30, d60, d90, dplus]
 
         safras_out.append({
             'index': parte,
@@ -3032,6 +2989,8 @@ def api_performance():
             'v60': ag['recovery_v60'],
             'd90': d90,
             'v90': ag['recovery_v90'],
+            'dplus': dplus,
+            'vplus': ag['recovery_vplus'],
             'desempenho': {
                 'contratos_por_segmento': ag['segmentos'],
                 'valor_parcela_entrada_por_segmento_brl': ag['valor_por_segmento_brl'],

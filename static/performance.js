@@ -36,9 +36,10 @@ document.addEventListener('DOMContentLoaded', function () {
         { key: 'd90', label: 'Acima de 60 dias',            color: '#ef4444' },
     ];
     var PIE_META_RECOVERY = [
-        { key: 'd30', label: 'Quitados até 30 dias após entrada', color: '#10b981' },
-        { key: 'd60', label: '31 a 60 dias após entrada',         color: '#f59e0b' },
-        { key: 'd90', label: '61 a 90 dias após entrada',         color: '#ef4444' },
+        { key: 'd30',   label: 'Até 30 dias',     color: '#10b981' },
+        { key: 'd60',   label: '31 a 60 dias',    color: '#f59e0b' },
+        { key: 'd90',   label: '61 a 90 dias',    color: '#f97316' },
+        { key: 'dplus', label: 'Acima de 90 dias', color: '#ef4444' },
     ];
     var PERF_SUB_KEYS = ['recente', 'atencao', 'critico'];
     var PERF_DEF = [
@@ -46,7 +47,7 @@ document.addEventListener('DOMContentLoaded', function () {
         { g: 'nao_performado', label: 'Não performado',  color: '#f97316' },
     ];
     var perfSelection = { performado: true, nao_performado: true };
-    var pieSelection = { d30: true, d60: true, d90: true };
+    var pieSelection = { d30: true, d60: true, d90: true, dplus: true };
 
     // --- Utils ---
     function pad2(n) { return n < 10 ? '0' + n : String(n); }
@@ -335,10 +336,11 @@ document.addEventListener('DOMContentLoaded', function () {
             var subBase = (viewMode === 'valor' ? 'Soma do valor da parcela de entrada (R$) — ' : 'Contagem de contratos (safra) — ') +
                 formatMesLabel(lastMes);
             var parts = [];
-            if (!pieSelection.d30 || !pieSelection.d60 || !pieSelection.d90) {
+            if (!pieSelection.d30 || !pieSelection.d60 || !pieSelection.d90 || !pieSelection.dplus) {
                 if (pieSelection.d30) parts.push('até 30 d');
                 if (pieSelection.d60) parts.push('31–60 d');
-                if (pieSelection.d90) parts.push('60+ d');
+                if (pieSelection.d90) parts.push('61–90 d');
+                if (pieSelection.dplus) parts.push('90+ d');
                 subBase += parts.length
                     ? ' · Atraso (barras): ' + parts.join(', ')
                     : ' · Nenhuma faixa de atraso (barras zeradas)';
@@ -477,12 +479,12 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         vencimentoChartInstance = new Chart(ctx, {
-            type: 'doughnut',
-            data: { labels: labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 0, hoverOffset: 4 }] },
+            type: 'bar',
+            data: { labels: labels, datasets: [{ data: values, backgroundColor: colors, borderRadius: 4 }] },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                cutout: '65%',
+                indexAxis: 'y',
                 plugins: {
                     legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20 } },
                     tooltip: {
@@ -572,7 +574,7 @@ document.addEventListener('DOMContentLoaded', function () {
         viewMode = 'count';
         var rc = document.querySelector('input[name="viewMode"][value="count"]');
         if (rc) rc.checked = true;
-        pieSelection = { d30: true, d60: true, d90: true };
+        pieSelection = { d30: true, d60: true, d90: true, dplus: true };
         if (seriesBarSelector) {
             seriesBarSelector.querySelectorAll('input[type="checkbox"]').forEach(function (cb) { cb.checked = true; });
         }
