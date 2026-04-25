@@ -451,7 +451,7 @@ def _liberar_negativacao_parcela_paga(cursor, conn, id_parcela, id_contrato, arq
             id_contrato,
             arquivo_gm_id,
             OCORRENCIA_ABERTO,
-            "Parcela (antes negativada) paga: contrato ativo; outra parcela podera ser negativada se elegivel.",
+            "Parcela paga (antes negativada , agora outra parcela podera ser negativada se elegivel).",
         )
     except Exception:
         pass
