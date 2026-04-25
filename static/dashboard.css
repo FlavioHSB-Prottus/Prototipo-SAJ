@@ -151,6 +151,15 @@
     min-width: 0;
 }
 
+.charts-row--single {
+    max-width: 100%;
+}
+.charts-row--single .line-chart-container--wide {
+    flex: 1 1 100%;
+    min-width: 0;
+    max-width: 100%;
+}
+
 .card-header-slim {
     margin-bottom: 24px;
 }
@@ -532,23 +541,6 @@
     }
 }
 
-.control-stack-safra-perf .control-card-export-inline {
-    padding: 10px 12px 12px;
-    gap: 6px;
-}
-.control-stack-safra-perf .control-card-export-inline .control-card-desc {
-    font-size: 0.75rem;
-    margin: 0 0 4px;
-    line-height: 1.3;
-}
-.control-stack-safra-perf .export-buttons {
-    grid-template-columns: 1fr;
-    gap: 8px;
-}
-.control-stack-safra-perf .export-btn {
-    padding: 10px 12px;
-}
-
 .control-card-perf-compact {
     padding: 12px 14px 14px;
     gap: 6px;
@@ -888,7 +880,7 @@
 .metric-pill.metric-danger .metric-value { color: #7f1d1d; }
 
 /* =============================================
-   CARD DE EXPORTACAO (Performance JB)
+   EXPORT (Performance JB) — barra horizontal no bloco Faixa
    ============================================= */
 .control-card-export {
     grid-column: span 2;
@@ -897,40 +889,117 @@
     .control-card-export { grid-column: span 1; }
 }
 
-.export-buttons {
+.export-bar-wrap {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color, #e2e8f0);
+}
+.export-bar-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    color: var(--primary-color, #0f172a);
+    font-size: 0.9rem;
+}
+.export-bar-head i { color: #3b82f6; }
+.export-bar-desc {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin: 4px 0 8px 0;
+    line-height: 1.3;
+    max-width: 52rem;
+}
+
+.control-card-wide .export-buttons--row,
+.export-buttons--row {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: stretch;
+    justify-content: flex-start;
+}
+
+/* Dashboard e outros: grid vertical de cartões (não use export-buttons--row) */
+.control-card-export .export-buttons,
+.export-buttons:not(.export-buttons--row) {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 10px;
 }
 
-.export-btn {
+.export-btn:not(.export-btn--inline) {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
+    justify-content: flex-start;
     gap: 4px;
     padding: 12px 14px;
+    text-align: left;
+    min-height: auto;
     border: 1px solid var(--border-color);
     border-radius: 10px;
     background: #fff;
     cursor: pointer;
     font-family: inherit;
-    text-align: left;
     transition: var(--transition);
     position: relative;
 }
-.export-btn i {
+.export-btn:not(.export-btn--inline) i {
     font-size: 1.15rem;
     margin-bottom: 2px;
 }
-.export-btn span {
+.export-btn:not(.export-btn--inline) span {
     font-weight: 600;
     font-size: 0.92rem;
     color: var(--text-main);
 }
-.export-btn small {
+.export-btn:not(.export-btn--inline) small {
     color: var(--text-muted);
     font-size: 0.72rem;
     font-weight: 500;
+}
+
+/* Performance JB: fila horizontal compacta */
+.export-btn.export-btn--inline {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 6px 8px;
+    padding: 10px 12px;
+    text-align: center;
+    min-height: 44px;
+    flex: 1 1 100px;
+    max-width: 100%;
+    white-space: nowrap;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: #fff;
+    cursor: pointer;
+    font-family: inherit;
+    transition: var(--transition);
+    position: relative;
+}
+.export-btn--inline i {
+    font-size: 1.1rem;
+    margin-bottom: 0;
+    flex-shrink: 0;
+}
+.export-btn--inline span {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--text-main);
+}
+.export-btn--inline small {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    font-weight: 500;
+    opacity: 0.9;
+}
+@media (max-width: 520px) {
+    .export-btn--inline small { display: none; }
 }
 .export-btn:hover {
     transform: translateY(-1px);
