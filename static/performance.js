@@ -10,44 +10,31 @@ document.addEventListener('DOMContentLoaded', function () {
     var presetBtns = document.querySelectorAll('.preset-btn');
     var btnReset = document.getElementById('btnResetControles');
     var seriesBarSelector = document.getElementById('seriesBarSelector');
-    var piePerfSelector = document.getElementById('piePerfSelector');
+    var atrasoTetoSelector = document.getElementById('atrasoTetoSelector');
 
     var barTitleEl = document.getElementById('barChartTitle');
     var barSubtitleEl = document.getElementById('chartBarSubtitle');
-    var pieSubtitleEl = document.getElementById('pieChartSubtitle');
 
     // --- Estado ---
     var safraChartInstance = null;
-    var vencimentoChartInstance = null;
     var activeSafraIndex = null;        // null = visao geral (4 faixas)
     var safraData = { all: null };
     var currentResponse = null;
     var lastMes = '';
     var viewMode = 'count';
+    /** 30/60/90: teto cumulativo p/ atraso na quitação (performado) e atraso em aberto (nao performado). */
+    var atrasoTetoDias = 90;
 
     var OCORRENCIAS_META = {
         novos:       { label: 'Ocorr. novos',        color: '#3b82f6' },
         pagos:       { label: 'Safra performada',   color: '#10b981' },
         indenizados: { label: 'Ocorr. indenizados', color: '#f59e0b' },
     };
-    var PIE_META = [
-        { key: 'd30', label: 'Até 30 dias (atraso)',       color: '#10b981' },
-        { key: 'd60', label: '31 a 60 dias',               color: '#f59e0b' },
-        { key: 'd90', label: 'Acima de 60 dias',            color: '#ef4444' },
-    ];
-    var PIE_META_RECOVERY = [
-        { key: 'd30',   label: 'Até 30 dias',     color: '#10b981' },
-        { key: 'd60',   label: '31 a 60 dias',    color: '#f59e0b' },
-        { key: 'd90',   label: '61 a 90 dias',    color: '#f97316' },
-        { key: 'dplus', label: 'Acima de 90 dias', color: '#ef4444' },
-    ];
-    var PERF_SUB_KEYS = ['recente', 'atencao', 'critico'];
     var PERF_DEF = [
         { g: 'performado',     label: 'Performado',      color: '#10b981' },
         { g: 'nao_performado', label: 'Não performado',  color: '#f97316' },
     ];
     var perfSelection = { performado: true, nao_performado: true };
-    var pieSelection = { d30: true, d60: true, d90: true, dplus: true };
 
     // --- Utils ---
     function pad2(n) { return n < 10 ? '0' + n : String(n); }
@@ -107,7 +94,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 novos: all.novos,
                 pagos: all.pagos,
                 indenizados: all.indenizados,
-                doughnut: all.doughnut,
             },
         };
         data.safras.forEach(function (s) {
@@ -127,7 +113,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 pagos_val: s.detail.pagos_val,
                 indenizados: s.detail.indenizados,
                 indenizados_val: s.detail.indenizados_val,
-                doughnut: s.detail.doughnut,
             };
         });
         return out;
@@ -151,20 +136,6 @@ document.addEventListener('DOMContentLoaded', function () {
             currentResponse = data;
             safraData = buildSafraDataFromApi(data);
 
-            document.getElementById('kpiNovos').textContent = formatInt(data.kpis.novos_mes);
-            document.getElementById('kpiSafra').innerHTML =
-                escapeHtml((data.kpis && (data.kpis.faixa_destaque || data.kpis.safra_destaque)) || '—') +
-                ' <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-muted);">(mês corrente)</span>';
-            var elRec = document.getElementById('kpiRecuperacao');
-            elRec.textContent = String(data.kpis.recuperacao_pct) + '%';
-            if (data.kpis.safra_cohort_mes != null && data.kpis.safra_performados_mes != null) {
-                elRec.title = 'Safra no mês: ' + formatInt(data.kpis.safra_performados_mes) + ' de ' +
-                    formatInt(data.kpis.safra_cohort_mes) + ' contratos com parcela de entrada quitada.';
-            } else {
-                elRec.title = '';
-            }
-            document.getElementById('kpiParcelas').textContent = formatInt(data.kpis.parcelas_criticas_90d);
-
             renderSafraSelector(data.safras);
             applyState();
         } catch (err) {
@@ -184,14 +155,6 @@ document.addEventListener('DOMContentLoaded', function () {
         // Opcao "Visao geral (todas as faixas)"
         var allOption = document.createElement('label');
         allOption.className = 'safra-option';
-        var sumV = totalField(safras, 'volume');
-        var sumV_val = totalField(safras, 'volume_val');
-        var sum30 = totalField(safras, 'd30');
-        var sum30_val = totalField(safras, 'v30');
-        var sum60 = totalField(safras, 'd60');
-        var sum60_val = totalField(safras, 'v60');
-        var sum90 = totalField(safras, 'd90');
-        var sum90_val = totalField(safras, 'v90');
 
         allOption.innerHTML =
             '<input type="radio" name="safraSel" value="all"' + (activeSafraIndex === null ? ' checked' : '') + '>' +
@@ -200,12 +163,6 @@ document.addEventListener('DOMContentLoaded', function () {
                     '<i class="fa-solid fa-globe"></i>' +
                     '<strong>Visão geral</strong>' +
                     '<span class="safra-option-tag">todas as faixas</span>' +
-                '</div>' +
-                '<div class="safra-option-metrics">' +
-                    metricPill('volume', sumV, 'Cohort safra', sumV_val) +
-                    metricPill('d30', sum30, 'Quit. ≤30d', sum30_val) +
-                    metricPill('d60', sum60, 'Quit. ≤60d', sum60_val) +
-                    metricPill('d90', sum90, 'Quit. ≤90d', sum90_val) +
                 '</div>' +
             '</div>';
         safraSelector.appendChild(allOption);
@@ -220,12 +177,6 @@ document.addEventListener('DOMContentLoaded', function () {
                         '<i class="fa-solid fa-layer-group"></i>' +
                         '<strong>' + escapeHtml(s.label) + '</strong>' +
                     '</div>' +
-                    '<div class="safra-option-metrics">' +
-                        metricPill('volume', s.volume, 'Cohort safra', s.volume_val) +
-                        metricPill('d30', s.d30, 'Quit. ≤30d', s.v30) +
-                        metricPill('d60', s.d60, 'Quit. ≤60d', s.v60) +
-                        metricPill('d90', s.d90, 'Quit. ≤90d', s.v90) +
-                    '</div>' +
                 '</div>';
             safraSelector.appendChild(opt);
         });
@@ -239,34 +190,13 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    function totalField(safras, key) {
-        return safras.reduce(function (acc, s) { return acc + (Number(s[key]) || 0); }, 0);
-    }
-
-    function metricPill(kind, value, label, value_brl) {
-        var cls = 'metric-pill';
-        if (kind === 'volume') cls += ' metric-volume';
-        else if (kind === 'd30') cls += ' metric-success';
-        else if (kind === 'd60') cls += ' metric-warning';
-        else if (kind === 'd90') cls += ' metric-danger';
-        var lbl = label || 'Volume';
-        
-        var html = '<span class="' + cls + '">';
-        html += '<span class="metric-label">' + escapeHtml(lbl) + '</span>';
-        html += '<span class="metric-value">' + formatInt(value) + '</span>';
-        if (value_brl != null) {
-            html += '<span class="metric-currency">R$ ' + Number(value_brl).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</span>';
-        }
-        html += '</span>';
-        return html;
-    }
-
     // ========================================================================
     //                       APLICACAO DE ESTADO (render charts)
     // ========================================================================
 
     function applyState() {
         if (!safraData || !safraData.all) return;
+        atrasoTetoDias = readAtrasoTetoFromDom();
         var d = activeSafraIndex === null ? safraData.all : safraData[activeSafraIndex];
         var safraName = null;
         if (activeSafraIndex !== null && currentResponse && currentResponse.safras) {
@@ -274,10 +204,8 @@ document.addEventListener('DOMContentLoaded', function () {
             if (found) safraName = found.label;
         }
         var viewBar = document.getElementById('viewModeBar');
-        // Agora mostramos o toggle sempre, pois ambos os modos suportam valor/quantidade
         if (viewBar) viewBar.style.display = 'flex';
         renderBarChart(d, safraName);
-        renderDoughnutChart(d.doughnut, activeSafraIndex !== null);
     }
 
     function buildPerfDatasets() {
@@ -290,27 +218,38 @@ document.addEventListener('DOMContentLoaded', function () {
         return out;
     }
 
-    /** Subfaixas de atraso (API) alinhadas às fatias «Faixas de atraso» (d30/d60/d90). */
-    function perfSubKeysFromPieSelection() {
-        var keys = [];
-        if (pieSelection.d30) keys.push('recente');
-        if (pieSelection.d60) keys.push('atencao');
-        if (pieSelection.d90) keys.push('critico');
-        return keys;
+    function readAtrasoTetoFromDom() {
+        var el = document.querySelector('input[name="atrasoTeto"]:checked');
+        if (!el) return 90;
+        var n = parseInt(el.value, 10);
+        return n === 30 || n === 60 || n === 90 ? n : 90;
     }
 
-    /** Soma, por faixa no eixo X, apenas os sub-segmentos de atraso marcados em «Faixas de atraso». */
-    function sumPerfSubsegments(block, g) {
+    /**
+     * Performado: atraso na quitação (DATEDIFF pagamento - vencimento) — buckets d30|d60|d90; dplus opcional.
+     * Nao performado: atraso da parcela aberta — b30|b60|b90|bplus.
+     */
+    function keysPagoQuitacaoCumulative() {
+        if (atrasoTetoDias <= 30) return ['d30'];
+        if (atrasoTetoDias <= 60) return ['d30', 'd60'];
+        return ['d30', 'd60', 'd90'];
+    }
+    function keysNaoAbertoCumulative() {
+        if (atrasoTetoDias <= 30) return ['b30'];
+        if (atrasoTetoDias <= 60) return ['b30', 'b60'];
+        return ['b30', 'b60', 'b90'];
+    }
+
+    function sumPagoNaoByFaixa(block, g) {
         if (!block || !block[g]) return [];
         var gBlock = block[g];
+        var subKeys = g === 'performado' ? keysPagoQuitacaoCumulative() : keysNaoAbertoCumulative();
         var n = 0;
-        for (var i = 0; i < PERF_SUB_KEYS.length; i++) {
-            var a = gBlock[PERF_SUB_KEYS[i]];
+        Object.keys(gBlock).forEach(function (k) {
+            var a = gBlock[k];
             if (a && a.length) n = Math.max(n, a.length);
-        }
+        });
         if (!n) return [];
-        var subKeys = perfSubKeysFromPieSelection();
-        if (!subKeys.length) return new Array(n).fill(0);
         var out = new Array(n);
         for (var j = 0; j < n; j++) {
             var s = 0;
@@ -334,17 +273,8 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
             barTitleEl.textContent = 'Desempenho na cobrança por faixa (calendário)';
             var subBase = (viewMode === 'valor' ? 'Soma do valor da parcela de entrada (R$) — ' : 'Contagem de contratos (safra) — ') +
-                formatMesLabel(lastMes);
-            var parts = [];
-            if (!pieSelection.d30 || !pieSelection.d60 || !pieSelection.d90 || !pieSelection.dplus) {
-                if (pieSelection.d30) parts.push('até 30 d');
-                if (pieSelection.d60) parts.push('31–60 d');
-                if (pieSelection.d90) parts.push('61–90 d');
-                if (pieSelection.dplus) parts.push('90+ d');
-                subBase += parts.length
-                    ? ' · Atraso (barras): ' + parts.join(', ')
-                    : ' · Nenhuma faixa de atraso (barras zeradas)';
-            }
+                formatMesLabel(lastMes) +
+                ' · Teto: até ' + atrasoTetoDias + ' d (quitação: performado; aberto: não performado)';
             barSubtitleEl.textContent = subBase;
         }
 
@@ -406,7 +336,7 @@ document.addEventListener('DOMContentLoaded', function () {
         var datasets = defs.map(function (def) {
             return {
                 label: def.label,
-                data: sumPerfSubsegments(block, def.g),
+                data: sumPagoNaoByFaixa(block, def.g),
                 backgroundColor: def.color,
                 borderRadius: 2,
             };
@@ -450,57 +380,6 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    function renderDoughnutChart(doughnutData, isRecoveryByFaixa) {
-        var ctx = document.getElementById('vencimentoChart');
-        if (!ctx) return;
-        if (vencimentoChartInstance) vencimentoChartInstance.destroy();
-
-        var full = doughnutData || [0, 0, 0];
-        var labels = [];
-        var values = [];
-        var colors = [];
-        var metaList = isRecoveryByFaixa ? PIE_META_RECOVERY : PIE_META;
-        metaList.forEach(function (meta, idx) {
-            if (!pieSelection[meta.key]) return;
-            labels.push(meta.label);
-            values.push(Number(full[idx]) || 0);
-            colors.push(meta.color);
-        });
-
-        var total = values.reduce(function (a, b) { return a + b; }, 0);
-        if (isRecoveryByFaixa) {
-            pieSubtitleEl.textContent = total
-                ? formatInt(total) + ' performados (por prazo após entrada na safra)'
-                : 'Nenhuma fatia selecionada';
-        } else {
-            pieSubtitleEl.textContent = total
-                ? formatInt(total) + ' contratos abertos com atraso'
-                : 'Nenhuma fatia selecionada';
-        }
-
-        vencimentoChartInstance = new Chart(ctx, {
-            type: 'bar',
-            data: { labels: labels, datasets: [{ data: values, backgroundColor: colors, borderRadius: 4 }] },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                indexAxis: 'y',
-                plugins: {
-                    legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20 } },
-                    tooltip: {
-                        callbacks: {
-                            label: function (c) {
-                                var v = c.parsed || 0;
-                                var pct = total ? (v * 100 / total).toFixed(1) + '%' : '0%';
-                                return c.label + ': ' + formatInt(v) + ' (' + pct + ')';
-                            }
-                        }
-                    }
-                },
-            },
-        });
-    }
-
     // ========================================================================
     //                              EVENTOS
     // ========================================================================
@@ -513,23 +392,22 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    seriesBarSelector.addEventListener('change', function (e) {
-        var cb = e.target;
-        if (!cb || cb.type !== 'checkbox') return;
-        var k = cb.getAttribute('data-perf');
-        if (k !== 'performado' && k !== 'nao_performado') return;
-        perfSelection[k] = cb.checked;
-        applyState();
-    });
+    if (seriesBarSelector) {
+        seriesBarSelector.addEventListener('change', function (e) {
+            var cb = e.target;
+            if (!cb || cb.type !== 'checkbox') return;
+            var k = cb.getAttribute('data-perf');
+            if (k !== 'performado' && k !== 'nao_performado') return;
+            perfSelection[k] = cb.checked;
+            applyState();
+        });
+    }
 
-    piePerfSelector.addEventListener('change', function (e) {
-        var cb = e.target;
-        if (!cb || cb.type !== 'checkbox') return;
-        var k = cb.getAttribute('data-faixa');
-        if (!k) return;
-        pieSelection[k] = cb.checked;
-        applyState();
-    });
+    if (atrasoTetoSelector) {
+        atrasoTetoSelector.addEventListener('change', function (e) {
+            if (e.target && e.target.name === 'atrasoTeto') applyState();
+        });
+    }
 
     if (mesAnoInput) {
         mesAnoInput.value = currentMesAno();
@@ -572,14 +450,13 @@ document.addEventListener('DOMContentLoaded', function () {
         activeSafraIndex = null;
         resetPerfSelection();
         viewMode = 'count';
+        atrasoTetoDias = 90;
         var rc = document.querySelector('input[name="viewMode"][value="count"]');
         if (rc) rc.checked = true;
-        pieSelection = { d30: true, d60: true, d90: true, dplus: true };
+        var r90 = document.querySelector('input[name="atrasoTeto"][value="90"]');
+        if (r90) r90.checked = true;
         if (seriesBarSelector) {
             seriesBarSelector.querySelectorAll('input[type="checkbox"]').forEach(function (cb) { cb.checked = true; });
-        }
-        if (piePerfSelector) {
-            piePerfSelector.querySelectorAll('input[type="checkbox"]').forEach(function (cb) { cb.checked = true; });
         }
         mesAnoInput.value = currentMesAno();
         clearPresetActive();
@@ -615,6 +492,13 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    function faixasForExportFromAtrasoTeto() {
+        var t = readAtrasoTetoFromDom();
+        if (t <= 30) return ['d30'];
+        if (t <= 60) return ['d30', 'd60'];
+        return ['d30', 'd60', 'd90'];
+    }
+
     async function doExport(formato) {
         if (!currentResponse) {
             showExportFeedback('Carregue os dados antes de exportar.', 'err');
@@ -622,15 +506,17 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
         syncPerfFromDom();
+        atrasoTetoDias = readAtrasoTetoFromDom();
         var payload = {
             mes: lastMes,
             safra_index: activeSafraIndex === null ? 'all' : activeSafraIndex,
             series: ['novos', 'pagos', 'indenizados'],
-            faixas: Object.keys(pieSelection).filter(function (k) { return pieSelection[k]; }),
+            faixas: faixasForExportFromAtrasoTeto(),
+            atraso_teto: atrasoTetoDias,
         };
         if (formato === 'pdf') {
             payload.bar_image = chartToDataURL(safraChartInstance);
-            payload.pie_image = chartToDataURL(vencimentoChartInstance);
+            payload.pie_image = '';
         }
 
         var btn = document.querySelector('.export-btn[data-formato="' + formato + '"]');

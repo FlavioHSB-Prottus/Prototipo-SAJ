@@ -2644,6 +2644,20 @@ def _seg_from_delay_days(dd):
     return 'critico'
 
 
+def _nao_b_from_open_delay(dd):
+    """Nao performado: faixas de atraso da parcela aberta (alinhado ao teto 30/60/90 d no grafico)."""
+    if dd is None or dd < 1:
+        return 'b30'
+    d = int(dd)
+    if d <= 30:
+        return 'b30'
+    if d <= 60:
+        return 'b60'
+    if d <= 90:
+        return 'b90'
+    return 'bplus'
+
+
 _SAFRA_ENTRADA_SQL = """
 SELECT 
     c.id AS id_contrato,
@@ -2737,8 +2751,10 @@ def _aggregate_performance_faixa(cursor, y, m, parte):
         'performado': {'recente': 0.0, 'atencao': 0.0, 'critico': 0.0},
         'nao_performado': {'recente': 0.0, 'atencao': 0.0, 'critico': 0.0},
     }
-    d30 = d60 = d90 = dplus = 0
-    v30 = v60 = v90 = vplus = 0.0
+    pago = {'d30': 0, 'd60': 0, 'd90': 0, 'dplus': 0}
+    pago_v = {k: 0.0 for k in pago}
+    nab = {'b30': 0, 'b60': 0, 'b90': 0, 'bplus': 0}
+    nab_v = {k: 0.0 for k in nab}
     vol_val = 0.0
     for r in rows:
         is_p = _bool_sql(r.get('is_performado'))
@@ -2750,23 +2766,33 @@ def _aggregate_performance_faixa(cursor, y, m, parte):
         vol_val += v
         segs[keyg][seg] += 1
         val[keyg][seg] += v
-        
         if is_p:
             rg = r.get('recovery_group')
-            if rg == 'd30':
-                d30 += 1; v30 += v
-            elif rg == 'd60':
-                d60 += 1; v60 += v
-            elif rg == 'd90':
-                d90 += 1; v90 += v
-            elif rg == 'dplus':
-                dplus += 1; vplus += v
+            rgk = rg.decode('utf-8') if isinstance(rg, (bytes, bytearray)) else (str(rg) if rg is not None else '')
+            if rgk in pago:
+                pago[rgk] += 1
+                pago_v[rgk] += v
+            else:
+                pago['dplus'] += 1
+                pago_v['dplus'] += v
+        else:
+            dd_i = int(dd) if dd is not None else None
+            bk = _nao_b_from_open_delay(dd_i)
+            nab[bk] += 1
+            nab_v[bk] += v
+
+    d30, d60, d90, dplus = pago['d30'], pago['d60'], pago['d90'], pago['dplus']
+    v30, v60, v90, vplus = pago_v['d30'], pago_v['d60'], pago_v['d90'], pago_v['dplus']
 
     return {
         'volume': len(rows),
         'volume_val': vol_val,
         'segmentos': segs,
         'valor_por_segmento_brl': val,
+        'performado_por_prazo_quitacao': dict(pago),
+        'performado_por_prazo_quitacao_brl': dict(pago_v),
+        'nao_por_atraso_aberto': dict(nab),
+        'nao_por_atraso_aberto_brl': dict(nab_v),
         'recovery_d30': d30,
         'recovery_v30': v30,
         'recovery_d60': d60,
@@ -2950,12 +2976,12 @@ def api_performance():
     bar_pagos = []
     bar_indenizados = []
     ch_perf = {
-        'performado': {'recente': [], 'atencao': [], 'critico': []},
-        'nao_performado': {'recente': [], 'atencao': [], 'critico': []},
+        'performado': {'d30': [], 'd60': [], 'd90': [], 'dplus': []},
+        'nao_performado': {'b30': [], 'b60': [], 'b90': [], 'bplus': []},
     }
     ch_val = {
-        'performado': {'recente': [], 'atencao': [], 'critico': []},
-        'nao_performado': {'recente': [], 'atencao': [], 'critico': []},
+        'performado': {'d30': [], 'd60': [], 'd90': [], 'dplus': []},
+        'nao_performado': {'b30': [], 'b60': [], 'b90': [], 'bplus': []},
     }
 
     for parte in range(4):
@@ -2963,10 +2989,12 @@ def api_performance():
         ranges_m = [(d_m0a, d_m0b)]
 
         ag = _aggregate_performance_faixa(cursor, y, m, parte)
-        for pk in ('performado', 'nao_performado'):
-            for sk in ('recente', 'atencao', 'critico'):
-                ch_perf[pk][sk].append(ag['segmentos'][pk][sk])
-                ch_val[pk][sk].append(round(ag['valor_por_segmento_brl'][pk][sk], 2))
+        for sk in ('d30', 'd60', 'd90', 'dplus'):
+            ch_perf['performado'][sk].append(ag['performado_por_prazo_quitacao'][sk])
+            ch_val['performado'][sk].append(round(ag['performado_por_prazo_quitacao_brl'][sk], 2))
+        for sk in ('b30', 'b60', 'b90', 'bplus'):
+            ch_perf['nao_performado'][sk].append(ag['nao_por_atraso_aberto'][sk])
+            ch_val['nao_performado'][sk].append(round(ag['nao_por_atraso_aberto_brl'][sk], 2))
 
         volume = ag['volume']
         d30 = ag['recovery_d30']
@@ -3002,37 +3030,11 @@ def api_performance():
         })
 
         novos_safra = _count_distinct_ocorrencias(cursor, ranges_m, None, desc_novo_only=True)
-        pagos_safra = sum(ag['segmentos']['performado'][k] for k in ('recente', 'atencao', 'critico'))
+        pagos_safra = sum(ag['performado_por_prazo_quitacao'].values())
         inden_safra = _count_distinct_ocorrencias(cursor, ranges_m, ['indenizado'], False)
         bar_novos.append(novos_safra)
         bar_pagos.append(pagos_safra)
         bar_indenizados.append(inden_safra)
-
-    # Doughnut global: contratos abertos com parcela vencida, por dias de atraso (min vencimento)
-    cursor.execute(
-        """
-        SELECT CASE
-            WHEN DATEDIFF(CURDATE(), v.min_v) BETWEEN 1 AND 30 THEN 'd30'
-            WHEN DATEDIFF(CURDATE(), v.min_v) BETWEEN 31 AND 60 THEN 'd60'
-            WHEN DATEDIFF(CURDATE(), v.min_v) > 60 THEN 'd90'
-            ELSE 'out'
-        END AS faixa, COUNT(*) AS n
-        FROM (
-            SELECT c.id, MIN(par.vencimento) AS min_v
-            FROM contrato c
-            INNER JOIN parcela par ON par.id_contrato = c.id AND par.status = 'aberto'
-            WHERE c.status = 'aberto'
-            GROUP BY c.id
-            HAVING min_v < CURDATE()
-        ) v
-        GROUP BY faixa
-        """
-    )
-    dg = {'d30': 0, 'd60': 0, 'd90': 0}
-    for r in cursor.fetchall():
-        if r['faixa'] in dg:
-            dg[r['faixa']] = int(r['n'] or 0)
-    doughnut_global = [dg['d30'], dg['d60'], dg['d90']]
 
     cursor.close()
     conn.close()
@@ -3057,7 +3059,6 @@ def api_performance():
             'novos': bar_novos,
             'pagos': bar_pagos,
             'indenizados': bar_indenizados,
-            'doughnut': doughnut_global,
         },
     })
 

@@ -668,6 +668,37 @@ CREATE TABLE `negativacao` (
   CONSTRAINT `fk_negativacao_contrato` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
   CONSTRAINT `negativacao_parcela_FK` FOREIGN KEY (`id_parcela`) REFERENCES `parcela` (`id`)
 );
+
+CREATE TABLE `performance` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `id_ocorrencia` bigint(20) NOT NULL,
+  `id_contrato` bigint(20) NOT NULL,
+  `id_arquivo_gm` int(11) DEFAULT NULL,
+  `data_arquivo` date NOT NULL,
+  `grupo` varchar(20) DEFAULT NULL,
+  `cota` varchar(20) DEFAULT NULL,
+  `ocorrencia_status` enum('aberto','fechado','indenizado','parcela paga','parcela vencida','parcela indenizada') NOT NULL,
+  `descricao` varchar(255) DEFAULT '',
+  `id_parcela_ancora` bigint(20) DEFAULT NULL,
+  `vencimento_mais_antigo` date DEFAULT NULL,
+  `data_pagamento` date DEFAULT NULL,
+  `valor_parcela` decimal(16,2) DEFAULT NULL,
+  `is_performado` tinyint(1) NOT NULL DEFAULT 0,
+  `grupo_atraso` varchar(32) DEFAULT NULL,
+  `recovery_code` varchar(8) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_performance_ocorrencia` (`id_ocorrencia`),
+  KEY `idx_perf_data_arquivo` (`data_arquivo`),
+  KEY `idx_perf_contrato` (`id_contrato`),
+  KEY `idx_perf_safra` (`data_arquivo`,`id_contrato`),
+  CONSTRAINT `perf_ocorrencia_fk` FOREIGN KEY (`id_ocorrencia`) REFERENCES `ocorrencia` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `perf_contrato_fk` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `perf_arquivo_fk` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE,
+  CONSTRAINT `perf_data_arq_fk` FOREIGN KEY (`data_arquivo`) REFERENCES `arquivos_gm` (`data_arquivo`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `perf_parcela_anc_fk` FOREIGN KEY (`id_parcela_ancora`) REFERENCES `parcela` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+COMMENT='Snapshot p/ painel Performance: 1 linha por ocorrencia status=aberto (faixa data_arquivo)';
 """
 
 def connect_server():
