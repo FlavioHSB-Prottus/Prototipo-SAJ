@@ -3,6 +3,7 @@ import datetime
 import decimal
 import io
 import json
+import mimetypes
 import secrets
 import os
 import shutil
@@ -274,9 +275,422 @@ def solicitacao():
 def mensagem():
     return render_template('mensagem.html')
 
+@app.route('/pasta-virtual')
+def pasta_virtual():
+    return render_template('pasta_virtual.html')
+
 @app.route('/recuperar_senha')
 def recuperar_senha():
     return render_template('recuperar_senha.html')
+
+
+# ---------------------------------------------------------------------------
+# API: Pasta Virtual
+# ---------------------------------------------------------------------------
+
+_PASTA_VIRTUAL_TABLE = 'pasta_virtual'
+_PV_BINARY_TYPES = {'tinyblob', 'blob', 'mediumblob', 'longblob', 'binary', 'varbinary'}
+
+
+def _sql_ident(name):
+    return '`' + str(name).replace('`', '``') + '`'
+
+
+def _pv_bool(val):
+    if isinstance(val, (bytes, bytearray)):
+        return bool(val) and val not in (b'\x00', b'0')
+    if isinstance(val, (int, float)):
+        return int(val) != 0
+    return bool(val)
+
+
+def _pv_columns(cursor):
+    cursor.execute(
+        """
+        SELECT COLUMN_NAME, DATA_TYPE, COLUMN_KEY, IS_NULLABLE, COLUMN_DEFAULT, EXTRA
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
+        ORDER BY ORDINAL_POSITION
+        """,
+        (DB_CONFIG['database'], _PASTA_VIRTUAL_TABLE),
+    )
+    return cursor.fetchall()
+
+
+def _pv_detect_meta(columns):
+    names = [c['COLUMN_NAME'] for c in columns]
+    lower_map = {n.lower(): n for n in names}
+
+    pk_col = None
+    for c in columns:
+        if str(c.get('COLUMN_KEY') or '').upper() == 'PRI':
+            pk_col = c['COLUMN_NAME']
+            break
+    if not pk_col:
+        pk_col = lower_map.get('id') or (names[0] if names else None)
+
+    contrato_col = lower_map.get('id_contrato')
+    blob_col = None
+    for c in columns:
+        if (c.get('DATA_TYPE') or '').lower() in _PV_BINARY_TYPES:
+            blob_col = c['COLUMN_NAME']
+            break
+
+    nome_col = None
+    for cand in ('nome_arquivo', 'arquivo_nome', 'filename', 'file_name', 'nome', 'titulo'):
+        if cand in lower_map:
+            nome_col = lower_map[cand]
+            break
+
+    mime_col = None
+    for cand in ('mimetype', 'mime_type', 'tipo_mime', 'content_type'):
+        if cand in lower_map:
+            mime_col = lower_map[cand]
+            break
+
+    order_col = None
+    for cand in ('updated_at', 'created_at', 'data_arquivo', 'data', 'id'):
+        if cand in lower_map:
+            order_col = lower_map[cand]
+            break
+    if not order_col:
+        order_col = pk_col
+
+    funcionario_col = lower_map.get('id_funcionario')
+
+    desc_col = None
+    for cand in ('descricao', 'observacao', 'comentario', 'texto', 'notas'):
+        if cand in lower_map:
+            desc_col = lower_map[cand]
+            break
+
+    return {
+        'pk_col': pk_col,
+        'contrato_col': contrato_col,
+        'funcionario_col': funcionario_col,
+        'desc_col': desc_col,
+        'blob_col': blob_col,
+        'nome_col': nome_col,
+        'mime_col': mime_col,
+        'order_col': order_col,
+    }
+
+
+def _pv_required_insert_cols(columns, meta):
+    required = []
+    for c in columns:
+        name = c['COLUMN_NAME']
+        if name == meta.get('pk_col'):
+            continue
+        extra = str(c.get('EXTRA') or '').lower()
+        if 'auto_increment' in extra:
+            continue
+        if (c.get('IS_NULLABLE') or '').upper() == 'YES':
+            continue
+        if c.get('COLUMN_DEFAULT') is not None:
+            continue
+        required.append(name)
+    return required
+
+
+@app.route('/api/pasta-virtual')
+def api_pasta_virtual_list():
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        cols = _pv_columns(cursor)
+        if not cols:
+            return jsonify({'error': 'Tabela `pasta_virtual` não encontrada ou sem colunas.'}), 404
+        meta = _pv_detect_meta(cols)
+        if not meta.get('pk_col'):
+            return jsonify({'error': 'Tabela `pasta_virtual` sem chave identificadora.'}), 500
+
+        select_cols = []
+        for c in cols:
+            col_name = c['COLUMN_NAME']
+            dt = (c.get('DATA_TYPE') or '').lower()
+            if dt in _PV_BINARY_TYPES:
+                continue
+            select_cols.append(col_name)
+
+        for req_col in (meta['pk_col'], meta['contrato_col'], meta['nome_col'], meta['mime_col']):
+            if req_col and req_col not in select_cols:
+                select_cols.append(req_col)
+
+        select_expr = [f"pv.{_sql_ident(c)} AS {_sql_ident(c)}" for c in select_cols]
+        if meta['blob_col']:
+            select_expr.append(
+                f"(pv.{_sql_ident(meta['blob_col'])} IS NOT NULL "
+                f"AND OCTET_LENGTH(pv.{_sql_ident(meta['blob_col'])}) > 0) AS has_arquivo"
+            )
+        else:
+            select_expr.append("0 AS has_arquivo")
+
+        if meta['contrato_col']:
+            select_expr.extend([
+                "c.grupo AS contrato_grupo",
+                "c.cota AS contrato_cota",
+                "c.numero_contrato AS contrato_numero",
+                "c.status AS contrato_status",
+                "p.nome_completo AS contrato_nome_devedor",
+            ])
+
+        if meta.get('funcionario_col'):
+            select_expr.append("f.nome AS pasta_virtual_funcionario_nome")
+
+        sql = (
+            "SELECT " + ", ".join(select_expr) +
+            f" FROM {_sql_ident(_PASTA_VIRTUAL_TABLE)} pv "
+        )
+        if meta['contrato_col']:
+            sql += (
+                f"LEFT JOIN contrato c ON c.id = pv.{_sql_ident(meta['contrato_col'])} "
+                "LEFT JOIN pessoa p ON p.id = c.id_pessoa "
+            )
+        if meta.get('funcionario_col'):
+            sql += f"LEFT JOIN funcionario f ON f.id = pv.{_sql_ident(meta['funcionario_col'])} "
+        sql += f"ORDER BY pv.{_sql_ident(meta['order_col'])} DESC"
+
+        cursor.execute(sql)
+        rows = _clean_rows(cursor.fetchall())
+
+        items = []
+        for r in rows:
+            id_contrato = r.get(meta['contrato_col']) if meta['contrato_col'] else None
+            g = r.get('contrato_grupo')
+            cota = r.get('contrato_cota')
+            contrato_label = None
+            if g is not None and cota is not None:
+                contrato_label = f"{g}/{cota}"
+            elif id_contrato is not None:
+                contrato_label = f"Contrato #{id_contrato}"
+            _pv_campos_excl = {
+                'has_arquivo', 'contrato_grupo', 'contrato_cota', 'contrato_numero', 'contrato_status',
+                'contrato_nome_devedor', 'pasta_virtual_funcionario_nome',
+            }
+            if meta.get('desc_col'):
+                _pv_campos_excl.add(meta['desc_col'])
+
+            item = {
+                'id': r.get(meta['pk_col']),
+                'id_contrato': id_contrato,
+                'contrato_label': contrato_label,
+                'contrato_numero': r.get('contrato_numero'),
+                'contrato_status': r.get('contrato_status'),
+                'contrato_nome_devedor': r.get('contrato_nome_devedor'),
+                'arquivo_nome': r.get(meta['nome_col']) if meta['nome_col'] else None,
+                'mime_type': r.get(meta['mime_col']) if meta['mime_col'] else None,
+                'funcionario_nome': r.get('pasta_virtual_funcionario_nome')
+                if meta.get('funcionario_col') else None,
+                'descricao': r.get(meta['desc_col']) if meta.get('desc_col') else None,
+                'has_arquivo': _pv_bool(r.get('has_arquivo')),
+                'campos': {k: v for k, v in r.items() if k not in _pv_campos_excl},
+            }
+            items.append(item)
+
+        return jsonify({'items': items})
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+@app.route('/api/pasta-virtual/meta')
+def api_pasta_virtual_meta():
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        cols = _pv_columns(cursor)
+        if not cols:
+            return jsonify({'error': 'Tabela `pasta_virtual` não encontrada.'}), 404
+        meta = _pv_detect_meta(cols)
+        required = _pv_required_insert_cols(cols, meta)
+        return jsonify({
+            'pk_col': meta.get('pk_col'),
+            'contrato_col': meta.get('contrato_col'),
+            'blob_col': meta.get('blob_col'),
+            'nome_col': meta.get('nome_col'),
+            'mime_col': meta.get('mime_col'),
+            'required_cols': required,
+            'columns': [c.get('COLUMN_NAME') for c in cols],
+        })
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+@app.route('/api/pasta-virtual/inserir', methods=['POST'])
+def api_pasta_virtual_insert():
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        cols = _pv_columns(cursor)
+        if not cols:
+            return jsonify({'error': 'Tabela `pasta_virtual` não encontrada.'}), 404
+        meta = _pv_detect_meta(cols)
+        valid_cols = {c['COLUMN_NAME'] for c in cols}
+        lower_map = {c['COLUMN_NAME'].lower(): c['COLUMN_NAME'] for c in cols}
+        required_cols = set(_pv_required_insert_cols(cols, meta))
+
+        payload = {}
+        for k in request.form.keys():
+            if k not in valid_cols:
+                continue
+            if k == meta.get('pk_col'):
+                continue
+            val = request.form.get(k)
+            if val is None:
+                continue
+            val = str(val).strip()
+            if val == '':
+                continue
+            payload[k] = val
+
+        # Resolve contrato por grupo/cota informado no formulario.
+        grupo_in = (request.form.get('grupo') or '').strip()
+        cota_in = (request.form.get('cota') or '').strip()
+        if meta.get('contrato_col'):
+            if not grupo_in or not cota_in:
+                return jsonify({'error': 'Informe grupo e cota para localizar o contrato.'}), 400
+            cursor.execute(
+                "SELECT id FROM contrato WHERE grupo = %s AND cota = %s LIMIT 1",
+                (grupo_in, cota_in),
+            )
+            c_row = cursor.fetchone()
+            if not c_row:
+                return jsonify({'error': f'Contrato nao encontrado para grupo/cota: {grupo_in}/{cota_in}'}), 404
+            payload[meta['contrato_col']] = c_row.get('id')
+
+        # id_funcionario deve vir da sessao do usuario logado.
+        id_func_col = lower_map.get('id_funcionario')
+        if id_func_col:
+            fid = session.get('funcionario_id')
+            if not fid:
+                return jsonify({'error': 'Sessao invalida. Faca login novamente.'}), 401
+            payload[id_func_col] = int(fid)
+
+        if meta.get('blob_col'):
+            f = request.files.get('arquivo')
+            if f and getattr(f, 'filename', None):
+                blob_data = f.read()
+                if blob_data:
+                    payload[meta['blob_col']] = blob_data
+                    if meta.get('nome_col') and not payload.get(meta['nome_col']):
+                        payload[meta['nome_col']] = secure_filename(f.filename) or f.filename
+                    if meta.get('mime_col') and not payload.get(meta['mime_col']):
+                        payload[meta['mime_col']] = f.mimetype or mimetypes.guess_type(f.filename)[0] or 'application/octet-stream'
+
+        missing = [c for c in required_cols if c not in payload]
+        if missing:
+            return jsonify({
+                'error': 'Campos obrigatórios ausentes na pasta_virtual.',
+                'missing': missing,
+            }), 400
+
+        if not payload:
+            return jsonify({'error': 'Nenhum campo válido para inserir.'}), 400
+
+        insert_cols = list(payload.keys())
+        sql = (
+            f"INSERT INTO {_sql_ident(_PASTA_VIRTUAL_TABLE)} "
+            f"({', '.join(_sql_ident(c) for c in insert_cols)}) "
+            f"VALUES ({', '.join(['%s'] * len(insert_cols))})"
+        )
+        cursor.execute(sql, tuple(payload[c] for c in insert_cols))
+        conn.commit()
+        return jsonify({'ok': True, 'id': cursor.lastrowid})
+    except Exception as exc:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        return jsonify({'error': f'Erro ao inserir em pasta_virtual: {exc}'}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+@app.route('/api/pasta-virtual/<item_id>/download')
+def api_pasta_virtual_download(item_id):
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        cols = _pv_columns(cursor)
+        if not cols:
+            return jsonify({'error': 'Tabela `pasta_virtual` não encontrada.'}), 404
+        meta = _pv_detect_meta(cols)
+        if not meta.get('pk_col') or not meta.get('blob_col'):
+            return jsonify({'error': 'Tabela `pasta_virtual` sem coluna de arquivo.'}), 400
+
+        select_expr = [
+            f"{_sql_ident(meta['blob_col'])} AS blob_data",
+        ]
+        if meta['nome_col']:
+            select_expr.append(f"{_sql_ident(meta['nome_col'])} AS nome_arquivo")
+        if meta['mime_col']:
+            select_expr.append(f"{_sql_ident(meta['mime_col'])} AS mime_type")
+
+        cursor.execute(
+            "SELECT " + ", ".join(select_expr) +
+            f" FROM {_sql_ident(_PASTA_VIRTUAL_TABLE)} "
+            f"WHERE {_sql_ident(meta['pk_col'])} = %s LIMIT 1",
+            (item_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({'error': 'Registro não encontrado na pasta_virtual.'}), 404
+
+        blob = row.get('blob_data')
+        if isinstance(blob, memoryview):
+            blob = blob.tobytes()
+        elif blob is not None and not isinstance(blob, (bytes, bytearray)):
+            blob = bytes(blob)
+        if not blob:
+            return jsonify({'error': 'Registro sem arquivo para download.'}), 404
+
+        file_name = row.get('nome_arquivo') if meta['nome_col'] else None
+        if not file_name:
+            file_name = f"pasta_virtual_{item_id}.bin"
+        file_name = secure_filename(str(file_name)) or f"pasta_virtual_{item_id}.bin"
+
+        mime_type = row.get('mime_type') if meta['mime_col'] else None
+        if not mime_type:
+            guessed, _ = mimetypes.guess_type(file_name)
+            mime_type = guessed or _mimetype_for_stored_blob(blob)
+
+        return send_file(
+            io.BytesIO(blob),
+            as_attachment=True,
+            download_name=file_name,
+            mimetype=mime_type or 'application/octet-stream',
+        )
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
