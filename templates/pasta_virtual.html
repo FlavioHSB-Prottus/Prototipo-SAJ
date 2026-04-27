@@ -59,6 +59,23 @@
 
 {% block content %}
 <div class="busca-wrapper">
+    <div class="filter-card">
+        <h3><i class="fa-solid fa-filter"></i> Filtros</h3>
+        <form id="pvFilterForm" class="filter-form">
+            <div class="form-group">
+                <label for="filtroContrato">Contrato (grupo/cota)</label>
+                <input type="text" id="filtroContrato" class="form-control" placeholder="Ex: 001234/0001 ou 001234" autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label for="filtroFuncionario">Funcionario</label>
+                <select id="filtroFuncionario" class="form-control">
+                    <option value="">Todos</option>
+                </select>
+            </div>
+            <button type="submit" class="btn-search"><i class="fa-solid fa-magnifying-glass"></i> Filtrar</button>
+            <button type="button" class="btn-secondary" id="btnLimparPV">Limpar</button>
+        </form>
+    </div>
     <div class="results-card table-section" id="pastaVirtualSection">
         <div class="table-header">
             <h3 id="pvTitle"><i class="fa-solid fa-folder-open"></i> Pasta Virtual</h3>

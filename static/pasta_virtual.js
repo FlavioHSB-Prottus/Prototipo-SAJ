@@ -15,6 +15,10 @@ document.addEventListener('DOMContentLoaded', function () {
     var pvCota = document.getElementById('pvCota');
     var pvDescricao = document.getElementById('pvDescricao');
     var pvArquivo = document.getElementById('pvArquivo');
+    var pvFilterForm = document.getElementById('pvFilterForm');
+    var filtroContrato = document.getElementById('filtroContrato');
+    var filtroFuncionario = document.getElementById('filtroFuncionario');
+    var btnLimparPV = document.getElementById('btnLimparPV');
 
     var rowsCache = [];
     var pvMeta = null;
@@ -58,7 +62,7 @@ document.addEventListener('DOMContentLoaded', function () {
     function getStatusClass(status) {
         if (!status) return '';
         var s = String(status).toLowerCase();
-        if (s === 'aberto' || s === 'em cobranca' || s === 'em cobranùa') return 'status-active';
+        if (s === 'aberto' || s === 'em cobranca' || s === 'em cobran?a') return 'status-active';
         if (s === 'fechado' || s === 'pago' || s === 'parcela paga') return 'status-success';
         if (s === 'indenizado') return 'status-warning';
         if (s === 'parcela vencida') return 'status-danger';
@@ -80,14 +84,14 @@ document.addEventListener('DOMContentLoaded', function () {
         html += dataItem('Nome', pessoa.nome_completo);
         html += dataItem('CPF / CNPJ', pessoa.cpf_cnpj);
         html += dataItem('Data de Nascimento', formatDate(pessoa.data_nascimento));
-        html += dataItem('Profissùo', pessoa.profissao);
-        html += dataItem('Cùnjuge', pessoa.conjuge_nome);
+        html += dataItem('Profiss?o', pessoa.profissao);
+        html += dataItem('C?njuge', pessoa.conjuge_nome);
         html += '</div>';
 
         if (enderecos && enderecos.length > 0) {
             enderecos.forEach(function (e) {
                 html += '<div class="detail-grid" style="margin-top:12px">';
-                html += dataItem('Endereùo (' + (e.tipo || '') + ')', [e.logradouro, e.complemento, e.bairro, e.cidade, e.estado, e.cep].filter(Boolean).join(', '));
+                html += dataItem('Endere?o (' + (e.tipo || '') + ')', [e.logradouro, e.complemento, e.bairro, e.cidade, e.estado, e.cep].filter(Boolean).join(', '));
                 html += '</div>';
             });
         }
@@ -125,12 +129,12 @@ document.addEventListener('DOMContentLoaded', function () {
         html += '<div class="detail-section"><h3><i class="fa-solid fa-file-contract"></i> Dados do Contrato</h3>';
         html += '<div class="detail-grid">';
         html += dataItem('Grupo / Cota', c.grupo + '/' + c.cota);
-        html += dataItem('Nù Contrato', c.numero_contrato);
-        html += dataItem('Versùo', c.versao);
+        html += dataItem('N? Contrato', c.numero_contrato);
+        html += dataItem('Vers?o', c.versao);
         html += dataItem('Status', c.status || c.status_txt, true, c.status);
-        html += dataItem('Valor do Crùdito', formatCurrency(c.valor_credito));
+        html += dataItem('Valor do Cr?dito', formatCurrency(c.valor_credito));
         html += dataItem('Prazo (meses)', c.prazo_meses);
-        html += dataItem('Data de Adesùo', formatDate(c.data_adesao));
+        html += dataItem('Data de Ades?o', formatDate(c.data_adesao));
         html += dataItem('Encerramento Grupo', formatDate(c.encerramento_grupo));
         html += '</div></div>';
 
@@ -144,7 +148,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (data.parcelas && data.parcelas.length > 0) {
             html += '<div class="detail-section"><h3><i class="fa-solid fa-list-ol"></i> Parcelas (' + data.parcelas.length + ')</h3>';
             html += '<div class="table-responsive"><table class="styled-table modal-table"><thead><tr>';
-            html += '<th>Nù</th><th>Vencimento</th><th>Valor Nominal</th><th>Multa/Juros</th><th>Valor Total</th><th>Status</th>';
+            html += '<th>N?</th><th>Vencimento</th><th>Valor Nominal</th><th>Multa/Juros</th><th>Valor Total</th><th>Status</th>';
             html += '</tr></thead><tbody>';
             data.parcelas.forEach(function (p) {
                 html += '<tr>';
@@ -160,7 +164,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         if (data.ocorrencias && data.ocorrencias.length > 0) {
-            html += '<div class="detail-section"><h3><i class="fa-solid fa-timeline"></i> Histùrico de Ocorrùncias (' + data.ocorrencias.length + ')</h3>';
+            html += '<div class="detail-section"><h3><i class="fa-solid fa-timeline"></i> Hist?rico de Ocorr?ncias (' + data.ocorrencias.length + ')</h3>';
             html += '<div class="timeline">';
             data.ocorrencias.forEach(function (o) {
                 html += '<div class="timeline-item">';
@@ -339,9 +343,44 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    function buildPastaVirtualQuery() {
+        var p = new URLSearchParams();
+        if (filtroContrato && filtroContrato.value.trim()) {
+            p.set('contrato', filtroContrato.value.trim());
+        }
+        if (filtroFuncionario && filtroFuncionario.value) {
+            p.set('id_funcionario', filtroFuncionario.value);
+        }
+        var s = p.toString();
+        return s ? '?' + s : '';
+    }
+
+    async function loadFuncionariosFiltro() {
+        if (!filtroFuncionario) return;
+        try {
+            var resp = await fetch('/api/funcionarios');
+            var data = await resp.json();
+            if (!Array.isArray(data)) {
+                if (data && data.error) return;
+                return;
+            }
+            while (filtroFuncionario.options.length > 1) {
+                filtroFuncionario.remove(1);
+            }
+            data.forEach(function (f) {
+                var opt = document.createElement('option');
+                opt.value = f.id;
+                opt.textContent = f.nome != null && String(f.nome).trim() !== '' ? String(f.nome) : ('#' + f.id);
+                filtroFuncionario.appendChild(opt);
+            });
+        } catch (err) {
+            /* keep Todos */
+        }
+    }
+
     async function loadPastaVirtual() {
         try {
-            var resp = await fetch('/api/pasta-virtual');
+            var resp = await fetch('/api/pasta-virtual' + buildPastaVirtualQuery());
             var data = await resp.json();
             if (data.error) {
                 pvBody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:#ef4444">' + esc(data.error) + '</td></tr>';
@@ -372,6 +411,20 @@ document.addEventListener('DOMContentLoaded', function () {
     if (insertModal) {
         insertModal.addEventListener('click', function (e) {
             if (e.target === insertModal) closeInsertModal();
+        });
+    }
+
+    if (pvFilterForm) {
+        pvFilterForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            loadPastaVirtual();
+        });
+    }
+    if (btnLimparPV) {
+        btnLimparPV.addEventListener('click', function () {
+            if (filtroContrato) filtroContrato.value = '';
+            if (filtroFuncionario) filtroFuncionario.value = '';
+            loadPastaVirtual();
         });
     }
 
@@ -432,6 +485,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (insertModal && insertModal.classList.contains('active')) closeInsertModal();
     });
 
+    loadFuncionariosFiltro();
     loadPastaVirtualMeta().finally(function () {
         loadPastaVirtual();
     });
