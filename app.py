@@ -3335,6 +3335,7 @@ def _nao_b_from_open_delay(dd):
 _SAFRA_ENTRADA_SQL = """
 SELECT 
     COALESCE(c.id, o.id_contrato) AS id_contrato,
+    c.valor_credito AS valor_credito,
     o.data_arquivo AS dt_entrada,
     p_antiga.vencimento AS vencimento,
     p_antiga.data_pagamento AS dt_paga,
@@ -3387,6 +3388,15 @@ def _safra_entrada_rows(cursor, d_a, d_b, y, m):
         (d_a.isoformat(), d_b.isoformat()),
     )
     return cursor.fetchall()
+
+
+def _valor_total_contrato_brl(r) -> float:
+    """Totais em R$ no Performance (KPI, grafico, export): valor cheio do contrato."""
+    v = r.get('valor_credito')
+    try:
+        return float(v) if v is not None and v != '' else 0.0
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _bool_sql(val):
@@ -3481,17 +3491,13 @@ def _cohort_enriched_rows_for_export(cursor, y, m, safra_index, teto: int):
             if cid in seen:
                 continue
             seen.add(cid)
-            vp = r.get('valor_parcela')
-            try:
-                vp = float(vp) if vp is not None and vp != '' else 0.0
-            except (TypeError, ValueError):
-                vp = 0.0
+            vt = _valor_total_contrato_brl(r)
             out.append({
                 'id_contrato': cid,
                 'faixa_calendario': _SAFRA_LABELS_EXPORT[parte],
                 'desempenho': _export_desempenho_label(r),
                 'prazo_atraso': _export_prazo_atraso_label(r),
-                'valor_parcela_entrada_brl': round(vp, 2),
+                'valor_parcela_entrada_brl': round(vt, 2),
             })
     return out
 
@@ -3519,11 +3525,7 @@ def _kpi_teto_cumulativo_distinct_global(cursor, y, m):
             except (TypeError, ValueError):
                 continue
             is_p = _bool_sql(r.get('is_performado'))
-            v = r.get('valor_parcela')
-            try:
-                v = float(v) if v is not None and v != '' else 0.0
-            except (TypeError, ValueError):
-                v = 0.0
+            v = _valor_total_contrato_brl(r)
             for teto in (30, 60, 90):
                 if not _row_matches_atraso_teto(r, teto):
                     continue
@@ -3585,8 +3587,7 @@ def _aggregate_performance_faixa(cursor, y, m, parte):
         dd = r.get('delay_open')
         seg = _seg_from_delay_days(int(dd) if dd is not None else None)
         keyg = 'performado' if is_p else 'nao_performado'
-        v = r.get('valor_parcela')
-        v = 0.0 if v is None or v == '' else float(v)
+        v = _valor_total_contrato_brl(r)
         vol_val += v
         segs[keyg][seg] += 1
         val[keyg][seg] += v
@@ -3696,7 +3697,7 @@ def _daily_series(cursor, d1, d2):
     pagos_val_map = {}
     
     for r in rows_cohort:
-        v = float(r.get('valor_parcela') or 0)
+        v = _valor_total_contrato_brl(r)
         
         # Entrada (Novos)
         dt_e = r.get('dt_entrada')
@@ -4181,7 +4182,7 @@ def _export_to_xlsx(ctx, dataset):
     ws4 = wb.create_sheet('Contratos')
     contratos = dataset['contratos']
     headers = [
-        'ID', 'Faixa (calendario)', 'Desempenho', 'Prazo (atraso)', 'Valor parcela entrada (R$)',
+        'ID', 'Faixa (calendario)', 'Desempenho', 'Prazo (atraso)', 'Valor total contrato (R$)',
         'Grupo', 'Cota', 'Nro Contrato', 'Status', 'Valor do Credito',
         'Data de Adesao', 'Devedor', 'CPF/CNPJ',
     ]
@@ -4347,7 +4348,7 @@ def _export_to_pdf(ctx, dataset):
         pdf.cell(0, 7, 'Contratos selecionados (' + str(len(dataset['contratos'])) + ' total, mostrando ' + str(len(contratos)) + ')', ln=True)
         pdf.set_font('Helvetica', 'B', 7)
         pdf.set_fill_color(59, 130, 246); pdf.set_text_color(255, 255, 255)
-        ch = ['Faixa', 'Desemp.', 'Prazo', 'G/C', 'Nro', 'R$ parc.', 'R$ créd.', 'St.', 'Devedor']
+        ch = ['Faixa', 'Desemp.', 'Prazo', 'G/C', 'Nro', 'R$ total', 'R$ créd.', 'St.', 'Devedor']
         cw = [36, 18, 28, 20, 22, 20, 22, 10, 62]
         for i, h in enumerate(ch):
             pdf.cell(cw[i], 5, h, border=1, align='C', fill=True)
