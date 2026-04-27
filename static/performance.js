@@ -218,6 +218,9 @@ document.addEventListener('DOMContentLoaded', function () {
         if (viewBar) viewBar.style.display = 'flex';
         renderBarChart(d, safraName);
         updatePerformanceKpis();
+        if (typeof window.painelListaRefresh === 'function') {
+            window.painelListaRefresh();
+        }
     }
 
     function buildPerfDatasets() {
@@ -703,6 +706,107 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 
-    // --- Init ---
+    // ------------------------------------------------------------------------
+    // Modal mínimo de contrato (detalhe na lista do painel)
+    // ------------------------------------------------------------------------
+    var detalhesModalPerf = document.getElementById('detalhesModalPerf');
+    var modalContentPerf = document.getElementById('modalContentPerf');
+    var modalTitlePerf = document.getElementById('modalTitlePerf');
+    var closeModalBtnPerf = document.getElementById('closeModalBtnPerf');
+
+    function _escP(v) {
+        if (v == null) return '-';
+        var d = document.createElement('div');
+        d.textContent = String(v);
+        return d.innerHTML;
+    }
+
+    function _fmtReal(v) {
+        if (v == null || v === '') return '-';
+        var n = parseFloat(v);
+        if (isNaN(n)) return _escP(v);
+        return 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function openDetalhePerformance(id) {
+        if (!detalhesModalPerf || !modalContentPerf) return;
+        document.body.style.overflow = 'hidden';
+        modalContentPerf.innerHTML = '<p style="text-align:center;padding:32px">Carregando...</p>';
+        modalTitlePerf.textContent = 'Detalhes';
+        detalhesModalPerf.classList.add('active');
+        fetch('/api/contrato/' + encodeURIComponent(id))
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data.error) {
+                    modalContentPerf.innerHTML = '<p style="padding:16px;color:#ef4444">' + _escP(data.error) + '</p>';
+                    return;
+                }
+                var c = data.contrato;
+                modalTitlePerf.textContent = 'Contrato: ' + (c.grupo || '') + '/' + (c.cota || '');
+                var h = '<div class="detail-section"><div class="detail-grid">';
+                h += '<div class="data-item"><span class="data-label">Nro</span><span class="data-value">' + _escP(c.numero_contrato) + '</span></div>';
+                h += '<div class="data-item"><span class="data-label">Status</span><span class="data-value">' + _escP(c.status) + '</span></div>';
+                h += '<div class="data-item"><span class="data-label">Valor do crédito</span><span class="data-value">' + _fmtReal(c.valor_credito) + '</span></div></div></div>';
+                if (data.devedor) {
+                    h += '<div class="detail-section" style="margin-top:10px"><h3>Devedor</h3><div class="detail-grid">';
+                    h += '<div class="data-item"><span class="data-label">Nome</span><span class="data-value">' + _escP(data.devedor.nome_completo) + '</span></div>';
+                    h += '<div class="data-item"><span class="data-label">CPF/CNPJ</span><span class="data-value">' + _escP(data.devedor.cpf_cnpj) + '</span></div>';
+                    h += '</div></div>';
+                }
+                h += '<p style="margin-top:8px; font-size:0.9rem; color:var(--text-muted)">Para histórico completo (parcelas, ocorrências), use o menu <strong>Busca por Contratos</strong> com grupo/cota.</p>';
+                modalContentPerf.innerHTML = h;
+            })
+            .catch(function (e) {
+                modalContentPerf.innerHTML = '<p style="padding:16px;color:#ef4444">Erro: ' + _escP(e.message) + '</p>';
+            });
+    }
+
+    function closeDetalhePerformance() {
+        if (!detalhesModalPerf) return;
+        detalhesModalPerf.classList.remove('active');
+        document.body.style.overflow = '';
+    }
+
+    if (closeModalBtnPerf) {
+        closeModalBtnPerf.addEventListener('click', closeDetalhePerformance);
+    }
+    if (detalhesModalPerf) {
+        detalhesModalPerf.addEventListener('click', function (e) {
+            if (e.target === detalhesModalPerf) closeDetalhePerformance();
+        });
+    }
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && detalhesModalPerf && detalhesModalPerf.classList.contains('active')) {
+            closeDetalhePerformance();
+        }
+    });
+    window.openDetalhePerformance = openDetalhePerformance;
+
+    // --- Atualiza mês (lastMes) antes de carregar a lista alinhada ao painel
+    if (mesAnoInput && mesAnoInput.value) {
+        lastMes = mesAnoInput.value;
+    }
+
+    if (window.PainelListaContratos) {
+        window.PainelListaContratos.init({
+            mode: 'performance',
+            hookName: 'painelListaRefresh',
+            endpoint: '/api/performance/panel_contratos',
+            onDetalhe: openDetalhePerformance,
+            getBaseQuery: function () {
+                var s = new URLSearchParams();
+                s.set('mes', (lastMes && lastMes.length >= 7) ? lastMes : (mesAnoInput && mesAnoInput.value) || '');
+                s.set('atraso_teto', String(readAtrasoTetoFromDom()));
+                if (activeSafraIndex === null) {
+                    s.set('safra_index', 'all');
+                } else {
+                    s.set('safra_index', String(activeSafraIndex));
+                }
+                return s;
+            }
+        });
+    }
+
+    // --- Init dados do desempenho
     loadPerformance(mesAnoInput.value);
 });

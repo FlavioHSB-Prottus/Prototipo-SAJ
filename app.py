@@ -2501,6 +2501,182 @@ def api_dashboard():
     })
 
 
+@app.route('/api/dashboard/panel_contratos')
+def api_dashboard_panel_contratos():
+    """Contratos com ocorrencia no periodo/series ativos (mesma base do export), com busca opcional."""
+    ps = str(request.args.get('period_start', '')).strip()
+    pe = str(request.args.get('period_end', '')).strip()
+    raw = request.args.getlist('series')
+    if not raw and request.args.get('series'):
+        raw = [x.strip() for x in str(request.args.get('series', '')).split(',') if x.strip()]
+    series_keys = [s for s in (raw or []) if s in _PAINEL_DASH_SERIES_WHERE]
+    if not series_keys:
+        series_keys = ['pagos', 'indenizados']
+    or_sql, or_p = _or_ocorrencia_filtro_series_sql(series_keys, _PAINEL_DASH_SERIES_WHERE)
+    if not or_sql:
+        return jsonify({'error': 'Nenhuma serie valida.'}), 400
+    if not ps or not pe or len(ps) < 7 or len(pe) < 7:
+        return jsonify({'error': 'Informe period_start e period_end (YYYY-MM).'}), 400
+    try:
+        y1, m1 = int(ps[:4]), int(ps[5:7])
+        y2, m2 = int(pe[:4]), int(pe[5:7])
+        d_ini = datetime.date(y1, m1, 1).isoformat()
+        d_fim = datetime.date(y2, m2, _last_day_of(y2, m2)).isoformat()
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Periodo invalido.'}), 400
+
+    join_x, and_busca, p_busca = _panel_dash_busca_filtro_sql(
+        request.args.get('tipo', 'contrato'),
+        request.args.get('termo', ''),
+        request.args.get('status', ''),
+    )
+    lim = _PAINEL_DASH_LIM + 1
+    sql = (
+        "SELECT DISTINCT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
+        "       p.nome_completo AS devedor, p.cpf_cnpj AS devedor_cpf_cnpj "
+        "FROM ocorrencia o "
+        "INNER JOIN contrato c ON c.id = o.id_contrato "
+        "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
+        + (join_x or '') +
+        f"WHERE ({or_sql}) "
+        "AND o.data_arquivo >= %s AND o.data_arquivo <= %s "
+        + and_busca +
+        f" ORDER BY c.grupo, c.cota LIMIT {int(lim)}"
+    )
+    params = list(or_p) + [d_ini, d_fim] + p_busca
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(sql, tuple(params))
+        rows = _clean_rows(cursor.fetchall())
+    finally:
+        cursor.close()
+        conn.close()
+    total = len(rows)
+    lim_ok = _PAINEL_DASH_LIM
+    if total > lim_ok:
+        rows = rows[:lim_ok]
+    return jsonify({
+        'results': rows,
+        'total': total,
+        'limited': total > lim_ok,
+        'limit': lim_ok,
+    })
+
+
+def _panel_perf_contratos_rows(cursor, y, m, safra_index, teto, tipo, termo, st):
+    """Cohort Performance (teto) + busca, mesma base do export."""
+    enriched = _cohort_enriched_rows_for_export(cursor, y, m, safra_index, teto)
+    if not enriched:
+        return [], 0, False
+    by_id = {e['id_contrato']: e for e in enriched}
+    ordered = list(by_id.keys())
+    if not ordered:
+        return [], 0, False
+    join_x, and_busca, p_busca = _panel_dash_busca_filtro_sql(
+        (tipo or 'contrato'),
+        (termo or '').strip(),
+        (st or '').strip(),
+    )
+    out = []
+    lim = _PAINEL_DASH_LIM + 1
+    chunk = 300
+    for i in range(0, len(ordered), chunk):
+        part = ordered[i : i + chunk]
+        ph = ','.join(['%s'] * len(part))
+        sql = (
+            "SELECT DISTINCT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
+            "p.nome_completo AS devedor, p.cpf_cnpj AS devedor_cpf_cnpj "
+            "FROM contrato c "
+            "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
+        )
+        sql += join_x or ''
+        sql += f" WHERE c.id IN ({ph})" + (f" {and_busca}" if and_busca else "") + f" ORDER BY c.grupo, c.cota LIMIT {int(lim)}"
+        params = list(part) + p_busca
+        try:
+            cursor.execute(sql, tuple(params))
+        except Exception:
+            app.logger.exception('panel_perf_contratos')
+            break
+        for row in _clean_rows(cursor.fetchall()):
+            cid = int(row['id'])
+            meta = by_id.get(cid)
+            if not meta:
+                continue
+            out.append({
+                'id': cid,
+                'grupo': row.get('grupo'),
+                'cota': row.get('cota'),
+                'numero_contrato': row.get('numero_contrato'),
+                'status': row.get('status'),
+                'devedor': row.get('devedor'),
+                'devedor_cpf_cnpj': row.get('devedor_cpf_cnpj'),
+                'faixa_calendario': meta.get('faixa_calendario'),
+                'desempenho': meta.get('desempenho'),
+                'prazo_atraso': meta.get('prazo_atraso'),
+            })
+            if len(out) >= lim:
+                break
+        if len(out) >= lim:
+            break
+    n = len(out)
+    if n > _PAINEL_DASH_LIM:
+        return out[:_PAINEL_DASH_LIM], n, True
+    return out, n, False
+
+
+@app.route('/api/performance/panel_contratos')
+def api_performance_panel_contratos():
+    mes = str(request.args.get('mes', '')).strip()
+    if not mes or len(mes) < 7:
+        return jsonify({'error': 'mes obrigatorio (YYYY-MM)'}), 400
+    try:
+        y, m = int(mes[:4]), int(mes[5:7])
+        datetime.date(y, m, 1)
+    except ValueError:
+        return jsonify({'error': 'mes invalido.'}), 400
+    raw_idx = request.args.get('safra_index', 'all')
+    if raw_idx in (None, '', 'all'):
+        safra_index = None
+    else:
+        try:
+            safra_index = int(raw_idx)
+            if safra_index < 0 or safra_index > 3:
+                safra_index = None
+        except (TypeError, ValueError):
+            safra_index = None
+    try:
+        atraso_teto = int(request.args.get('atraso_teto', 90) or 90)
+    except (TypeError, ValueError):
+        atraso_teto = 90
+    if atraso_teto not in (30, 60, 90):
+        atraso_teto = 90
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        rows, total, limited = _panel_perf_contratos_rows(
+            cursor,
+            y,
+            m,
+            safra_index,
+            atraso_teto,
+            request.args.get('tipo', 'contrato'),
+            request.args.get('termo', ''),
+            request.args.get('status', ''),
+        )
+    finally:
+        cursor.close()
+        conn.close()
+    return jsonify({
+        'results': rows,
+        'total': total,
+        'limited': limited,
+        'limit': _PAINEL_DASH_LIM,
+    })
+
+
 # ---------------------------------------------------------------------------
 # API: Cobrança — Contratos agrupados por prioridade de parcelas
 # ---------------------------------------------------------------------------
@@ -4281,6 +4457,76 @@ _DASH_PIE_LABELS = {
     'fechado':    'Pagos',
     'indenizado': 'Indenizados',
 }
+
+# Inclui entradas_safra (1 ctt) para OR no painel: mesmo escopo do grafico de "Entradas (safra)"
+_PAINEL_DASH_SERIES_WHERE = {**_DASH_SERIES_WHERE}
+_PAINEL_DASH_SERIES_WHERE['entradas_safra'] = (
+    "o.status = 'aberto' AND (o.descricao = 'contrato novo' OR o.descricao = 'contrato voltou')",
+    [],
+)
+_PAINEL_DASH_LIM = 500
+
+
+def _or_ocorrencia_filtro_series_sql(series_keys, painel_map: dict) -> tuple:
+    """(sql_or_subexpr, list_params) para ocorrencia o."""
+    parts, params = [], []
+    for k in series_keys:
+        if not k or k not in painel_map:
+            continue
+        w, p = painel_map[k]
+        parts.append('(' + w + ')')
+        params.extend(p)
+    if not parts:
+        return None, []
+    return ' OR '.join(parts), params
+
+
+def _panel_dash_busca_filtro_sql(tipo: str, termo: str, status_contrato: str) -> tuple:
+    """Retorna (join_extra, and_sql, params) para a lista do painel Dashboard (apos WHERE base)."""
+    tipo = (tipo or 'contrato').strip()
+    termo = (termo or '').strip()
+    st = (status_contrato or '').strip()
+    st_ok = st in ('aberto', 'fechado', 'indenizado')
+    join_ex = ''
+    and_bits = []
+    params = []
+    if st_ok:
+        and_bits.append('c.status = %s')
+        params.append(st)
+    if not termo:
+        if not and_bits:
+            return '', '', []
+        return join_ex, 'AND ' + ' AND '.join(and_bits), params
+    if tipo == 'pessoa':
+        t = f'%{termo}%'
+        join_ex = 'LEFT JOIN pessoa p_ava ON p_ava.id = c.id_avalista '
+        and_bits.append(
+            '(p.nome_completo LIKE %s OR p.cpf_cnpj LIKE %s OR p_ava.nome_completo LIKE %s OR p_ava.cpf_cnpj LIKE %s)'
+        )
+        params.extend([t, t, t, t])
+    elif tipo == 'contrato':
+        p2 = [p.strip() for p in termo.replace('-', '/').split('/')]
+        if len(p2) == 2 and p2[0] and p2[1]:
+            and_bits.append('c.grupo LIKE %s AND c.cota LIKE %s')
+            params.extend([f'%{p2[0]}%', f'%{p2[1]}%'])
+        else:
+            t = f'%{termo}%'
+            and_bits.append('(c.grupo LIKE %s OR c.cota LIKE %s OR c.numero_contrato LIKE %s)')
+            params.extend([t, t, t])
+    elif tipo == 'bem':
+        jb = _bem_join_clause('c', 'b')
+        b_where, b_params = _bem_where_clause(termo, 'b')
+        if not jb or not b_where:
+            and_bits.append('0=1')
+        else:
+            join_ex = jb
+            and_bits.append('(' + b_where + ')')
+            params.extend(b_params)
+    else:
+        t = f'%{termo}%'
+        and_bits.append('(c.grupo LIKE %s OR c.cota LIKE %s)')
+        params.extend([t, t])
+    return join_ex, 'AND ' + ' AND '.join(and_bits), params
 
 
 def _month_range_from_yyyymm(ym_start, ym_end):

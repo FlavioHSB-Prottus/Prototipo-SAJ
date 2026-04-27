@@ -209,6 +209,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         refreshKpis();
         refreshLineChart();
         refreshPie();
+        if (typeof window.painelListaRefresh === 'function') window.painelListaRefresh();
     }
 
     function refreshKpis() {
@@ -718,6 +719,29 @@ document.addEventListener('DOMContentLoaded', async function () {
         });
     });
 
+    if (window.PainelListaContratos) {
+        window.PainelListaContratos.init({
+            mode: 'dashboard',
+            hookName: 'painelListaRefresh',
+            endpoint: '/api/dashboard/panel_contratos',
+            onDetalhe: openDetails,
+            getBaseQuery: function () {
+                var s = new URLSearchParams();
+                s.set('period_start', periodStart);
+                s.set('period_end', periodEnd);
+                var keys = Object.keys(selectedSeries);
+                for (var i = 0; i < keys.length; i++) {
+                    if (selectedSeries[keys[i]]) s.append('series', keys[i]);
+                }
+                if (!s.getAll('series').length) {
+                    s.append('series', 'pagos');
+                    s.append('series', 'indenizados');
+                }
+                return s;
+            }
+        });
+    }
+
     // Expose for potential debug
-    window.__dashboard = { data: data, refreshAll: refreshAll };
+    window.__dashboard = { data: data, refreshAll: refreshAll, painelListaRefresh: window.painelListaRefresh };
 });
