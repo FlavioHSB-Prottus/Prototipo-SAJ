@@ -25,6 +25,17 @@ CREATE TABLE `arquivos_gm` (
   KEY `idx_dt_arq` (`data_arquivo`)
 );
 
+CREATE TABLE `aviso` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `titulo` varchar(255) NOT NULL,
+  `descricao` text DEFAULT NULL,
+  `data_ref` date NOT NULL,
+  `created_at` datetime DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_aviso_data_ref` (`data_ref`)
+);
+
 CREATE TABLE `funcionario` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `nome` varchar(255) NOT NULL,
@@ -69,7 +80,7 @@ CREATE TABLE `pessoa` (
   `data_nascimento` date DEFAULT NULL,
   `profissao` varchar(100) DEFAULT NULL,
   `conjuge_nome` varchar(255) DEFAULT NULL,
-  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  `created_at" timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `cpf_cnpj` (`cpf_cnpj`)
@@ -227,7 +238,7 @@ CREATE TABLE `registro3` (
 );
 
 CREATE TABLE `registro4` (
-  `id_registro` int(11) NOT NULL AUTO_INCREMENT,
+  `id_registro" int(11) NOT NULL AUTO_INCREMENT,
   `tipo` varchar(1) DEFAULT NULL,
   `grupo` varchar(6) DEFAULT NULL,
   `cota` varchar(4) DEFAULT NULL,
@@ -301,7 +312,7 @@ CREATE TABLE `registro5` (
   `refer_d_aval` varchar(40) DEFAULT NULL,
   `endref_d_aval` varchar(40) DEFAULT NULL,
   `bairro_d_aval` varchar(25) DEFAULT NULL,
-  `ddd_d_ref_aval` varchar(3) DEFAULT NULL,
+  `ddd_d_ref_aval" varchar(3) DEFAULT NULL,
   `fon_d_aval` varchar(15) DEFAULT NULL,
   `ram_d_aval` varchar(4) DEFAULT NULL,
   `id_arquivo_gm` int(11) DEFAULT NULL,
@@ -346,7 +357,7 @@ CREATE TABLE `registro_1` (
   `ddd_telefone` varchar(3) DEFAULT NULL,
   `telefone` varchar(15) DEFAULT NULL,
   `ddd_celular` varchar(3) DEFAULT NULL,
-  `celular` varchar(15) DEFAULT NULL,
+  `celular" varchar(15) DEFAULT NULL,
   `email` varchar(50) DEFAULT NULL,
   `empresa` varchar(30) DEFAULT NULL,
   `endereco2` varchar(40) DEFAULT NULL,
@@ -423,7 +434,7 @@ CREATE TABLE `registro_6` (
 
 CREATE TABLE `telefone` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
-  `id_pessoa` bigint(20) NOT NULL,
+  `id_pessoa" bigint(20) NOT NULL,
   `tipo` varchar(40) NOT NULL COMMENT 'fixo, celular, comercial_devedor, comercial_conjuge, avalista_fixo, avalista_celular, ...',
   `ddd` varchar(5) DEFAULT NULL,
   `numero` varchar(30) NOT NULL,
@@ -469,7 +480,7 @@ CREATE TABLE `contrato` (
   `prazo_meses` int(11) DEFAULT NULL,
   `data_adesao` date DEFAULT NULL,
   `encerramento_grupo` date DEFAULT NULL,
-  `taxa_administracao` decimal(16,4) DEFAULT NULL,
+  `taxa_administracao" decimal(16,4) DEFAULT NULL,
   `fundo_reserva` decimal(16,4) DEFAULT NULL,
   `percentual_lance` decimal(16,4) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
@@ -509,7 +520,7 @@ CREATE TABLE `ocorrencia` (
   `id_contrato` bigint(20) NOT NULL,
   `id_arquivo_gm` int(11) DEFAULT NULL,
   `descricao` varchar(255) DEFAULT '',
-  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  `created_at" timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `status` enum('aberto','fechado','indenizado','parcela paga','parcela vencida','parcela indenizada') DEFAULT NULL,
   `data_arquivo` date DEFAULT NULL,
@@ -530,7 +541,7 @@ CREATE TABLE `parcela` (
   `valor_nominal` decimal(16,2) DEFAULT NULL,
   `valor_total` decimal(16,2) DEFAULT NULL,
   `multa_juros` decimal(16,2) DEFAULT NULL,
-  `status` enum('aberto','fechado','indenizado') DEFAULT 'aberto',
+  `status" enum('aberto','fechado','indenizado') DEFAULT 'aberto',
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `data_pagamento` date DEFAULT NULL,
@@ -539,6 +550,54 @@ CREATE TABLE `parcela` (
   KEY `parcela_arquivos_gm_FK` (`data_pagamento`),
   CONSTRAINT `parcela_arquivos_gm_FK` FOREIGN KEY (`data_pagamento`) REFERENCES `arquivos_gm` (`data_arquivo`) ON DELETE CASCADE,
   CONSTRAINT `parcela_ibfk_1` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE
+);
+
+CREATE TABLE `pasta_virtual` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `nome_arquivo` varchar(255) NOT NULL,
+  `descricao` varchar(255) DEFAULT NULL,
+  `arquivo` mediumblob NOT NULL,
+  `id_contrato` bigint(20) NOT NULL,
+  `id_funcionario` int(11) NOT NULL,
+  `created_at" timestamp NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `id_contrato` (`id_contrato`),
+  KEY `id_funcionario` (`id_funcionario`),
+  CONSTRAINT `pasta_virtual_ibfk_1` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `pasta_virtual_ibfk_2` FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE
+);
+
+CREATE TABLE `performance` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `id_ocorrencia` bigint(20) NOT NULL,
+  `id_contrato` bigint(20) NOT NULL,
+  `id_arquivo_gm` int(11) DEFAULT NULL,
+  `data_arquivo` date NOT NULL,
+  `grupo` varchar(20) DEFAULT NULL,
+  `cota` varchar(20) DEFAULT NULL,
+  `ocorrencia_status` enum('aberto','fechado','indenizado','parcela paga','parcela vencida','parcela indenizada') NOT NULL,
+  `descricao` varchar(255) DEFAULT '',
+  `id_parcela_ancora` bigint(20) DEFAULT NULL,
+  `vencimento_mais_antigo` date DEFAULT NULL,
+  `data_pagamento` date DEFAULT NULL,
+  `valor_parcela` decimal(16,2) DEFAULT NULL,
+  `is_performado` tinyint(1) NOT NULL DEFAULT 0,
+  `grupo_atraso` varchar(32) DEFAULT NULL,
+  `recovery_code` varchar(8) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_performance_ocorrencia` (`id_ocorrencia`),
+  KEY `idx_perf_data_arquivo` (`data_arquivo`),
+  KEY `idx_perf_contrato` (`id_contrato`),
+  KEY `idx_perf_safra` (`data_arquivo`,`id_contrato`),
+  KEY `perf_arquivo_fk` (`id_arquivo_gm`),
+  KEY `perf_parcela_anc_fk` (`id_parcela_ancora`),
+  CONSTRAINT `perf_arquivo_fk` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE,
+  CONSTRAINT `perf_contrato_fk` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `perf_data_arq_fk` FOREIGN KEY (`data_arquivo`) REFERENCES `arquivos_gm` (`data_arquivo`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `perf_ocorrencia_fk` FOREIGN KEY (`id_ocorrencia`) REFERENCES `ocorrencia` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `perf_parcela_anc_fk` FOREIGN KEY (`id_parcela_ancora`) REFERENCES `parcela` (`id`) ON DELETE SET NULL
 );
 
 CREATE TABLE `protocolo` (
@@ -555,7 +614,7 @@ CREATE TABLE `protocolo` (
   `id_contrato` bigint(20) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `id_remetente` (`id_remetente`),
-  KEY `id_destinatario` (`id_destinatario`),
+  KEY `id_destinatario" (`id_destinatario`),
   KEY `protocolo_contrato_fk` (`id_contrato`),
   CONSTRAINT `protocolo_contrato_fk` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
   CONSTRAINT `protocolo_ibfk_1` FOREIGN KEY (`id_remetente`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE,
@@ -582,7 +641,7 @@ CREATE TABLE `solicitacao` (
   CONSTRAINT `solicitacao_ibfk_3` FOREIGN KEY (`id_resposta`) REFERENCES `solicitacao` (`id`) ON DELETE CASCADE
 );
 
-CREATE TABLE `tramitacao` (
+CREATE TABLE `tramitacao" (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_pessoa` bigint(20) NOT NULL,
   `id_contrato` bigint(20) NOT NULL,
@@ -606,7 +665,7 @@ CREATE TABLE `tramitacao` (
 CREATE TABLE `agenda` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `atividade` varchar(255) NOT NULL,
-  `descricao` text DEFAULT NULL,
+  `descricao" text DEFAULT NULL,
   `data` timestamp NOT NULL,
   `prioridade` enum('baixa','media','alta') NOT NULL,
   `id_contrato` bigint(20) DEFAULT NULL,
@@ -634,7 +693,7 @@ CREATE TABLE `bens` (
   `cartorio` varchar(100) DEFAULT NULL,
   `vl_avaliacao` decimal(15,2) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NULL DEFAULT current_timestamp(),
+  `updated_at" timestamp NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `fk_bens_contrato` (`id_contrato`),
   CONSTRAINT `fk_bens_contrato` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE
@@ -660,7 +719,7 @@ CREATE TABLE `negativacao` (
   `resposta_api` text DEFAULT NULL,
   `created_at` datetime DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  `numero_parcela` int(11) DEFAULT NULL,
+  `numero_parcela" int(11) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_negativacao_contrato` (`id_contrato`),
   KEY `negativacao_parcela_FK` (`id_parcela`),
@@ -668,37 +727,6 @@ CREATE TABLE `negativacao` (
   CONSTRAINT `fk_negativacao_contrato` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
   CONSTRAINT `negativacao_parcela_FK` FOREIGN KEY (`id_parcela`) REFERENCES `parcela` (`id`)
 );
-
-CREATE TABLE `performance` (
-  `id` bigint(20) NOT NULL AUTO_INCREMENT,
-  `id_ocorrencia` bigint(20) NOT NULL,
-  `id_contrato` bigint(20) NOT NULL,
-  `id_arquivo_gm` int(11) DEFAULT NULL,
-  `data_arquivo` date NOT NULL,
-  `grupo` varchar(20) DEFAULT NULL,
-  `cota` varchar(20) DEFAULT NULL,
-  `ocorrencia_status` enum('aberto','fechado','indenizado','parcela paga','parcela vencida','parcela indenizada') NOT NULL,
-  `descricao` varchar(255) DEFAULT '',
-  `id_parcela_ancora` bigint(20) DEFAULT NULL,
-  `vencimento_mais_antigo` date DEFAULT NULL,
-  `data_pagamento` date DEFAULT NULL,
-  `valor_parcela` decimal(16,2) DEFAULT NULL,
-  `is_performado` tinyint(1) NOT NULL DEFAULT 0,
-  `grupo_atraso` varchar(32) DEFAULT NULL,
-  `recovery_code` varchar(8) DEFAULT NULL,
-  `created_at` timestamp NULL DEFAULT current_timestamp(),
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_performance_ocorrencia` (`id_ocorrencia`),
-  KEY `idx_perf_data_arquivo` (`data_arquivo`),
-  KEY `idx_perf_contrato` (`id_contrato`),
-  KEY `idx_perf_safra` (`data_arquivo`,`id_contrato`),
-  CONSTRAINT `perf_ocorrencia_fk` FOREIGN KEY (`id_ocorrencia`) REFERENCES `ocorrencia` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `perf_contrato_fk` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `perf_arquivo_fk` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE,
-  CONSTRAINT `perf_data_arq_fk` FOREIGN KEY (`data_arquivo`) REFERENCES `arquivos_gm` (`data_arquivo`) ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT `perf_parcela_anc_fk` FOREIGN KEY (`id_parcela_ancora`) REFERENCES `parcela` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-COMMENT='Snapshot p/ painel Performance: 1 linha por ocorrencia status=aberto (faixa data_arquivo)';
 """
 
 def connect_server():
