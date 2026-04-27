@@ -449,9 +449,44 @@ def api_pasta_virtual_list():
             )
         if meta.get('funcionario_col'):
             sql += f"LEFT JOIN funcionario f ON f.id = pv.{_sql_ident(meta['funcionario_col'])} "
-        sql += f"ORDER BY pv.{_sql_ident(meta['order_col'])} DESC"
 
-        cursor.execute(sql)
+        where_clauses = []
+        params = []
+
+        contrato_arg = (request.args.get('contrato') or '').strip()
+        if contrato_arg and meta.get('contrato_col'):
+            if '/' in contrato_arg:
+                parts = contrato_arg.split('/', 1)
+                grupo_f = parts[0].strip()
+                cota_f = (parts[1] if len(parts) > 1 else '').strip()
+                if grupo_f:
+                    where_clauses.append("c.grupo = %s")
+                    params.append(grupo_f)
+                    if cota_f:
+                        where_clauses.append("c.cota = %s")
+                        params.append(cota_f)
+            else:
+                where_clauses.append("c.grupo = %s")
+                params.append(contrato_arg)
+
+        id_func_arg = (request.args.get('id_funcionario') or '').strip()
+        if id_func_arg and meta.get('funcionario_col'):
+            try:
+                id_func_int = int(id_func_arg)
+            except (TypeError, ValueError):
+                id_func_int = None
+            if id_func_int is not None:
+                where_clauses.append(f"pv.{_sql_ident(meta['funcionario_col'])} = %s")
+                params.append(id_func_int)
+
+        if where_clauses:
+            sql += " WHERE " + " AND ".join(where_clauses)
+        sql += f" ORDER BY pv.{_sql_ident(meta['order_col'])} DESC"
+
+        if params:
+            cursor.execute(sql, tuple(params))
+        else:
+            cursor.execute(sql)
         rows = _clean_rows(cursor.fetchall())
 
         items = []
