@@ -4104,6 +4104,18 @@ def _export_context_labels(ctx):
     return safra_lbl, series_lbl, faixas_lbl, teto_lbl
 
 
+def _format_reais_pt_br_export(value):
+    """Valor monetario como texto pt-BR para Excel/LibreOffice (milhar '.' ; decimal ',')."""
+    if value is None or value == '':
+        return ''
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    s = f'{n:,.2f}'
+    return s.replace(',', 'X').replace('.', ',').replace('X', '.')
+
+
 def _export_to_xlsx(ctx, dataset):
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -4191,7 +4203,19 @@ def _export_to_xlsx(ctx, dataset):
         'grupo', 'cota', 'numero_contrato', 'status', 'valor_credito',
         'data_adesao', 'devedor', 'devedor_cpf_cnpj',
     ]
-    _write_sheet(ws4, headers, [[c.get(k, '') for k in keys] for c in contratos])
+    _monetary_key = {'valor_parcela_entrada_brl', 'valor_credito'}
+
+    def _row_contrato_exp(c):
+        row = []
+        for k in keys:
+            v = c.get(k, '')
+            if k in _monetary_key:
+                row.append(_format_reais_pt_br_export(v))
+            else:
+                row.append(v if v is not None else '')
+        return row
+
+    _write_sheet(ws4, headers, [_row_contrato_exp(c) for c in contratos])
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -4747,7 +4771,19 @@ def _dash_export_to_xlsx(ctx, dataset):
                'Data de Adesao', 'Devedor', 'CPF/CNPJ']
     keys = ['id', 'grupo', 'cota', 'numero_contrato', 'status', 'valor_credito',
             'data_adesao', 'devedor', 'devedor_cpf_cnpj']
-    _write_sheet(ws4, headers, [[c.get(kk, '') for kk in keys] for c in dataset['contratos']])
+    _dash_m = {'valor_credito'}
+
+    def _row_dash_contrato(c):
+        row = []
+        for kk in keys:
+            v = c.get(kk, '')
+            if kk in _dash_m:
+                row.append(_format_reais_pt_br_export(v))
+            else:
+                row.append(v if v is not None else '')
+        return row
+
+    _write_sheet(ws4, headers, [_row_dash_contrato(c) for c in dataset['contratos']])
 
     buf = io.BytesIO()
     wb.save(buf)
