@@ -33,10 +33,11 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     // --- Catalogo de series plotaveis ---
     var SERIES_META = {
-        pagos:       { label: 'Contratos pagos',         color: '#10b981' },
-        indenizados: { label: 'Contratos indenizados',   color: '#f59e0b' },
-        novos:       { label: 'Contratos novos',         color: '#3b82f6' },
-        retomados:   { label: 'Contratos que voltaram',  color: '#8b5cf6' },
+        pagos:            { label: 'Contratos pagos',         color: '#10b981' },
+        indenizados:      { label: 'Contratos indenizados',   color: '#f59e0b' },
+        novos:            { label: 'Novo (ocorr. abertas)',     color: '#3b82f6' },
+        retomados:        { label: 'Voltou (ocorr. abertas)',   color: '#8b5cf6' },
+        entradas_safra:  { label: 'Entradas (safra, distintos)', color: '#0d9488' },
     };
 
     var PIE_META = {
@@ -56,14 +57,15 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
 
     var meses = data.meses || [];                  // ['2025-06', '2025-07', ...]
-    var series = data.series || {};                // { pagos: [..], indenizados: [..], novos: [..], retomados: [..] }
+    var series = data.series || {};                // { pagos, indenizados, novos, retomados, entradas_safra }
+    var ambosMesSafra = data.ambos_mes_safra || []; // contratos c/ novo e voltou no mesmo mes
     var snapshot = data.snapshot || {};
     var pieRaw = data.pie_chart || {};
 
     kpiAbertos.textContent = formatNumber(snapshot.em_cobranca);
 
     // --- Estado dos controles (padrao: pagos+indenizados, ultimos 6 meses, todas as fatias) ---
-    var selectedSeries = { pagos: true, indenizados: true, novos: false, retomados: false };
+    var selectedSeries = { pagos: true, indenizados: true, novos: false, retomados: false, entradas_safra: false };
     var pieSelection = {};
     Object.keys(pieRaw).forEach(function (k) { pieSelection[k] = true; });
 
@@ -153,7 +155,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     });
 
     btnResetControles.addEventListener('click', function () {
-        selectedSeries = { pagos: true, indenizados: true, novos: false, retomados: false };
+        selectedSeries = { pagos: true, indenizados: true, novos: false, retomados: false, entradas_safra: false };
         seriesSelector.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
             cb.checked = !!selectedSeries[cb.getAttribute('data-serie')];
         });
@@ -280,7 +282,39 @@ document.addEventListener('DOMContentLoaded', async function () {
                     legend: { position: 'top', align: 'end', labels: { usePointStyle: true, boxWidth: 8 } },
                     tooltip: {
                         backgroundColor: 'rgba(30, 41, 59, 0.95)',
-                        padding: 12, titleFont: { size: 13 }, bodyFont: { size: 13 }, cornerRadius: 8
+                        padding: 12, titleFont: { size: 13 }, bodyFont: { size: 13 }, cornerRadius: 8,
+                        callbacks: {
+                            afterBody: function (ctx) {
+                                if (!ctx.length) return [];
+                                var idxI = (ctx[0] && ctx[0].dataIndex) != null ? ctx[0].dataIndex : 0;
+                                var keys = getPeriodIndices();
+                                var mi = (keys.start + idxI);
+                                if (mi < 0 || mi >= meses.length) return [];
+                                var m = meses[mi];
+                                if (!m) return [];
+                                var nov = (series.novos || [])[mi] || 0;
+                                var ret = (series.retomados || [])[mi] || 0;
+                                var dist = (series.entradas_safra || [])[mi];
+                                var ab = (ambosMesSafra[mi] != null) ? ambosMesSafra[mi] : 0;
+                                var out = [''];
+                                if (ab > 0) {
+                                    out.push(
+                                        'Dupla entrada no mês: ' + formatNumber(ab) +
+                                        ' contrato(s) com ocorr. de novo e de voltou (abertas) — alinhado ao Relatórios.'
+                                    );
+                                }
+                                if (dist != null) {
+                                    out.push(
+                                        'Soma ocorr. novo + ocorr. voltou = ' + formatNumber(nov + ret) +
+                                        '; 1 ctt. dist. (entradas safra) = ' + formatNumber(dist) +
+                                        ' (Performance JB).'
+                                    );
+                                } else if (ab === 0) {
+                                    return [];
+                                }
+                                return out;
+                            }
+                        }
                     }
                 },
                 scales: {

@@ -39,7 +39,7 @@
         <div class="kpi-card info" data-kpi="novos">
             <div class="kpi-icon"><i class="fa-solid fa-file-circle-plus"></i></div>
             <div class="kpi-content">
-                <p class="kpi-title">Novos <span class="kpi-hint" id="kpiNovosPeriodo">(período)</span></p>
+                <p class="kpi-title">Novos (ocorr. abertas) <span class="kpi-hint" id="kpiNovosPeriodo">(período)</span></p>
                 <h2 class="kpi-value" id="kpiNovos">--</h2>
             </div>
         </div>
@@ -47,7 +47,7 @@
         <div class="kpi-card neutral" data-kpi="retomados">
             <div class="kpi-icon"><i class="fa-solid fa-rotate-left"></i></div>
             <div class="kpi-content">
-                <p class="kpi-title">Retomados <span class="kpi-hint" id="kpiRetomadosPeriodo">(período)</span></p>
+                <p class="kpi-title">Voltou (ocorr. abertas) <span class="kpi-hint" id="kpiRetomadosPeriodo">(período)</span></p>
                 <h2 class="kpi-value" id="kpiRetomados">--</h2>
             </div>
         </div>
@@ -111,14 +111,26 @@
                     <label class="chip-option chip-novos">
                         <input type="checkbox" data-serie="novos">
                         <span class="chip-dot" style="background:#3b82f6"></span>
-                        <span>Contratos novos</span>
+                        <span>Novo (ocorr. abertas)</span>
                     </label>
                     <label class="chip-option chip-retomados">
                         <input type="checkbox" data-serie="retomados">
                         <span class="chip-dot" style="background:#8b5cf6"></span>
-                        <span>Contratos que voltaram</span>
+                        <span>Voltou (ocorr. abertas)</span>
+                    </label>
+                    <label class="chip-option">
+                        <input type="checkbox" data-serie="entradas_safra">
+                        <span class="chip-dot" style="background:#0d9488"></span>
+                        <span>Entradas (safra) — 1 ctt. dist.</span>
                     </label>
                 </div>
+                <p class="control-card-hint" style="margin-top:10px;font-size:0.8rem;color:var(--text-muted)">
+                    Cada ponto de <strong>Novo</strong>/<strong>Voltou</strong> soma ocorrências com
+                    <code>status=aberto</code> (como o módulo <strong>Relatórios</strong>). A soma
+                    de tipos no tooltip pode exceder contratos; o mesmo ctt. pode contar no novo e
+                    no voltou. A curva <em>Entradas (safra, distintos)</em> acompanha o
+                    <strong>Performance JB</strong> (1 ctt. por mês, mesma regra de entrada).
+                </p>
             </div>
 
             <!-- 2. Periodo -->

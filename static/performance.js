@@ -23,6 +23,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var perfKpiSubQtdN = document.getElementById('perfKpiSubQtdN');
     var perfKpiSubValP = document.getElementById('perfKpiSubValP');
     var perfKpiSubValN = document.getElementById('perfKpiSubValN');
+    var perfCohortTetoLine = document.getElementById('perfCohortTetoLine');
 
     // --- Estado ---
     var safraChartInstance = null;
@@ -297,10 +298,14 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!performanceKpiRow) return;
         if (activeSafraIndex !== null) {
             performanceKpiRow.style.display = 'none';
+            if (perfCohortTetoLine) perfCohortTetoLine.style.display = 'none';
             return;
         }
         performanceKpiRow.style.display = 'grid';
-        if (!safraData || !safraData.all) return;
+        if (!safraData || !safraData.all) {
+            if (perfCohortTetoLine) perfCohortTetoLine.style.display = 'none';
+            return;
+        }
         var teto = atrasoTetoDias;
         var tKey = teto <= 30 ? '30' : teto <= 60 ? '60' : '90';
         var kpiB = (safraData.all.kpi_teto_cumulativo && safraData.all.kpi_teto_cumulativo[tKey]) || null;
@@ -362,6 +367,27 @@ document.addEventListener('DOMContentLoaded', function () {
                 : ' · % do total em contratos · mesma base do gráfico') + subCtx;
         if (perfKpiSubValP) perfKpiSubValP.textContent = subPct;
         if (perfKpiSubValN) perfKpiSubValN.textContent = subPct;
+        if (perfCohortTetoLine) {
+            if (isValor) {
+                perfCohortTetoLine.style.display = 'none';
+            } else {
+                var cohort = (currentResponse && currentResponse.kpis) ? currentResponse.kpis.safra_cohort_mes : null;
+                if (cohort == null) {
+                    perfCohortTetoLine.style.display = 'none';
+                } else {
+                    var sumTeto = (Number(nP0) || 0) + (Number(nN0) || 0);
+                    perfCohortTetoLine.style.display = 'block';
+                    perfCohortTetoLine.textContent =
+                        'Cohort do mês (1 contrato distinto, safra: novo|voltou, aberto): ' +
+                        formatInt(cohort) +
+                        '. Soma P+N (teto até ' +
+                        teto +
+                        'd): ' +
+                        formatInt(sumTeto) +
+                        ' — desempenho reclassifica por atraso; a soma “novos + voltou” do dashboard compara ocorrências e pode ser maior.';
+                }
+            }
+        }
     }
 
     function renderBarChart(data, safraName) {

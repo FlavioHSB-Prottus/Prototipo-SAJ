@@ -2112,7 +2112,8 @@ def api_tramitacao_item(tramitacao_id):
 # ---------------------------------------------------------------------------
 
 _RELATORIO_COLUMNS = [
-    ('Grupo / Cota', 'grupo'),
+    ('Grupo', 'grupo'),
+    ('Cota', 'cota'),
     ('CPF / CNPJ', 'cpf_cnpj'),
     ('Nome Devedor', 'nome_devedor'),
     ('Status', 'status'),
@@ -2330,7 +2331,8 @@ def api_relatorios_pdf():
     pdf.cell(0, 6, f'Periodo: {periodo_titulo}', ln=True, align='C')
     pdf.ln(6)
 
-    col_widths = [30, 25, 40, 90, 40, 35]
+    # Grupo, Cota, CPF, Nome, Status, Data
+    col_widths = [22, 16, 24, 35, 78, 32, 32]
     headers = [label for label, _key in _RELATORIO_COLUMNS]
 
     pdf.set_font('Helvetica', 'B', 9)
@@ -2375,11 +2377,12 @@ def api_relatorios_pdf():
 def api_dashboard():
     """Dashboard totalmente reativo.
 
-    Retorna, para os ultimos 12 meses, series mensais com contagens de:
-      - pagos       (ocorrencia.status = 'fechado')
-      - indenizados (ocorrencia.status = 'indenizado')
-      - novos       (ocorrencia.descricao = 'contrato novo')
-      - retomados   (ocorrencia.descricao = 'contrato voltou')
+    Retorna, para os ultimos 12 meses, series mensais com:
+      - pagos, indenizados: 1 ocorrencia = 1 contrato distinto no mes
+      - novos, retomados: 1 ponto = 1 ocorrencia (status=aberto, mesmo criterio do *Relatorios*),
+        para refletir varias ocorrencias do mesmo contrato no mes
+      - entradas_safra: 1 contrato distinto (novo|voltou, aberto) alinhado ao eixo do Performance
+      - ambos_mes_safra: contratos com ocorrencia novo e ocorrencia voltou no mesmo mes (abertas)
 
     Todo o recorte (periodo / series) e feito no front-end sobre esse payload,
     sem novas requisicoes.
@@ -2421,10 +2424,54 @@ def api_dashboard():
         by_month = {r['mes']: int(r['total']) for r in cursor.fetchall()}
         return [by_month.get(m, 0) for m in all_months]
 
+    def _series_ocorrencias_aberto(where_clause, params):
+        """1 linha = 1 ocorrencia. Alinha ao relatorio (novo/voltou com status=aberto)."""
+        cursor.execute(
+            "SELECT DATE_FORMAT(o.data_arquivo, '%%Y-%%m') AS mes, "
+            "       COUNT(*) AS total "
+            "FROM ocorrencia o "
+            + where_clause +
+            " AND o.data_arquivo >= %s "
+            "GROUP BY mes ORDER BY mes",
+            tuple(params) + (window_start,),
+        )
+        by_month = {r['mes']: int(r['total']) for r in cursor.fetchall()}
+        return [by_month.get(m, 0) for m in all_months]
+
+    def _ambos_mes_safra():
+        """Qtd. de contratos com ocorrencia 'novo' e ocorrencia 'voltou' no mesmo MES (calendario)."""
+        cursor.execute(
+            "SELECT DATE_FORMAT(o1.data_arquivo, '%%Y-%%m') AS mes, "
+            "       COUNT(DISTINCT o1.id_contrato) AS n "
+            "FROM ocorrencia o1 "
+            "INNER JOIN ocorrencia o2 "
+            "  ON o1.id_contrato = o2.id_contrato AND o1.id <> o2.id "
+            " AND YEAR(o1.data_arquivo) = YEAR(o2.data_arquivo) "
+            " AND MONTH(o1.data_arquivo) = MONTH(o2.data_arquivo) "
+            "WHERE o1.data_arquivo >= %s "
+            "  AND o1.status = 'aberto' AND o1.descricao LIKE '%%novo%%' "
+            "  AND o2.status = 'aberto' AND o2.descricao LIKE '%%contrato voltou%%' "
+            "GROUP BY mes",
+            (window_start,),
+        )
+        by_month = {r['mes']: int(r['n'] or 0) for r in cursor.fetchall()}
+        return [by_month.get(m, 0) for m in all_months]
+
     serie_pagos = _series("WHERE o.status = 'fechado'", [])
     serie_indenizados = _series("WHERE o.status = 'indenizado'", [])
-    serie_novos = _series("WHERE o.descricao = 'contrato novo'", [])
-    serie_retomados = _series("WHERE o.descricao = 'contrato voltou'", [])
+    # Ocorrencias (nao 1x por contrato) — alinha ao relatorio: status=aberto + LIKE
+    serie_novos = _series_ocorrencias_aberto(
+        "WHERE o.status = 'aberto' AND o.descricao LIKE '%%novo%%'", []
+    )
+    serie_retomados = _series_ocorrencias_aberto(
+        "WHERE o.status = 'aberto' AND o.descricao LIKE '%%contrato voltou%%'", []
+    )
+    serie_entradas_safra = _series(
+        "WHERE o.status = 'aberto' AND (o.descricao = 'contrato novo' OR o.descricao = 'contrato voltou')",
+        [],
+    )
+    # Contratos (mes) com as duas naturezas (novo e voltou) no mesmo mes — destaque p/ dupla entrada
+    ambos_mes_safra = _ambos_mes_safra()
 
     # --- KPIs snapshot (tabela `cobranca` = contratos em aberto no ultimo dia GM) ---
     data_dash_ref = _get_data_referencia_arquivos_gm(cursor)
@@ -2444,7 +2491,9 @@ def api_dashboard():
             'indenizados': serie_indenizados,
             'novos': serie_novos,
             'retomados': serie_retomados,
+            'entradas_safra': serie_entradas_safra,
         },
+        'ambos_mes_safra': ambos_mes_safra,
         'snapshot': {
             'em_cobranca': kpi_em_cobranca,
         },
@@ -4211,14 +4260,21 @@ def api_performance_export(formato):
 _DASH_SERIES_LABELS = {
     'pagos':       'Contratos Pagos',
     'indenizados': 'Contratos Indenizados',
-    'novos':       'Contratos Novos',
-    'retomados':   'Contratos que Voltaram',
+    'novos':       'Ocorrencias Novo (aberto)',
+    'retomados':   'Ocorrencias Voltou (aberto)',
 }
 _DASH_SERIES_WHERE = {
     'pagos':       ("o.status = 'fechado'", []),
     'indenizados': ("o.status = 'indenizado'", []),
-    'novos':       ("o.descricao = 'contrato novo'", []),
-    'retomados':   ("o.descricao = 'contrato voltou'", []),
+    'novos':       ("o.status = 'aberto' AND o.descricao LIKE '%%novo%%'", []),
+    'retomados':   ("o.status = 'aberto' AND o.descricao LIKE '%%contrato voltou%%'", []),
+}
+# Novos/retomados: soma ocorrencias; demais: contratos distintos no mes
+_DASH_SERIES_COUNT_FUNC = {
+    'pagos': 'COUNT(DISTINCT o.id_contrato)',
+    'indenizados': 'COUNT(DISTINCT o.id_contrato)',
+    'novos': 'COUNT(*)',
+    'retomados': 'COUNT(*)',
 }
 _DASH_PIE_LABELS = {
     'aberto':     'Em Cobranca',
@@ -4303,9 +4359,10 @@ def _fetch_dash_export_dataset(cursor, ctx):
 
     for key in ctx['series']:
         where, params = _DASH_SERIES_WHERE[key]
+        count_expr = _DASH_SERIES_COUNT_FUNC.get(key, 'COUNT(DISTINCT o.id_contrato)')
         cursor.execute(
             "SELECT DATE_FORMAT(o.data_arquivo, '%%Y-%%m') AS mes, "
-            "       COUNT(DISTINCT o.id_contrato) AS total "
+            f"       {count_expr} AS total "
             "FROM ocorrencia o "
             f"WHERE {where} "
             "AND o.data_arquivo >= %s AND o.data_arquivo <= %s "
