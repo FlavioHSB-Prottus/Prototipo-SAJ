@@ -14,6 +14,15 @@ document.addEventListener('DOMContentLoaded', function () {
 
     var barTitleEl = document.getElementById('barChartTitle');
     var barSubtitleEl = document.getElementById('chartBarSubtitle');
+    var performanceKpiRow = document.getElementById('performanceKpiRow');
+    var perfKpiQtdP = document.getElementById('perfKpiQtdP');
+    var perfKpiQtdN = document.getElementById('perfKpiQtdN');
+    var perfKpiValP = document.getElementById('perfKpiValP');
+    var perfKpiValN = document.getElementById('perfKpiValN');
+    var perfKpiSubQtdP = document.getElementById('perfKpiSubQtdP');
+    var perfKpiSubQtdN = document.getElementById('perfKpiSubQtdN');
+    var perfKpiSubValP = document.getElementById('perfKpiSubValP');
+    var perfKpiSubValN = document.getElementById('perfKpiSubValN');
 
     // --- Estado ---
     var safraChartInstance = null;
@@ -94,6 +103,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 novos: all.novos,
                 pagos: all.pagos,
                 indenizados: all.indenizados,
+                kpi_teto_cumulativo: all.kpi_teto_cumulativo || null,
             },
         };
         data.safras.forEach(function (s) {
@@ -206,6 +216,7 @@ document.addEventListener('DOMContentLoaded', function () {
         var viewBar = document.getElementById('viewModeBar');
         if (viewBar) viewBar.style.display = 'flex';
         renderBarChart(d, safraName);
+        updatePerformanceKpis();
     }
 
     function buildPerfDatasets() {
@@ -262,6 +273,97 @@ document.addEventListener('DOMContentLoaded', function () {
         return out;
     }
 
+    /** Soma em todas as faixas (mesma lógica do gráfico empilhado, visão geral). */
+    function sumPagoNaoTodasFaixas(block, g) {
+        var arr = sumPagoNaoByFaixa(block, g);
+        var t = 0;
+        for (var j = 0; j < arr.length; j++) t += (Number(arr[j]) || 0);
+        return t;
+    }
+
+    function formatBrl(n) {
+        if (n == null || isNaN(n)) return 'R$ 0,00';
+        return 'R$ ' + Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function formatPct(n) {
+        if (n == null || isNaN(n)) return '0,0%';
+        return (
+            Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%'
+        );
+    }
+
+    function updatePerformanceKpis() {
+        if (!performanceKpiRow) return;
+        if (activeSafraIndex !== null) {
+            performanceKpiRow.style.display = 'none';
+            return;
+        }
+        performanceKpiRow.style.display = 'grid';
+        if (!safraData || !safraData.all) return;
+        var teto = atrasoTetoDias;
+        var tKey = teto <= 30 ? '30' : teto <= 60 ? '60' : '90';
+        var kpiB = (safraData.all.kpi_teto_cumulativo && safraData.all.kpi_teto_cumulativo[tKey]) || null;
+        var cBlock = (safraData.all.count) || {};
+        var vBlock = (safraData.all.valor_brl) || cBlock;
+        var pOn = perfSelection.performado;
+        var nOn = perfSelection.nao_performado;
+        var nP0, nN0, vP0, vN0;
+        if (kpiB) {
+            nP0 = kpiB.n_performado;
+            nN0 = kpiB.n_nao;
+            vP0 = kpiB.v_performado;
+            vN0 = kpiB.v_nao;
+        } else {
+            nP0 = sumPagoNaoTodasFaixas(cBlock, 'performado');
+            nN0 = sumPagoNaoTodasFaixas(cBlock, 'nao_performado');
+            vP0 = sumPagoNaoTodasFaixas(vBlock, 'performado');
+            vN0 = sumPagoNaoTodasFaixas(vBlock, 'nao_performado');
+        }
+        var nP = pOn ? nP0 : 0;
+        var nN = nOn ? nN0 : 0;
+        var vP = pOn ? vP0 : 0;
+        var vN = nOn ? vN0 : 0;
+        var isValor = viewMode === 'valor';
+        var subCtx =
+            ' · ' +
+            formatMesLabel(lastMes) +
+            ' · visão geral (todas as faixas) · teto: até ' +
+            teto +
+            ' d';
+        if (isValor) {
+            if (perfKpiQtdP) perfKpiQtdP.textContent = formatBrl(vP);
+            if (perfKpiQtdN) perfKpiQtdN.textContent = formatBrl(vN);
+        } else {
+            if (perfKpiQtdP) perfKpiQtdP.textContent = formatInt(nP);
+            if (perfKpiQtdN) perfKpiQtdN.textContent = formatInt(nN);
+        }
+        if (perfKpiSubQtdP) {
+            perfKpiSubQtdP.textContent = (isValor ? ' · valor (R$)' : ' · contagem (contratos)') + subCtx;
+        }
+        if (perfKpiSubQtdN) {
+            perfKpiSubQtdN.textContent = (isValor ? ' · valor (R$)' : ' · contagem (contratos)') + subCtx;
+        }
+        // Percentuais: mesma base do modo Visualizar (qtd ou R$) e do que está visível (checkboxes)
+        var tot = isValor ? (vP + vN) : (nP + nN);
+        var pctP = 0;
+        var pctN = 0;
+        if (tot > 0) {
+            var parte = isValor ? vP : nP;
+            var partn = isValor ? vN : nN;
+            pctP = (100 * parte) / tot;
+            pctN = (100 * partn) / tot;
+        }
+        if (perfKpiValP) perfKpiValP.textContent = formatPct(pctP);
+        if (perfKpiValN) perfKpiValN.textContent = formatPct(pctN);
+        var subPct =
+            (isValor
+                ? ' · % do total em R$ (performado + não) · mesma base do gráfico'
+                : ' · % do total em contratos · mesma base do gráfico') + subCtx;
+        if (perfKpiSubValP) perfKpiSubValP.textContent = subPct;
+        if (perfKpiSubValN) perfKpiSubValN.textContent = subPct;
+    }
+
     function renderBarChart(data, safraName) {
         var ctx = document.getElementById('safraChart');
         if (!ctx || !data) return;
@@ -272,9 +374,10 @@ document.addEventListener('DOMContentLoaded', function () {
             barSubtitleEl.textContent = 'Dias do período — safra ' + formatMesLabel(lastMes);
         } else {
             barTitleEl.textContent = 'Desempenho na cobrança por faixa (calendário)';
-            var subBase = (viewMode === 'valor' ? 'Soma do valor da parcela de entrada (R$) — ' : 'Contagem de contratos (safra) — ') +
+            var subBase = (viewMode === 'valor' ? 'Soma do valor da parcela de entrada (R$) — ' : 'Contagem (safra, por faixa de calendário) — ') +
                 formatMesLabel(lastMes) +
-                ' · Teto: até ' + atrasoTetoDias + ' d (quitação: performado; aberto: não performado)';
+                ' · Teto: até ' + atrasoTetoDias + ' d (quitação: performado; aberto: não performado)' +
+                ' · Resumos e export: 1 contrato = 1 linha (contagem distinta).';
             barSubtitleEl.textContent = subBase;
         }
 

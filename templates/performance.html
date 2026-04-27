@@ -8,6 +8,38 @@
 {% block content %}
 <div class="dashboard-wrapper">
 
+    <!-- Totais alinhados ao gráfico de desempenho (visão geral) -->
+    <div class="kpi-row" id="performanceKpiRow" style="display: none;">
+        <div class="kpi-card success">
+            <div class="kpi-icon"><i class="fa-solid fa-check"></i></div>
+            <div class="kpi-content">
+                <span class="kpi-title">Performados <span class="kpi-hint" id="perfKpiSubQtdP"></span></span>
+                <span class="kpi-value" id="perfKpiQtdP">—</span>
+            </div>
+        </div>
+        <div class="kpi-card warning">
+            <div class="kpi-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+            <div class="kpi-content">
+                <span class="kpi-title">Não performados <span class="kpi-hint" id="perfKpiSubQtdN"></span></span>
+                <span class="kpi-value" id="perfKpiQtdN">—</span>
+            </div>
+        </div>
+        <div class="kpi-card success">
+            <div class="kpi-icon"><i class="fa-solid fa-percent"></i></div>
+            <div class="kpi-content">
+                <span class="kpi-title">Porcentagem (%) performado <span class="kpi-hint" id="perfKpiSubValP"></span></span>
+                <span class="kpi-value" id="perfKpiValP" style="font-size:1.35rem;">—</span>
+            </div>
+        </div>
+        <div class="kpi-card warning">
+            <div class="kpi-icon"><i class="fa-solid fa-percent"></i></div>
+            <div class="kpi-content">
+                <span class="kpi-title">Porcentagem (%) não performado <span class="kpi-hint" id="perfKpiSubValN"></span></span>
+                <span class="kpi-value" id="perfKpiValN" style="font-size:1.35rem;">—</span>
+            </div>
+        </div>
+    </div>
+
     <!-- Área de gráfico principal: performado (prazo de quitação) x não performado (atraso aberto) -->
     <div class="charts-row charts-row--single">
         <div class="chart-container line-chart-container line-chart-container--wide">
