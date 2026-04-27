@@ -3132,9 +3132,10 @@ SELECT
         )
     END AS delay_open
 FROM (
-    SELECT id_contrato, MIN(data_arquivo) as data_arquivo
+    SELECT id_contrato, MIN(data_arquivo) AS data_arquivo
     FROM ocorrencia
     WHERE status = 'aberto'
+      AND (descricao = 'contrato novo' OR descricao = 'contrato voltou')
       AND data_arquivo >= %s AND data_arquivo <= %s
     GROUP BY id_contrato
 ) o
