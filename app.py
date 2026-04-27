@@ -3109,7 +3109,7 @@ def _nao_b_from_open_delay(dd):
 
 _SAFRA_ENTRADA_SQL = """
 SELECT 
-    c.id AS id_contrato,
+    COALESCE(c.id, o.id_contrato) AS id_contrato,
     o.data_arquivo AS dt_entrada,
     p_antiga.vencimento AS vencimento,
     p_antiga.data_pagamento AS dt_paga,
@@ -3169,6 +3169,155 @@ def _bool_sql(val):
     if isinstance(val, (bytes, bytearray)):
         return bool(val) and val not in (b'\x00', b'0')
     return bool(val)
+
+
+def _decode_sql_str(v):
+    if isinstance(v, (bytes, bytearray)):
+        return v.decode('utf-8', errors='replace')
+    if v is None:
+        return ''
+    return str(v).strip()
+
+
+def _row_matches_atraso_teto(r, teto: int) -> bool:
+    """Mesma regra do gráfico (sumPagoNao + keysPago/keysNao cumulativos) para 30/60/90 d."""
+    is_p = _bool_sql(r.get('is_performado'))
+    if is_p:
+        rgk = _decode_sql_str(r.get('recovery_group'))
+        if not rgk or rgk == 'nao_performado':
+            return False
+        if teto <= 30:
+            return rgk == 'd30'
+        if teto <= 60:
+            return rgk in ('d30', 'd60')
+        return rgk in ('d30', 'd60', 'd90')
+    try:
+        dd = r.get('delay_open')
+        dd_i = int(dd) if dd is not None else None
+    except (TypeError, ValueError):
+        dd_i = None
+    bk = _nao_b_from_open_delay(dd_i)
+    if teto <= 30:
+        return bk == 'b30'
+    if teto <= 60:
+        return bk in ('b30', 'b60')
+    return bk in ('b30', 'b60', 'b90')
+
+
+def _export_prazo_atraso_label(r) -> str:
+    """Prazo em faixas 30/60/90 alinhado ao gráfico (quitação vs aberto)."""
+    is_p = _bool_sql(r.get('is_performado'))
+    if is_p:
+        rgk = _decode_sql_str(r.get('recovery_group'))
+        m = {
+            'd30': 'até 30 dias (quitação)',
+            'd60': 'até 60 dias (quitação)',
+            'd90': 'até 90 dias (quitação)',
+            'dplus': 'acima de 90 dias (quitação)',
+        }
+        return m.get(rgk, rgk or '—')
+    try:
+        dd = r.get('delay_open')
+        dd_i = int(dd) if dd is not None else None
+    except (TypeError, ValueError):
+        dd_i = None
+    bk = _nao_b_from_open_delay(dd_i)
+    m = {
+        'b30': 'até 30 dias (aberto)',
+        'b60': 'até 60 dias (aberto)',
+        'b90': 'até 90 dias (aberto)',
+        'bplus': 'acima de 90 dias (aberto)',
+    }
+    return m.get(bk, bk or '—')
+
+
+def _export_desempenho_label(r) -> str:
+    return 'Performado' if _bool_sql(r.get('is_performado')) else 'Não performado'
+
+
+def _cohort_enriched_rows_for_export(cursor, y, m, safra_index, teto: int):
+    """Contratos do cohort (safra) após o mesmo filtro 30/60/90 d do gráfico empilhado."""
+    out = []
+    seen = set()
+    partes = range(4) if safra_index is None else (safra_index,)
+    for parte in partes:
+        d1, d2 = _safra_bounds(y, m, parte)
+        for r in _safra_entrada_rows(cursor, d1, d2, y, m):
+            if not _row_matches_atraso_teto(r, teto):
+                continue
+            cid = r.get('id_contrato')
+            if cid is None:
+                continue
+            try:
+                cid = int(cid)
+            except (TypeError, ValueError):
+                continue
+            if cid in seen:
+                continue
+            seen.add(cid)
+            vp = r.get('valor_parcela')
+            try:
+                vp = float(vp) if vp is not None and vp != '' else 0.0
+            except (TypeError, ValueError):
+                vp = 0.0
+            out.append({
+                'id_contrato': cid,
+                'faixa_calendario': _SAFRA_LABELS_EXPORT[parte],
+                'desempenho': _export_desempenho_label(r),
+                'prazo_atraso': _export_prazo_atraso_label(r),
+                'valor_parcela_entrada_brl': round(vp, 2),
+            })
+    return out
+
+
+def _kpi_teto_cumulativo_distinct_global(cursor, y, m):
+    """Totais distintos de id_contrato (e valor uma vez por id) com o teto 30/60/90 d.
+
+    O gráfico soma, por barra, linhas de cohort (_aggregate_performance_faixa) — o mesmo
+    contrato pode entrar em mais de uma faixa de calendário no mês, inflando a soma das
+    4 faixas. A export e os KPI de visão geral usam 1 contrato = 1 linha (dedup global).
+    """
+    st = {
+        30: {'p': set(), 'n': set(), 'v_p': {}, 'v_n': {}},
+        60: {'p': set(), 'n': set(), 'v_p': {}, 'v_n': {}},
+        90: {'p': set(), 'n': set(), 'v_p': {}, 'v_n': {}},
+    }
+    for parte in range(4):
+        d1, d2 = _safra_bounds(y, m, parte)
+        for r in _safra_entrada_rows(cursor, d1, d2, y, m):
+            cid = r.get('id_contrato')
+            if cid is None:
+                continue
+            try:
+                cid = int(cid)
+            except (TypeError, ValueError):
+                continue
+            is_p = _bool_sql(r.get('is_performado'))
+            v = r.get('valor_parcela')
+            try:
+                v = float(v) if v is not None and v != '' else 0.0
+            except (TypeError, ValueError):
+                v = 0.0
+            for teto in (30, 60, 90):
+                if not _row_matches_atraso_teto(r, teto):
+                    continue
+                S = st[teto]
+                if is_p:
+                    S['p'].add(cid)
+                    S['v_p'].setdefault(cid, v)
+                else:
+                    S['n'].add(cid)
+                    S['v_n'].setdefault(cid, v)
+    out = {}
+    for teto in (30, 60, 90):
+        S = st[teto]
+        out[str(teto)] = {
+            'n_performado': len(S['p']),
+            'n_nao': len(S['n']),
+            'v_performado': round(sum(S['v_p'].values()), 2),
+            'v_nao': round(sum(S['v_n'].values()), 2),
+        }
+    return out
 
 
 def _safra_recovery_diff_days(r):
@@ -3485,6 +3634,7 @@ def api_performance():
         bar_pagos.append(pagos_safra)
         bar_indenizados.append(inden_safra)
 
+    kpi_teto_cumulativo = _kpi_teto_cumulativo_distinct_global(cursor, y, m)
     cursor.close()
     conn.close()
 
@@ -3508,6 +3658,7 @@ def api_performance():
             'novos': bar_novos,
             'pagos': bar_pagos,
             'indenizados': bar_indenizados,
+            'kpi_teto_cumulativo': kpi_teto_cumulativo,
         },
     })
 
@@ -3559,6 +3710,14 @@ def _resolve_export_payload():
     if not faixas:
         faixas = list(_FAIXA_LABELS_EXPORT.keys())
 
+    at_raw = payload.get('atraso_teto', 90)
+    try:
+        atraso_teto = int(at_raw) if at_raw is not None else 90
+    except (TypeError, ValueError):
+        atraso_teto = 90
+    if atraso_teto not in (30, 60, 90):
+        atraso_teto = 90
+
     return {
         'mes': mes,
         'y': y,
@@ -3566,6 +3725,7 @@ def _resolve_export_payload():
         'safra_index': safra_index,
         'series': series,
         'faixas': faixas,
+        'atraso_teto': atraso_teto,
         'bar_image': payload.get('bar_image') or '',
         'pie_image': payload.get('pie_image') or '',
     }, None
@@ -3653,40 +3813,50 @@ def _fetch_export_dataset(cursor, ctx):
         for k in ctx['faixas']
     ]
 
-    # --- Contratos do cohort safra (entrada + 1 parcela vencida no arquivo) ---
-    cohort_ids_ordered = []
-    seen_c = set()
-    if safra_index is None:
-        for parte in range(4):
-            d1, d2 = _safra_bounds(y, m, parte)
-            for r in _safra_entrada_rows(cursor, d1, d2, y, m):
-                cid = r.get('id_contrato')
-                if cid is not None and cid not in seen_c:
-                    seen_c.add(cid)
-                    cohort_ids_ordered.append(cid)
-    else:
-        d1, d2 = _safra_bounds(y, m, safra_index)
-        for r in _safra_entrada_rows(cursor, d1, d2, y, m):
-            cid = r.get('id_contrato')
-            if cid is not None and cid not in seen_c:
-                seen_c.add(cid)
-                cohort_ids_ordered.append(cid)
+    # --- Contratos: mesma selecao do grafico (teto 30/60/90 d) + colunas de desempenho/prazo ---
+    teto = int(ctx.get('atraso_teto') or 90)
+    if teto not in (30, 60, 90):
+        teto = 90
 
-    if not cohort_ids_ordered:
+    enriched = _cohort_enriched_rows_for_export(cursor, y, m, safra_index, teto)
+    if not enriched:
         contratos = []
     else:
-        ph = ','.join(['%s'] * len(cohort_ids_ordered))
+        by_id = {e['id_contrato']: e for e in enriched}
+        ordered_ids = list(by_id.keys())
+        ph = ','.join(['%s'] * len(ordered_ids))
         cursor.execute(
-            f"SELECT DISTINCT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
+            f"SELECT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
             f"c.valor_credito, c.data_adesao, "
             f"p.nome_completo AS devedor, p.cpf_cnpj AS devedor_cpf_cnpj "
             f"FROM contrato c "
             f"LEFT JOIN pessoa p ON p.id = c.id_pessoa "
             f"WHERE c.id IN ({ph}) "
             f"ORDER BY c.grupo, c.cota",
-            tuple(cohort_ids_ordered),
+            tuple(ordered_ids),
         )
-        contratos = _clean_rows(cursor.fetchall())
+        merged = []
+        for row in cursor.fetchall():
+            cid = int(row['id'])
+            meta = by_id.get(cid)
+            if not meta:
+                continue
+            merged.append({
+                'id': meta['id_contrato'],
+                'faixa_calendario': meta['faixa_calendario'],
+                'desempenho': meta['desempenho'],
+                'prazo_atraso': meta['prazo_atraso'],
+                'valor_parcela_entrada_brl': meta['valor_parcela_entrada_brl'],
+                'grupo': row.get('grupo'),
+                'cota': row.get('cota'),
+                'numero_contrato': row.get('numero_contrato'),
+                'status': row.get('status'),
+                'valor_credito': row.get('valor_credito'),
+                'data_adesao': row.get('data_adesao'),
+                'devedor': row.get('devedor'),
+                'devedor_cpf_cnpj': row.get('devedor_cpf_cnpj'),
+            })
+        contratos = _clean_rows(merged)
 
     return {
         'resumo': safras_summary,
@@ -3700,7 +3870,11 @@ def _export_context_labels(ctx):
     safra_lbl = 'Visao geral (todas as safras)' if ctx['safra_index'] is None else _SAFRA_LABELS_EXPORT[ctx['safra_index']]
     series_lbl = ', '.join(_SERIES_LABELS_EXPORT[s] for s in ctx['series'])
     faixas_lbl = ', '.join(_FAIXA_LABELS_EXPORT[f] for f in ctx['faixas'])
-    return safra_lbl, series_lbl, faixas_lbl
+    teto = int(ctx.get('atraso_teto') or 90)
+    if teto not in (30, 60, 90):
+        teto = 90
+    teto_lbl = f'Ate {teto} dias (cumulativo: prazo de quitação e atraso em aberto, como no grafico)'
+    return safra_lbl, series_lbl, faixas_lbl, teto_lbl
 
 
 def _export_to_xlsx(ctx, dataset):
@@ -3735,14 +3909,15 @@ def _export_to_xlsx(ctx, dataset):
     # Aba 1: Contexto
     ws0 = wb.active
     ws0.title = 'Parametros'
-    safra_lbl, series_lbl, faixas_lbl = _export_context_labels(ctx)
+    safra_lbl, series_lbl, faixas_lbl, teto_lbl = _export_context_labels(ctx)
     ws0['A1'] = 'Parametros da exportacao'
     ws0['A1'].font = Font(bold=True, size=13)
     info = [
         ('Mes/Ano', ctx['mes']),
         ('Safra em analise', safra_lbl),
+        ('Teto atraso (como no grafico)', teto_lbl),
         ('Series selecionadas', series_lbl),
-        ('Faixas de atraso', faixas_lbl),
+        ('Faixas de atraso (aba auxiliar)', faixas_lbl),
         ('Gerado em', datetime.datetime.now().strftime('%d/%m/%Y %H:%M')),
     ]
     for i, (k, v) in enumerate(info, start=3):
@@ -3779,10 +3954,16 @@ def _export_to_xlsx(ctx, dataset):
     # Aba 5: Contratos selecionados
     ws4 = wb.create_sheet('Contratos')
     contratos = dataset['contratos']
-    headers = ['ID', 'Grupo', 'Cota', 'Nro Contrato', 'Status', 'Valor do Credito',
-               'Data de Adesao', 'Devedor', 'CPF/CNPJ']
-    keys = ['id', 'grupo', 'cota', 'numero_contrato', 'status', 'valor_credito',
-            'data_adesao', 'devedor', 'devedor_cpf_cnpj']
+    headers = [
+        'ID', 'Faixa (calendario)', 'Desempenho', 'Prazo (atraso)', 'Valor parcela entrada (R$)',
+        'Grupo', 'Cota', 'Nro Contrato', 'Status', 'Valor do Credito',
+        'Data de Adesao', 'Devedor', 'CPF/CNPJ',
+    ]
+    keys = [
+        'id', 'faixa_calendario', 'desempenho', 'prazo_atraso', 'valor_parcela_entrada_brl',
+        'grupo', 'cota', 'numero_contrato', 'status', 'valor_credito',
+        'data_adesao', 'devedor', 'devedor_cpf_cnpj',
+    ]
     _write_sheet(ws4, headers, [[c.get(k, '') for k in keys] for c in contratos])
 
     buf = io.BytesIO()
@@ -3801,12 +3982,13 @@ def _export_to_csv_powerbi(ctx, dataset):
     buf = io.StringIO()
     writer = csv.writer(buf, delimiter=';')
     # Cabecalho com metadados (PowerBI ignora e o usuario entende)
-    safra_lbl, series_lbl, faixas_lbl = _export_context_labels(ctx)
+    safra_lbl, series_lbl, faixas_lbl, teto_lbl = _export_context_labels(ctx)
     writer.writerow(['# Performance JB - export Power BI'])
     writer.writerow(['# Mes/Ano', ctx['mes']])
     writer.writerow(['# Safra', safra_lbl])
+    writer.writerow(['# Teto atraso', teto_lbl])
     writer.writerow(['# Series', series_lbl])
-    writer.writerow(['# Faixas', faixas_lbl])
+    writer.writerow(['# Faixas (aba auxiliar)', faixas_lbl])
     writer.writerow(['# Gerado em', datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')])
     writer.writerow([])
 
@@ -3827,9 +4009,19 @@ def _export_to_csv_powerbi(ctx, dataset):
         writer.writerow(['faixas', '-', '-', r['faixa'], r['total']])
 
     # Tabela 4 - Contratos
+    writer.writerow([])
+    writer.writerow([
+        'tabela', 'id', 'faixa_calendario', 'desempenho', 'prazo_atraso', 'valor_parcela',
+        'grupo_cota', 'data_adesao', 'status', 'valor_credito', 'devedor', 'cpf_cnpj', 'nro_contrato',
+    ])
     for c in dataset['contratos']:
         writer.writerow([
             'contratos',
+            c.get('id') or '',
+            c.get('faixa_calendario') or '',
+            c.get('desempenho') or '',
+            c.get('prazo_atraso') or '',
+            c.get('valor_parcela_entrada_brl') if c.get('valor_parcela_entrada_brl') is not None else 0,
             str(c.get('grupo') or '') + '/' + str(c.get('cota') or ''),
             c.get('data_adesao') or '',
             c.get('status') or '',
@@ -3864,15 +4056,16 @@ def _export_to_pdf(ctx, dataset):
     pdf.set_auto_page_break(auto=True, margin=12)
     pdf.add_page()
 
-    safra_lbl, series_lbl, faixas_lbl = _export_context_labels(ctx)
+    safra_lbl, series_lbl, faixas_lbl, teto_lbl = _export_context_labels(ctx)
 
     # Cabecalho
     pdf.set_font('Helvetica', 'B', 16)
     pdf.cell(0, 10, 'Performance JB - Relatorio Exportado', ln=True, align='C')
     pdf.set_font('Helvetica', '', 10)
     pdf.cell(0, 6, 'Mes/Ano: ' + ctx['mes'] + '   |   Safra: ' + safra_lbl, ln=True, align='C')
+    pdf.cell(0, 6, 'Teto atraso: ' + teto_lbl, ln=True, align='C')
     pdf.cell(0, 6, 'Series: ' + series_lbl, ln=True, align='C')
-    pdf.cell(0, 6, 'Faixas: ' + faixas_lbl, ln=True, align='C')
+    pdf.cell(0, 6, 'Faixas (aux): ' + faixas_lbl, ln=True, align='C')
     pdf.cell(0, 6, 'Gerado em ' + datetime.datetime.now().strftime('%d/%m/%Y %H:%M'), ln=True, align='C')
     pdf.ln(4)
 
@@ -3922,39 +4115,46 @@ def _export_to_pdf(ctx, dataset):
             pdf.ln()
         pdf.ln(4)
 
-        # Tabela: Contratos (ate 300)
-        contratos = dataset['contratos'][:300]
+        # Tabela: Contratos (ate 200 — mais colunas)
+        contratos = dataset['contratos'][:200]
         pdf.set_font('Helvetica', 'B', 11)
         pdf.cell(0, 7, 'Contratos selecionados (' + str(len(dataset['contratos'])) + ' total, mostrando ' + str(len(contratos)) + ')', ln=True)
-        pdf.set_font('Helvetica', 'B', 8)
+        pdf.set_font('Helvetica', 'B', 7)
         pdf.set_fill_color(59, 130, 246); pdf.set_text_color(255, 255, 255)
-        ch = ['Grupo/Cota', 'Nro Contrato', 'Status', 'Valor Credito', 'Adesao', 'Devedor', 'CPF/CNPJ']
-        cw = [28, 32, 22, 32, 24, 90, 40]
+        ch = ['Faixa', 'Desemp.', 'Prazo', 'G/C', 'Nro', 'R$ parc.', 'R$ créd.', 'St.', 'Devedor']
+        cw = [36, 18, 28, 20, 22, 20, 22, 10, 62]
         for i, h in enumerate(ch):
-            pdf.cell(cw[i], 6, h, border=1, align='C', fill=True)
+            pdf.cell(cw[i], 5, h, border=1, align='C', fill=True)
         pdf.ln()
-        pdf.set_font('Helvetica', '', 7)
+        pdf.set_font('Helvetica', '', 6)
         pdf.set_text_color(30, 41, 59)
         for idx, c in enumerate(contratos):
             fill = idx % 2 == 1
             if fill: pdf.set_fill_color(248, 250, 252)
             else: pdf.set_fill_color(255, 255, 255)
+            vparc = c.get('valor_parcela_entrada_brl')
+            try:
+                vparcf = 'R$ ' + f"{float(vparc):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            except Exception:
+                vparcf = str(vparc or '-')
             valor = c.get('valor_credito')
             try:
                 valor_fmt = 'R$ ' + f"{float(valor):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
             except Exception:
                 valor_fmt = str(valor or '-')
             row = [
+                str(c.get('faixa_calendario') or '')[:20],
+                str(c.get('desempenho') or '-')[:10],
+                (str(c.get('prazo_atraso') or ''))[:22],
                 str(c.get('grupo') or '') + '/' + str(c.get('cota') or ''),
-                str(c.get('numero_contrato') or '-'),
-                str(c.get('status') or '-'),
+                str(c.get('numero_contrato') or '-')[:8],
+                vparcf,
                 valor_fmt,
-                str(c.get('data_adesao') or '-'),
-                (str(c.get('devedor') or '-'))[:50],
-                str(c.get('devedor_cpf_cnpj') or '-'),
+                (str(c.get('status') or ''))[:4],
+                (str(c.get('devedor') or '-'))[:32],
             ]
             for i, v in enumerate(row):
-                pdf.cell(cw[i], 6, v, border=1, align='C', fill=True)
+                pdf.cell(cw[i], 5, v, border=1, align='C', fill=True)
             pdf.ln()
 
         buf = io.BytesIO()
