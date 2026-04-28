@@ -435,7 +435,9 @@ document.addEventListener('DOMContentLoaded', function () {
         html += dataItem('Taxa Administracao', c.taxa_administracao);
         html += dataItem('Fundo Reserva', c.fundo_reserva);
         html += dataItem('Percentual Lance', c.percentual_lance);
-        html += '</div></div>';
+        html += '</div>';
+        html += '<div style="margin-top:14px"><button type="button" class="btn-search btn-pv-insert-from-contrato" style="max-width:380px" data-grupo="' + encodeURIComponent(String(c.grupo != null ? c.grupo : '')) + '" data-cota="' + encodeURIComponent(String(c.cota != null ? c.cota : '')) + '"><i class="fa-solid fa-folder-plus"></i> Registrar na Pasta Virtual</button></div>';
+        html += '</div>';
 
         // Devedor
         if (data.devedor) {
