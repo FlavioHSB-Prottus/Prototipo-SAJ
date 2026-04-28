@@ -19,7 +19,6 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev-consorcio-gm-altere-em-producao')
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
-SCRIPTS_DIR = os.path.join(PROJECT_DIR, 'scripts')
 PYTHON_DIR = os.path.join(PROJECT_DIR, 'Python')
 PYTHON_EXE = sys.executable
 
