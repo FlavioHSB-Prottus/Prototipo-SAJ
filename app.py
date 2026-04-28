@@ -2530,7 +2530,16 @@ def api_dashboard_panel_contratos():
         request.args.get('termo', ''),
         request.args.get('status', ''),
     )
-    lim = _PAINEL_DASH_LIM + 1
+    params = list(or_p) + [d_ini, d_fim] + p_busca
+    count_sql = (
+        "SELECT COUNT(DISTINCT c.id) AS n FROM ocorrencia o "
+        "INNER JOIN contrato c ON c.id = o.id_contrato "
+        "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
+        + (join_x or '') +
+        f"WHERE ({or_sql}) "
+        "AND o.data_arquivo >= %s AND o.data_arquivo <= %s "
+        + and_busca
+    )
     sql = (
         "SELECT DISTINCT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
         "       p.nome_completo AS devedor, p.cpf_cnpj AS devedor_cpf_cnpj "
@@ -2541,26 +2550,24 @@ def api_dashboard_panel_contratos():
         f"WHERE ({or_sql}) "
         "AND o.data_arquivo >= %s AND o.data_arquivo <= %s "
         + and_busca +
-        f" ORDER BY c.grupo, c.cota LIMIT {int(lim)}"
+        f" ORDER BY c.grupo, c.cota LIMIT {int(_PAINEL_DASH_LIM)}"
     )
-    params = list(or_p) + [d_ini, d_fim] + p_busca
 
     conn = _get_db()
     cursor = conn.cursor()
     try:
+        cursor.execute(count_sql, tuple(params))
+        full_total = int((cursor.fetchone() or {}).get('n') or 0)
         cursor.execute(sql, tuple(params))
         rows = _clean_rows(cursor.fetchall())
     finally:
         cursor.close()
         conn.close()
-    total = len(rows)
     lim_ok = _PAINEL_DASH_LIM
-    if total > lim_ok:
-        rows = rows[:lim_ok]
     return jsonify({
         'results': rows,
-        'total': total,
-        'limited': total > lim_ok,
+        'total': full_total,
+        'limited': full_total > lim_ok,
         'limit': lim_ok,
     })
 
@@ -2580,7 +2587,6 @@ def _panel_perf_contratos_rows(cursor, y, m, safra_index, teto, tipo, termo, st)
         (st or '').strip(),
     )
     out = []
-    lim = _PAINEL_DASH_LIM + 1
     chunk = 300
     for i in range(0, len(ordered), chunk):
         part = ordered[i : i + chunk]
@@ -2592,7 +2598,8 @@ def _panel_perf_contratos_rows(cursor, y, m, safra_index, teto, tipo, termo, st)
             "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
         )
         sql += join_x or ''
-        sql += f" WHERE c.id IN ({ph})" + (f" {and_busca}" if and_busca else "") + f" ORDER BY c.grupo, c.cota LIMIT {int(lim)}"
+        # Sem LIMIT por chunk: o LIMIT antigo cortava o universo (~501) antes de varrer o cohort inteiro.
+        sql += f" WHERE c.id IN ({ph})" + (f" {and_busca}" if and_busca else "") + " ORDER BY c.grupo, c.cota"
         params = list(part) + p_busca
         try:
             cursor.execute(sql, tuple(params))
@@ -2616,14 +2623,10 @@ def _panel_perf_contratos_rows(cursor, y, m, safra_index, teto, tipo, termo, st)
                 'desempenho': meta.get('desempenho'),
                 'prazo_atraso': meta.get('prazo_atraso'),
             })
-            if len(out) >= lim:
-                break
-        if len(out) >= lim:
-            break
-    n = len(out)
-    if n > _PAINEL_DASH_LIM:
-        return out[:_PAINEL_DASH_LIM], n, True
-    return out, n, False
+    out.sort(key=lambda r: (str(r.get('grupo') or ''), str(r.get('cota') or '')))
+    total = len(out)
+    limited = total > _PAINEL_DASH_LIM
+    return out[:_PAINEL_DASH_LIM], total, limited
 
 
 @app.route('/api/performance/panel_contratos')

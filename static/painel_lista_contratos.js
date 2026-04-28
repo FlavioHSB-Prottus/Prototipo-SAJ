@@ -141,14 +141,23 @@
                     return;
                 }
                 var n = (data.total != null ? data.total : (data.results || []).length) || 0;
+                var lim = data.limit || 500;
                 if (titleEl) {
-                    titleEl.textContent =
+                    var base =
                         'Contratos (painel' +
-                        (mode === 'performance' ? '  Performance' : '  Dashboard') +
-                        '): ' +
-                        n.toLocaleString('pt-BR') +
-                        (data.limited ? '+' : '') +
-                        ' exibido(s)';
+                        (mode === 'performance' ? ' ? Performance' : ' ? Dashboard') +
+                        '): ';
+                    if (data.limited && n > lim) {
+                        titleEl.textContent =
+                            base +
+                            n.toLocaleString('pt-BR') +
+                            ' no total (mostrando ' +
+                            lim.toLocaleString('pt-BR') +
+                            ' na tabela)';
+                    } else {
+                        titleEl.textContent =
+                            base + n.toLocaleString('pt-BR') + ' exibido(s)';
+                    }
                 }
                 if (limEl) {
                     if (data.limited) {
