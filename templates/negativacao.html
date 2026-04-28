@@ -10,6 +10,9 @@
     .neg-subcard { margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(226, 232, 240, 0.95); }
     .neg-subcard:first-of-type { margin-top: 0; padding-top: 0; border-top: none; }
     .neg-pagination { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 14px; flex-wrap: wrap; }
+    th.neg-sort { cursor: pointer; user-select: none; white-space: nowrap; }
+    th.neg-sort:hover { color: #2563eb; }
+    th.neg-sort .sort-ind { opacity: 0.55; font-size: 0.72em; margin-left: 4px; font-weight: 600; }
 </style>
 {% endblock %}
 
@@ -30,6 +33,36 @@
                 <label for="neg_termo">Termo da busca</label>
                 <input type="text" id="neg_termo" name="termo" class="form-control" placeholder="Ex.: 027004 ou parte do texto do historico">
             </div>
+            <div class="form-group">
+                <label for="neg_evento">Tipo de ocorrência</label>
+                <select id="neg_evento" name="evento" class="form-control" title="Filtra o histórico por tipo de evento; na lista de parcelas ativas restringe quando aplicável">
+                    <option value="todos">Todos</option>
+                    <option value="negativado">Negativados (qualquer)</option>
+                    <option value="positivado">Positivados (qualquer)</option>
+                    <option value="observacao">Observação</option>
+                    <option value="negativado_manual">Negativado manual</option>
+                    <option value="negativado_tracker">Negativado (tracker)</option>
+                    <option value="removido_pagamento">Positivação por pagamento</option>
+                    <option value="removido_manual">Positivação manual</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="neg_status_ativo">Status na parcela ativa</label>
+                <select id="neg_status_ativo" name="status_ativo" class="form-control" title="Filtra apenas a tabela de parcelas com negativação ativa">
+                    <option value="">Todos</option>
+                    <option value="registrado_tracker">registrado_tracker</option>
+                    <option value="enviado">enviado</option>
+                    <option value="falhou">falhou</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="neg_data_inicio">Data início</label>
+                <input type="date" id="neg_data_inicio" class="form-control" autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label for="neg_data_fim">Data fim</label>
+                <input type="date" id="neg_data_fim" class="form-control" autocomplete="off">
+            </div>
             <button type="submit" class="btn-search"><i class="fa-solid fa-magnifying-glass"></i> Pesquisar</button>
             <button type="button" class="btn-secondary" id="negBtnLimpar">Limpar</button>
         </form>
@@ -44,15 +77,15 @@
             <h4 style="margin:0 0 12px;font-size:1rem;color:#334155;"><i class="fa-solid fa-ban"></i> Parcelas com negativacao ativa</h4>
             <p class="neg-meta" id="negAtivosMeta" style="font-size:0.9rem;color:#64748b;margin-bottom:10px;"></p>
             <div class="table-responsive">
-                <table class="styled-table busca-results-table">
+                <table class="styled-table busca-results-table" id="negTableAtivos">
                     <thead>
                         <tr>
-                            <th>Contrato</th>
-                            <th>Parcela</th>
-                            <th>Dias atraso</th>
-                            <th>Status</th>
-                            <th>Data</th>
-                            <th>Operador</th>
+                            <th class="neg-sort" data-neg-table="ativos" data-neg-sort="contrato">Contrato <span class="sort-ind" aria-hidden="true"></span></th>
+                            <th class="neg-sort" data-neg-table="ativos" data-neg-sort="parcela">Parcela <span class="sort-ind"></span></th>
+                            <th class="neg-sort" data-neg-table="ativos" data-neg-sort="dias">Dias atraso <span class="sort-ind"></span></th>
+                            <th class="neg-sort" data-neg-table="ativos" data-neg-sort="status">Status <span class="sort-ind"></span></th>
+                            <th class="neg-sort" data-neg-table="ativos" data-neg-sort="data">Data <span class="sort-ind"></span></th>
+                            <th class="neg-sort" data-neg-table="ativos" data-neg-sort="operador">Operador <span class="sort-ind"></span></th>
                             <th class="text-right">Acoes</th>
                         </tr>
                     </thead>
@@ -65,15 +98,15 @@
             <h4 style="margin:0 0 12px;font-size:1rem;color:#334155;"><i class="fa-solid fa-clock-rotate-left"></i> Historico de eventos</h4>
             <p class="neg-meta" id="negHistMeta" style="font-size:0.9rem;color:#64748b;margin-bottom:10px;"></p>
             <div class="table-responsive">
-                <table class="styled-table busca-results-table">
+                <table class="styled-table busca-results-table" id="negTableHist">
                     <thead>
                         <tr>
-                            <th>Data</th>
-                            <th>Contrato</th>
-                            <th>Parcela</th>
-                            <th>Evento</th>
-                            <th>Detalhe</th>
-                            <th>Operador</th>
+                            <th class="neg-sort" data-neg-table="hist" data-neg-sort="data">Data <span class="sort-ind"></span></th>
+                            <th class="neg-sort" data-neg-table="hist" data-neg-sort="contrato">Contrato <span class="sort-ind"></span></th>
+                            <th class="neg-sort" data-neg-table="hist" data-neg-sort="parcela">Parcela <span class="sort-ind"></span></th>
+                            <th class="neg-sort" data-neg-table="hist" data-neg-sort="tipo">Evento <span class="sort-ind"></span></th>
+                            <th class="neg-sort" data-neg-table="hist" data-neg-sort="detalhe">Detalhe <span class="sort-ind"></span></th>
+                            <th class="neg-sort" data-neg-table="hist" data-neg-sort="operador">Operador <span class="sort-ind"></span></th>
                             <th class="text-right">Acoes</th>
                         </tr>
                     </thead>

@@ -361,6 +361,10 @@ document.addEventListener('DOMContentLoaded', function () {
             html += '</tbody></table></div></div>';
         }
 
+        if (window.ContratoDetalhesModal && typeof window.ContratoDetalhesModal.buildNegativacaoSectionHtml === 'function') {
+            html += window.ContratoDetalhesModal.buildNegativacaoSectionHtml(data);
+        }
+
         html += (typeof TramitacoesDetalhe !== 'undefined')
             ? TramitacoesDetalhe.buildSection(data.tramitacoes || [], c.id, { esc: esc, formatDateTime: formatDateTime })
             : '';

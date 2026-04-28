@@ -2026,6 +2026,72 @@ def api_pessoa_detalhe(pessoa_id):
     })
 
 
+def _negativacao_parcela_display_key(row):
+    """Chave única por parcela dentro do contrato para exibição.
+
+    Inclui `id_contrato` para listagens globais. Prioriza `numero_parcela`.
+    """
+    try:
+        cid = int(row.get('id_contrato') or 0)
+    except (TypeError, ValueError):
+        cid = 0
+    try:
+        n = row.get('numero_parcela')
+        if n is not None and str(n).strip() != '':
+            return (cid, 'num', int(n))
+    except (TypeError, ValueError):
+        pass
+    try:
+        if row.get('id_parcela') is not None:
+            return (cid, 'id', int(row['id_parcela']))
+    except (TypeError, ValueError):
+        pass
+    return (cid, 'row', int(row.get('id') or 0))
+
+
+def _dedupe_negativacao_ativas_exibicao(rows):
+    """Uma entrada ativa por parcela lógica (mantém o registro mais recente)."""
+    best = {}
+    for r in rows:
+        k = _negativacao_parcela_display_key(r)
+        rid = int(r.get('id') or 0)
+        if k not in best or rid > int(best[k].get('id') or 0):
+            best[k] = r
+    out = list(best.values())
+    out.sort(key=lambda x: (-int(x.get('id') or 0),))
+    return out
+
+
+def _dedupe_negativacao_historico_exibicao(rows):
+    """Por parcela: no máximo uma negativação (primeira data) e uma positivação (última data).
+
+    Observações (`observacao`) são todas preservadas.
+    """
+    obs = [r for r in rows if (r.get('tipo_evento') or '') == 'observacao']
+    outros = [r for r in rows if (r.get('tipo_evento') or '') != 'observacao']
+
+    grupos = {}
+    for r in outros:
+        k = _negativacao_parcela_display_key(r)
+        grupos.setdefault(k, []).append(r)
+
+    out = []
+    for lst in grupos.values():
+        neg = [x for x in lst if str(x.get('tipo_evento') or '').startswith('negativado')]
+        rem = [x for x in lst if str(x.get('tipo_evento') or '').startswith('removido')]
+        if neg:
+            out.append(
+                min(neg, key=lambda x: (str(x.get('data_evento') or ''), int(x.get('id') or 0)))
+            )
+        if rem:
+            out.append(
+                max(rem, key=lambda x: (str(x.get('data_evento') or ''), int(x.get('id') or 0)))
+            )
+    out.extend(obs)
+    out.sort(key=lambda x: (str(x.get('data_evento') or ''), int(x.get('id') or 0)))
+    return out
+
+
 @app.route('/api/contrato/<int:contrato_id>')
 def api_contrato_detalhe(contrato_id):
     conn = _get_db()
@@ -2099,19 +2165,23 @@ def api_contrato_detalhe(contrato_id):
         try:
             _ensure_negativacao_table(cursor)
             _ensure_negativacao_historico_table(cursor)
-            negativacao_ativas = _safe_all(
-                "SELECT n.*, f.nome AS funcionario_nome "
-                "FROM negativacao n "
-                "LEFT JOIN funcionario f ON n.id_funcionario = f.id "
-                "WHERE n.id_contrato = %s ORDER BY n.data_negativacao DESC, n.id DESC",
-                (contrato_id,),
+            negativacao_ativas = _dedupe_negativacao_ativas_exibicao(
+                _safe_all(
+                    "SELECT n.*, f.nome AS funcionario_nome "
+                    "FROM negativacao n "
+                    "LEFT JOIN funcionario f ON n.id_funcionario = f.id "
+                    "WHERE n.id_contrato = %s ORDER BY n.data_negativacao DESC, n.id DESC",
+                    (contrato_id,),
+                )
             )
-            negativacao_historico = _safe_all(
-                "SELECT h.*, f.nome AS funcionario_nome "
-                "FROM negativacao_historico h "
-                "LEFT JOIN funcionario f ON h.id_funcionario = f.id "
-                "WHERE h.id_contrato = %s ORDER BY h.data_evento ASC, h.id ASC",
-                (contrato_id,),
+            negativacao_historico = _dedupe_negativacao_historico_exibicao(
+                _safe_all(
+                    "SELECT h.*, f.nome AS funcionario_nome "
+                    "FROM negativacao_historico h "
+                    "LEFT JOIN funcionario f ON h.id_funcionario = f.id "
+                    "WHERE h.id_contrato = %s ORDER BY h.data_evento ASC, h.id ASC",
+                    (contrato_id,),
+                )
             )
         except Exception as exc:
             app.logger.warning('api_contrato_detalhe: negativacao (%s)', exc)
@@ -6367,6 +6437,55 @@ def api_negativacao_enviar():
     })
 
 
+_NEG_LISTAGEM_TIPOS_EVENTO = frozenset({
+    'negativado_manual', 'negativado_tracker', 'removido_pagamento',
+    'removido_manual', 'observacao',
+})
+
+
+def _negativacao_listagem_data_iso(val):
+    """Aceita YYYY-MM-DD; retorna None se invalido."""
+    if val is None:
+        return None
+    s = str(val).strip()[:10]
+    if len(s) < 10:
+        return None
+    try:
+        datetime.datetime.strptime(s, '%Y-%m-%d')
+        return s
+    except ValueError:
+        return None
+
+
+def _negativacao_listagem_order_hist(sort_col, order_dir):
+    order_dir = 'DESC' if str(order_dir or '').lower() == 'desc' else 'ASC'
+    sort_col = (sort_col or 'data').lower()
+    # Somente identificadores fixos (evita injecao SQL).
+    clauses = {
+        'data': f'h.data_evento {order_dir}, h.id {order_dir}',
+        'contrato': f'c.grupo {order_dir}, c.cota {order_dir}, h.id {order_dir}',
+        'parcela': f'h.numero_parcela {order_dir}, h.id {order_dir}',
+        'tipo': f'h.tipo_evento {order_dir}, h.id {order_dir}',
+        'detalhe': f'h.detalhe {order_dir}, h.id {order_dir}',
+        'operador': f'COALESCE(f.nome, "") {order_dir}, h.id {order_dir}',
+    }
+    return 'ORDER BY ' + clauses.get(sort_col, clauses['data'])
+
+
+def _negativacao_listagem_order_at(sort_col, order_dir):
+    order_dir = 'DESC' if str(order_dir or '').lower() == 'desc' else 'ASC'
+    sort_col = (sort_col or 'data').lower()
+    clauses = {
+        'data': f'n.data_negativacao {order_dir}, n.id {order_dir}',
+        'contrato': f'c.grupo {order_dir}, c.cota {order_dir}, n.id {order_dir}',
+        'parcela': f'n.numero_parcela {order_dir}, n.id {order_dir}',
+        'dias': f'n.dias_atraso {order_dir}, n.id {order_dir}',
+        'status': f'n.status {order_dir}, n.id {order_dir}',
+        'operador': f'COALESCE(f.nome, "") {order_dir}, n.id {order_dir}',
+    }
+    return 'ORDER BY ' + clauses.get(sort_col, clauses['data'])
+
+
 @app.route('/api/negativacao/listagem')
 def api_negativacao_listagem():
     """Lista histórico global de negativações e parcelas ainda ativas (painel do módulo)."""
@@ -6384,6 +6503,19 @@ def api_negativacao_listagem():
     tipo_busca = (request.args.get('tipo_busca') or 'contrato').strip().lower()
     if tipo_busca not in ('contrato', 'texto'):
         tipo_busca = 'contrato'
+
+    evento = (request.args.get('evento') or 'todos').strip().lower()
+    status_ativo = (request.args.get('status_ativo') or '').strip()
+    data_inicio = _negativacao_listagem_data_iso(request.args.get('data_inicio'))
+    data_fim = _negativacao_listagem_data_iso(request.args.get('data_fim'))
+
+    sort_hist = (request.args.get('sort_hist') or 'data').strip().lower()
+    order_hist = (request.args.get('order_hist') or 'desc').strip().lower()
+    sort_at = (request.args.get('sort_ativos') or 'data').strip().lower()
+    order_at = (request.args.get('order_ativos') or 'desc').strip().lower()
+
+    order_hist_sql = _negativacao_listagem_order_hist(sort_hist, order_hist)
+    order_at_sql = _negativacao_listagem_order_at(sort_at, order_at)
 
     conn = _get_db()
     cursor = conn.cursor()
@@ -6415,6 +6547,43 @@ def api_negativacao_listagem():
                 )
                 params_at.extend([like, like])
 
+        if data_inicio:
+            where_hist.append("DATE(h.data_evento) >= %s")
+            params_hist.append(data_inicio)
+            where_at.append("DATE(n.data_negativacao) >= %s")
+            params_at.append(data_inicio)
+        if data_fim:
+            where_hist.append("DATE(h.data_evento) <= %s")
+            params_hist.append(data_fim)
+            where_at.append("DATE(n.data_negativacao) <= %s")
+            params_at.append(data_fim)
+
+        if evento not in ('', 'todos', 'all'):
+            if evento == 'negativado':
+                where_hist.append(
+                    "h.tipo_evento IN ('negativado_manual','negativado_tracker')"
+                )
+            elif evento == 'positivado':
+                where_hist.append(
+                    "h.tipo_evento IN ('removido_pagamento','removido_manual')"
+                )
+            elif evento == 'observacao':
+                where_hist.append("h.tipo_evento = 'observacao'")
+            elif evento in _NEG_LISTAGEM_TIPOS_EVENTO:
+                where_hist.append("h.tipo_evento = %s")
+                params_hist.append(evento)
+
+            if evento in ('positivado', 'observacao', 'removido_pagamento', 'removido_manual'):
+                where_at.append('1=0')
+            elif evento == 'negativado_tracker':
+                where_at.append("n.status = 'registrado_tracker'")
+            elif evento == 'negativado_manual':
+                where_at.append("n.status IN ('enviado', 'falhou')")
+
+        if status_ativo:
+            where_at.append('n.status = %s')
+            params_at.append(status_ativo)
+
         wh = ("WHERE " + " AND ".join(where_hist)) if where_hist else ""
         wh_at = ("WHERE " + " AND ".join(where_at)) if where_at else ""
 
@@ -6437,7 +6606,7 @@ def api_negativacao_listagem():
             JOIN contrato c ON c.id = h.id_contrato
             LEFT JOIN funcionario f ON h.id_funcionario = f.id
             {wh}
-            ORDER BY h.data_evento DESC, h.id DESC
+            {order_hist_sql}
             LIMIT %s OFFSET %s
             """,
             params_hist + [per_page, offset],
@@ -6463,12 +6632,12 @@ def api_negativacao_listagem():
             JOIN contrato c ON c.id = n.id_contrato
             LEFT JOIN funcionario f ON n.id_funcionario = f.id
             {wh_at}
-            ORDER BY n.data_negativacao DESC, n.id DESC
+            {order_at_sql}
             LIMIT 400
             """,
             params_at,
         )
-        ativos = _clean_rows(cursor.fetchall())
+        ativos = _dedupe_negativacao_ativas_exibicao(_clean_rows(cursor.fetchall()))
 
         return jsonify({
             'historico': historico,
