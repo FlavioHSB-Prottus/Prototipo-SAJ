@@ -312,16 +312,8 @@ document.addEventListener('DOMContentLoaded', function () {
             html += '</tbody></table></div></div>';
         }
 
-        if (data.ocorrencias && data.ocorrencias.length > 0) {
-            html += '<div class="detail-section"><h3><i class="fa-solid fa-timeline"></i> Historico de Ocorrencias (' + data.ocorrencias.length + ')</h3>';
-            html += '<div class="timeline">';
-            data.ocorrencias.forEach(function (o) {
-                html += '<div class="timeline-item">';
-                html += '<div class="timeline-date">' + formatDate(o.data_arquivo) + '</div>';
-                html += '<div class="timeline-event"><strong><span class="status-badge ' + getStatusClass(o.status) + '">' + esc(o.status || '') + '</span></strong> ' + esc(o.descricao || '') + '</div>';
-                html += '</div>';
-            });
-            html += '</div></div>';
+        if (data.ocorrencias && data.ocorrencias.length > 0 && window.ContratoDetalhesModal && typeof window.ContratoDetalhesModal.buildOcorrenciasTimelineHtml === 'function') {
+            html += window.ContratoDetalhesModal.buildOcorrenciasTimelineHtml(data.ocorrencias);
         }
 
         html += (typeof TramitacoesDetalhe !== 'undefined')

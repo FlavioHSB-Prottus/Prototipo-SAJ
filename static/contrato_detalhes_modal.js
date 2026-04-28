@@ -1,5 +1,5 @@
 /**
- * Modal completo "Detalhes do Contrato" (parcelas, ocorrências, tramitações, etc.)
+ * Modal completo "Detalhes do Contrato" (parcelas, ocorr?ncias, tramita??es, etc.)
  * Usado em Dashboard e Performance JB (painel de busca). Requer tramitacoes_detail.js e #detalhesModal no HTML.
  */
 (function (global) {
@@ -42,10 +42,88 @@
         return 'R$ ' + num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
+    /** Ordem no mesmo dia: ocorrencias de parcela antes das de contrato. */
+    function ocorrenciaOrdemParcelaContrato(o) {
+        var st = String(o.status || '').toLowerCase();
+        var desc = String(o.descricao || '').toLowerCase();
+        if (st.indexOf('parcela') !== -1) return 0;
+        if (/\bparcela\b/.test(desc)) return 0;
+        return 1;
+    }
+
+    function calendarDayKey(val) {
+        var raw = String(val || '').trim();
+        var datePart = raw.split('T')[0];
+        if (datePart.indexOf(' ') !== -1) datePart = datePart.split(' ')[0];
+        return datePart;
+    }
+
+    function parseDataArquivoMs(val) {
+        if (!val) return 0;
+        var s = String(val).trim().replace(' ', 'T');
+        var d = new Date(s);
+        var t = d.getTime();
+        return isNaN(t) ? 0 : t;
+    }
+
+    function sortOcorrenciasForTimeline(arr) {
+        return arr.slice().sort(function (a, b) {
+            var da = calendarDayKey(a.data_arquivo);
+            var db = calendarDayKey(b.data_arquivo);
+            if (da !== db) return da < db ? -1 : da > db ? 1 : 0;
+            var oa = ocorrenciaOrdemParcelaContrato(a);
+            var ob = ocorrenciaOrdemParcelaContrato(b);
+            if (oa !== ob) return oa - ob;
+            var ta = parseDataArquivoMs(a.data_arquivo);
+            var tb = parseDataArquivoMs(b.data_arquivo);
+            if (ta !== tb) return ta - tb;
+            var ida = parseInt(a.id, 10);
+            var idb = parseInt(b.id, 10);
+            ida = isNaN(ida) ? 0 : ida;
+            idb = isNaN(idb) ? 0 : idb;
+            return ida - idb;
+        });
+    }
+
+    var _MESES_PT = [
+        'Janeiro', 'Fevereiro', 'Mar?o', 'Abril', 'Maio', 'Junho',
+        'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    ];
+
+    function buildOcorrenciasTimelineHtml(ocorrencias) {
+        if (!ocorrencias || !ocorrencias.length) return '';
+        var sorted = sortOcorrenciasForTimeline(ocorrencias);
+        var html = '';
+        html += '<div class="detail-section"><h3><i class="fa-solid fa-timeline"></i> Hist?rico de Ocorr?ncias (' + ocorrencias.length + ')</h3>';
+        html += '<div class="timeline timeline-ocorrencias">';
+        var lastYm = null;
+        sorted.forEach(function (o) {
+            var datePart = calendarDayKey(o.data_arquivo);
+            var parts = datePart.split('-');
+            if (parts.length >= 2) {
+                var y = parseInt(parts[0], 10);
+                var mo = parseInt(parts[1], 10);
+                if (!isNaN(y) && !isNaN(mo) && mo >= 1 && mo <= 12) {
+                    var ym = y + '-' + (mo < 10 ? '0' + mo : String(mo));
+                    if (ym !== lastYm) {
+                        lastYm = ym;
+                        html += '<div class="timeline-month-heading">' + esc(_MESES_PT[mo - 1] + ' de ' + y) + '</div>';
+                    }
+                }
+            }
+            html += '<div class="timeline-item">';
+            html += '<div class="timeline-date">' + formatDate(o.data_arquivo) + '</div>';
+            html += '<div class="timeline-event"><strong><span class="status-badge ' + getStatusClass(o.status) + '">' + esc(o.status || '') + '</span></strong> ' + esc(o.descricao || '') + '</div>';
+            html += '</div>';
+        });
+        html += '</div></div>';
+        return html;
+    }
+
     function getStatusClass(status) {
         if (!status) return '';
         var s = String(status).toLowerCase();
-        if (s === 'aberto' || s === 'em cobranca' || s === 'em cobrança') return 'status-active';
+        if (s === 'aberto' || s === 'em cobranca' || s === 'em cobran?a') return 'status-active';
         if (s === 'fechado' || s === 'pago') return 'status-success';
         if (s === 'indenizado') return 'status-warning';
         if (s === 'parcela paga') return 'status-success';
@@ -63,14 +141,14 @@
 
     function humanizeBemField(key) {
         var map = {
-            descricao: 'Descrição', descricao_bem: 'Descrição',
+            descricao: 'Descri??o', descricao_bem: 'Descri??o',
             modelo: 'Modelo', marca: 'Marca', categoria: 'Categoria',
-            codigo: 'Código', codigo_bem: 'Código do Bem',
-            valor: 'Valor', valor_bem: 'Valor do Bem', valor_avaliacao: 'Valor de Avaliação',
-            nome: 'Nome', ano: 'Ano', ano_fabricacao: 'Ano de Fabricação',
+            codigo: 'C?digo', codigo_bem: 'C?digo do Bem',
+            valor: 'Valor', valor_bem: 'Valor do Bem', valor_avaliacao: 'Valor de Avalia??o',
+            nome: 'Nome', ano: 'Ano', ano_fabricacao: 'Ano de Fabrica??o',
             ano_modelo: 'Ano Modelo', placa: 'Placa', chassi: 'Chassi',
             renavam: 'Renavam', cor: 'Cor', tipo: 'Tipo', status: 'Status',
-            combustivel: 'Combustível', observacao: 'Observação', observacoes: 'Observações'
+            combustivel: 'Combust?vel', observacao: 'Observa??o', observacoes: 'Observa??es'
         };
         if (map[key]) return map[key];
         return String(key).replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
@@ -102,7 +180,7 @@
                 anyField = true;
                 html += dataItem(humanizeBemField(key), formatBemValue(key, value));
             });
-            if (!anyField) html += '<div style="color:#9ca3af;">Sem informações adicionais.</div>';
+            if (!anyField) html += '<div style="color:#9ca3af;">Sem informa??es adicionais.</div>';
             html += '</div>';
         });
         html += '</div>';
@@ -196,15 +274,7 @@
         }
 
         if (data.ocorrencias && data.ocorrencias.length > 0) {
-            html += '<div class="detail-section"><h3><i class="fa-solid fa-timeline"></i> Historico de Ocorrencias (' + data.ocorrencias.length + ')</h3>';
-            html += '<div class="timeline">';
-            data.ocorrencias.forEach(function (o) {
-                html += '<div class="timeline-item">';
-                html += '<div class="timeline-date">' + formatDate(o.data_arquivo) + '</div>';
-                html += '<div class="timeline-event"><strong><span class="status-badge ' + getStatusClass(o.status) + '">' + esc(o.status || '') + '</span></strong> ' + esc(o.descricao || '') + '</div>';
-                html += '</div>';
-            });
-            html += '</div></div>';
+            html += buildOcorrenciasTimelineHtml(data.ocorrencias);
         }
 
         html += (typeof TramitacoesDetalhe !== 'undefined')
@@ -276,7 +346,11 @@
         }
     }
 
-    global.ContratoDetalhesModal = { open: open, close: closeModal };
+    global.ContratoDetalhesModal = {
+        open: open,
+        close: closeModal,
+        buildOcorrenciasTimelineHtml: buildOcorrenciasTimelineHtml,
+    };
 
     document.addEventListener('DOMContentLoaded', bindModalUiOnce);
 })(window);

@@ -1920,7 +1920,7 @@ def api_contrato_detalhe(contrato_id):
             (contrato_id,),
         )
         ocorrencias = _safe_all(
-            "SELECT * FROM ocorrencia WHERE id_contrato = %s ORDER BY data_arquivo DESC",
+            "SELECT * FROM ocorrencia WHERE id_contrato = %s ORDER BY data_arquivo ASC, id ASC",
             (contrato_id,),
         )
         tramitacoes = _safe_all(
@@ -3336,14 +3336,31 @@ def _nao_b_from_open_delay(dd):
 
 
 _SAFRA_ENTRADA_SQL = """
-SELECT 
+SELECT
     COALESCE(c.id, o.id_contrato) AS id_contrato,
     c.valor_credito AS valor_credito,
     o.data_arquivo AS dt_entrada,
-    p_antiga.vencimento AS vencimento,
+    -- vencimento de referencia: performado -> p_antiga; nao performado -> menor entre aberta/indenizada
+    CASE
+        WHEN p_antiga.id_contrato IS NOT NULL THEN p_antiga.vencimento
+        WHEN p_aberta.id_contrato IS NOT NULL
+             AND (p_inden.id_contrato IS NULL OR p_aberta.vencimento <= p_inden.vencimento)
+            THEN p_aberta.vencimento
+        WHEN p_inden.id_contrato IS NOT NULL THEN p_inden.vencimento
+        ELSE NULL
+    END AS vencimento,
     p_antiga.data_pagamento AS dt_paga,
-    p_antiga.valor_total AS valor_parcela,
-    CASE 
+    -- VALOR: performado -> parcela paga mais antiga; nao performado -> parcela mais antiga entre aberta e indenizada
+    CASE
+        WHEN p_antiga.id_contrato IS NOT NULL THEN p_antiga.valor_total
+        WHEN p_aberta.id_contrato IS NOT NULL
+             AND (p_inden.id_contrato IS NULL OR p_aberta.vencimento <= p_inden.vencimento)
+            THEN p_aberta.valor_total
+        WHEN p_inden.id_contrato IS NOT NULL THEN p_inden.valor_total
+        ELSE NULL
+    END AS valor_parcela,
+    -- CLASSIFICACAO original: contrato com qualquer parcela paga -> performado
+    CASE
         WHEN p_antiga.data_pagamento IS NULL THEN 'nao_performado'
         WHEN DATEDIFF(p_antiga.data_pagamento, p_antiga.vencimento) <= 30 THEN 'd30'
         WHEN DATEDIFF(p_antiga.data_pagamento, p_antiga.vencimento) <= 60 THEN 'd60'
@@ -3351,8 +3368,10 @@ SELECT
         ELSE 'dplus'
     END AS recovery_group,
     CASE WHEN p_antiga.id_contrato IS NOT NULL THEN 1 ELSE 0 END AS is_performado,
-    -- delay_open (for non-performados)
-    CASE 
+    -- delay_open mantido identico ao original (so olha parcelas em aberto).
+    -- Contratos com parcela indenizada (sem aberta) ficam com delay_open NULL,
+    -- caindo em b30 e entrando na contagem do teto <= 90 d (igual antes).
+    CASE
         WHEN p_antiga.id_contrato IS NOT NULL THEN NULL
         ELSE (
             SELECT DATEDIFF(CURDATE(), MIN(p2.vencimento))
@@ -3370,17 +3389,36 @@ FROM (
 ) o
 LEFT JOIN contrato c ON c.id = o.id_contrato
 LEFT JOIN (
-    -- Busca os dados exatos apenas da parcela mais antiga que foi paga (fechada)
     SELECT p1.id_contrato, p1.vencimento, p1.data_pagamento, p1.valor_total
     FROM parcela p1
     INNER JOIN (
-        SELECT id_contrato, MIN(vencimento) as min_vencimento
+        SELECT id_contrato, MIN(vencimento) AS min_vencimento
         FROM parcela
         WHERE status = 'fechado'
         GROUP BY id_contrato
     ) p2 ON p1.id_contrato = p2.id_contrato AND p1.vencimento = p2.min_vencimento
     WHERE p1.status = 'fechado'
 ) p_antiga ON p_antiga.id_contrato = c.id
+LEFT JOIN (
+    SELECT p1.id_contrato, p1.vencimento, p1.valor_total
+    FROM parcela p1
+    INNER JOIN (
+        SELECT id_contrato, MIN(vencimento) AS min_vencimento
+        FROM parcela
+        WHERE status = 'aberto'
+        GROUP BY id_contrato
+    ) pm ON p1.id_contrato = pm.id_contrato AND p1.vencimento = pm.min_vencimento AND p1.status = 'aberto'
+) p_aberta ON p_aberta.id_contrato = c.id
+LEFT JOIN (
+    SELECT p1.id_contrato, p1.vencimento, p1.valor_total
+    FROM parcela p1
+    INNER JOIN (
+        SELECT id_contrato, MIN(vencimento) AS min_vencimento
+        FROM parcela
+        WHERE status = 'indenizado'
+        GROUP BY id_contrato
+    ) pm ON p1.id_contrato = pm.id_contrato AND p1.vencimento = pm.min_vencimento AND p1.status = 'indenizado'
+) p_inden ON p_inden.id_contrato = c.id
 """
 
 
@@ -3393,9 +3431,14 @@ def _safra_entrada_rows(cursor, d_a, d_b, y, m):
     return cursor.fetchall()
 
 
-def _valor_total_contrato_brl(r) -> float:
-    """Totais em R$ no Performance (KPI, grafico, export): valor cheio do contrato."""
-    v = r.get('valor_credito')
+def _valor_metrica_performance_brl(r) -> float:
+    """R$ na Performance/Dashboard: valor_total da parcela mais antiga do contrato.
+
+    Esse valor representa exatamente:
+      - performado: a parcela paga (que passou de aberto -> fechado);
+      - nao performado: a parcela em aberto que originou a classificacao.
+    """
+    v = r.get('valor_parcela')
     try:
         return float(v) if v is not None and v != '' else 0.0
     except (TypeError, ValueError):
@@ -3494,7 +3537,7 @@ def _cohort_enriched_rows_for_export(cursor, y, m, safra_index, teto: int):
             if cid in seen:
                 continue
             seen.add(cid)
-            vt = _valor_total_contrato_brl(r)
+            vt = _valor_metrica_performance_brl(r)
             out.append({
                 'id_contrato': cid,
                 'faixa_calendario': _SAFRA_LABELS_EXPORT[parte],
@@ -3506,11 +3549,11 @@ def _cohort_enriched_rows_for_export(cursor, y, m, safra_index, teto: int):
 
 
 def _kpi_teto_cumulativo_distinct_global(cursor, y, m):
-    """Totais distintos de id_contrato (e valor uma vez por id) com o teto 30/60/90 d.
+    """Totais distintos de id_contrato (e valor metrica parcela uma vez por id) com teto 30/60/90 d.
 
-    O gráfico soma, por barra, linhas de cohort (_aggregate_performance_faixa) — o mesmo
-    contrato pode entrar em mais de uma faixa de calendário no mês, inflando a soma das
-    4 faixas. A export e os KPI de visão geral usam 1 contrato = 1 linha (dedup global).
+    O grafico soma, por barra, linhas de cohort (_aggregate_performance_faixa) — o mesmo
+    contrato pode entrar em mais de uma faixa de calendario no mes, inflando a soma das
+    4 faixas. A export e os KPI de visao geral usam 1 contrato = 1 linha (dedup global).
     """
     st = {
         30: {'p': set(), 'n': set(), 'v_p': {}, 'v_n': {}},
@@ -3528,7 +3571,7 @@ def _kpi_teto_cumulativo_distinct_global(cursor, y, m):
             except (TypeError, ValueError):
                 continue
             is_p = _bool_sql(r.get('is_performado'))
-            v = _valor_total_contrato_brl(r)
+            v = _valor_metrica_performance_brl(r)
             for teto in (30, 60, 90):
                 if not _row_matches_atraso_teto(r, teto):
                     continue
@@ -3590,7 +3633,7 @@ def _aggregate_performance_faixa(cursor, y, m, parte):
         dd = r.get('delay_open')
         seg = _seg_from_delay_days(int(dd) if dd is not None else None)
         keyg = 'performado' if is_p else 'nao_performado'
-        v = _valor_total_contrato_brl(r)
+        v = _valor_metrica_performance_brl(r)
         vol_val += v
         segs[keyg][seg] += 1
         val[keyg][seg] += v
@@ -3700,7 +3743,7 @@ def _daily_series(cursor, d1, d2):
     pagos_val_map = {}
     
     for r in rows_cohort:
-        v = _valor_total_contrato_brl(r)
+        v = _valor_metrica_performance_brl(r)
         
         # Entrada (Novos)
         dt_e = r.get('dt_entrada')
@@ -4197,7 +4240,7 @@ def _export_to_xlsx(ctx, dataset):
     ws4 = wb.create_sheet('Contratos')
     contratos = dataset['contratos']
     headers = [
-        'ID', 'Faixa (calendario)', 'Desempenho', 'Prazo (atraso)', 'Valor total contrato (R$)',
+        'ID', 'Faixa (calendario)', 'Desempenho', 'Prazo (atraso)', 'Valor parcela (metrica) (R$)',
         'Grupo', 'Cota', 'Nro Contrato', 'Status', 'Valor do Credito',
         'Data de Adesao', 'Devedor', 'CPF/CNPJ',
     ]
@@ -4375,7 +4418,7 @@ def _export_to_pdf(ctx, dataset):
         pdf.cell(0, 7, 'Contratos selecionados (' + str(len(dataset['contratos'])) + ' total, mostrando ' + str(len(contratos)) + ')', ln=True)
         pdf.set_font('Helvetica', 'B', 7)
         pdf.set_fill_color(59, 130, 246); pdf.set_text_color(255, 255, 255)
-        ch = ['Faixa', 'Desemp.', 'Prazo', 'G/C', 'Nro', 'R$ total', 'R$ créd.', 'St.', 'Devedor']
+        ch = ['Faixa', 'Desemp.', 'Prazo', 'G/C', 'Nro', 'R$ parcela', 'R$ cred.', 'St.', 'Devedor']
         cw = [36, 18, 28, 20, 22, 20, 22, 10, 62]
         for i, h in enumerate(ch):
             pdf.cell(cw[i], 5, h, border=1, align='C', fill=True)
@@ -4681,10 +4724,39 @@ def _fetch_dash_export_dataset(cursor, ctx):
     sql = (
         "SELECT DISTINCT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
         "       c.valor_credito, c.data_adesao, "
+        "       CASE "
+        "         WHEN dash_pq.id_contrato IS NOT NULL THEN dash_pq.valor_total "
+        "         WHEN dash_pa.id_contrato IS NOT NULL "
+        "              AND (dash_pi.id_contrato IS NULL OR dash_pa.vencimento <= dash_pi.vencimento) "
+        "             THEN dash_pa.valor_total "
+        "         WHEN dash_pi.id_contrato IS NOT NULL THEN dash_pi.valor_total "
+        "         ELSE NULL "
+        "       END AS valor_metrica_parcela, "
         "       p.nome_completo AS devedor, p.cpf_cnpj AS devedor_cpf_cnpj "
         "FROM ocorrencia o "
         "INNER JOIN contrato c ON c.id = o.id_contrato "
         "LEFT JOIN pessoa p ON p.id = c.id_pessoa "
+        "LEFT JOIN ( "
+        "  SELECT p1.id_contrato, p1.vencimento, p1.valor_total "
+        "  FROM parcela p1 INNER JOIN ( "
+        "    SELECT id_contrato, MIN(vencimento) AS mv "
+        "    FROM parcela WHERE status = 'aberto' GROUP BY id_contrato "
+        "  ) t ON p1.id_contrato = t.id_contrato AND p1.vencimento = t.mv AND p1.status = 'aberto' "
+        ") dash_pa ON dash_pa.id_contrato = c.id "
+        "LEFT JOIN ( "
+        "  SELECT p1.id_contrato, p1.vencimento, p1.valor_total "
+        "  FROM parcela p1 INNER JOIN ( "
+        "    SELECT id_contrato, MIN(vencimento) AS mv "
+        "    FROM parcela WHERE status = 'fechado' GROUP BY id_contrato "
+        "  ) t ON p1.id_contrato = t.id_contrato AND p1.vencimento = t.mv AND p1.status = 'fechado' "
+        ") dash_pq ON dash_pq.id_contrato = c.id "
+        "LEFT JOIN ( "
+        "  SELECT p1.id_contrato, p1.vencimento, p1.valor_total "
+        "  FROM parcela p1 INNER JOIN ( "
+        "    SELECT id_contrato, MIN(vencimento) AS mv "
+        "    FROM parcela WHERE status = 'indenizado' GROUP BY id_contrato "
+        "  ) t ON p1.id_contrato = t.id_contrato AND p1.vencimento = t.mv AND p1.status = 'indenizado' "
+        ") dash_pi ON dash_pi.id_contrato = c.id "
         f"WHERE {where_series} "
         "AND o.data_arquivo >= %s AND o.data_arquivo <= %s "
         "ORDER BY c.grupo, c.cota"
@@ -4770,11 +4842,11 @@ def _dash_export_to_xlsx(ctx, dataset):
     _write_sheet(ws3, ['Status', 'Total'], [[r['status'], r['total']] for r in dataset['pie_rows']])
 
     ws4 = wb.create_sheet('Contratos')
-    headers = ['ID', 'Grupo', 'Cota', 'Nro Contrato', 'Status', 'Valor do Credito',
-               'Data de Adesao', 'Devedor', 'CPF/CNPJ']
-    keys = ['id', 'grupo', 'cota', 'numero_contrato', 'status', 'valor_credito',
-            'data_adesao', 'devedor', 'devedor_cpf_cnpj']
-    _dash_m = {'valor_credito'}
+    headers = ['ID', 'Grupo', 'Cota', 'Nro Contrato', 'Status', 'Valor parcela (metrica) (R$)',
+               'Valor credito (ref.) (R$)', 'Data de Adesao', 'Devedor', 'CPF/CNPJ']
+    keys = ['id', 'grupo', 'cota', 'numero_contrato', 'status', 'valor_metrica_parcela',
+            'valor_credito', 'data_adesao', 'devedor', 'devedor_cpf_cnpj']
+    _dash_m = {'valor_credito', 'valor_metrica_parcela'}
 
     def _row_dash_contrato(c):
         row = []
@@ -4827,7 +4899,8 @@ def _dash_export_to_csv_powerbi(ctx, dataset):
             str(c.get('grupo') or '') + '/' + str(c.get('cota') or ''),
             c.get('data_adesao') or '',
             c.get('status') or '',
-            c.get('valor_credito') or 0,
+            c.get('valor_metrica_parcela') if c.get('valor_metrica_parcela') is not None else (
+                c.get('valor_credito') or 0),
             c.get('devedor') or '',
             c.get('devedor_cpf_cnpj') or '',
             c.get('numero_contrato') or '',
@@ -4909,8 +4982,8 @@ def _dash_export_to_pdf(ctx, dataset):
         pdf.cell(0, 7, 'Contratos envolvidos (' + str(len(dataset['contratos'])) + ' total, mostrando ' + str(len(contratos)) + ')', ln=True)
         pdf.set_font('Helvetica', 'B', 8)
         pdf.set_fill_color(59, 130, 246); pdf.set_text_color(255, 255, 255)
-        ch = ['Grupo/Cota', 'Nro Contrato', 'Status', 'Valor Credito', 'Adesao', 'Devedor', 'CPF/CNPJ']
-        cw = [28, 32, 22, 32, 24, 90, 40]
+        ch = ['Grupo/Cota', 'Nro Contrato', 'Status', 'R$ parcela (m.)', 'R$ credito', 'Adesao', 'Devedor', 'CPF/CNPJ']
+        cw = [26, 30, 18, 26, 26, 22, 82, 38]
         for i, h in enumerate(ch):
             pdf.cell(cw[i], 6, h, border=1, align='C', fill=True)
         pdf.ln()
@@ -4919,16 +4992,22 @@ def _dash_export_to_pdf(ctx, dataset):
         for idx, c in enumerate(contratos):
             fill = idx % 2 == 1
             pdf.set_fill_color(248 if fill else 255, 250 if fill else 255, 252 if fill else 255)
-            valor = c.get('valor_credito')
+            vm = c.get('valor_metrica_parcela')
+            vc = c.get('valor_credito')
             try:
-                valor_fmt = 'R$ ' + f"{float(valor):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                vm_fmt = 'R$ ' + f"{float(vm):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
             except Exception:
-                valor_fmt = str(valor or '-')
+                vm_fmt = str(vm or '-')
+            try:
+                vc_fmt = 'R$ ' + f"{float(vc):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            except Exception:
+                vc_fmt = str(vc or '-')
             row = [
                 str(c.get('grupo') or '') + '/' + str(c.get('cota') or ''),
                 str(c.get('numero_contrato') or '-'),
                 str(c.get('status') or '-'),
-                valor_fmt,
+                vm_fmt,
+                vc_fmt,
                 str(c.get('data_adesao') or '-'),
                 (str(c.get('devedor') or '-'))[:50],
                 str(c.get('devedor_cpf_cnpj') or '-'),

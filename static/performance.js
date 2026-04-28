@@ -388,7 +388,7 @@ document.addEventListener('DOMContentLoaded', function () {
             barSubtitleEl.textContent = 'Dias do período — safra ' + formatMesLabel(lastMes);
         } else {
             barTitleEl.textContent = 'Desempenho na cobrança por faixa (calendário)';
-            var subBase = (viewMode === 'valor' ? 'Soma do valor total do contrato (R$) — ' : 'Contagem (safra, por faixa de calendário) — ') +
+            var subBase = (viewMode === 'valor' ? 'Soma do valor da parcela (metrica) (R$) — ' : 'Contagem (safra, por faixa de calendário) — ') +
                 formatMesLabel(lastMes) +
                 ' · Teto: até ' + atrasoTetoDias + ' d (quitação: performado; aberto: não performado)' +
                 ' · Resumos e export: 1 contrato = 1 linha (contagem distinta).';
@@ -399,7 +399,7 @@ document.addEventListener('DOMContentLoaded', function () {
         
         if (safraName) {
             barTitleEl.textContent = 'Detalhamento (safra): ' + safraName;
-            barSubtitleEl.textContent = (isValor ? 'Soma do valor total do contrato (R$) ' : 'Contagem de ocorrências ') + ' — dias do período';
+            barSubtitleEl.textContent = (isValor ? 'R$ por contrato: performado = parcela paga mais antiga; não performado = parcela mais antiga entre aberta e indenizada ' : 'Contagem de ocorrências ') + ' — dias do período';
             
             var keysO = Object.keys(OCORRENCIAS_META);
             var datasets = keysO.map(function (key) {
