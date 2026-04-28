@@ -2,7 +2,30 @@
 
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='busca.css') }}">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+    .perf-distribuidos-bar {
+        display: none;
+        align-items: center;
+        gap: 0.4rem;
+        margin: 0 0 1rem;
+        max-width: 100%;
+        padding: 0.75rem 1.1rem;
+        background: rgba(13, 148, 136, 0.1);
+        border-left: 4px solid #0d9488;
+        border-radius: 0 8px 8px 0;
+        font-size: 0.95rem;
+        line-height: 1.4;
+        color: var(--text-primary, #0f172a);
+    }
+    .perf-distribuidos-bar strong {
+        font-size: 1.12rem;
+        font-weight: 700;
+        color: #0d9488;
+        letter-spacing: -0.02em;
+    }
+</style>
 {% endblock %}
 
 {% block content %}
@@ -38,6 +61,11 @@
                 <span class="kpi-value" id="perfKpiValN" style="font-size:1.35rem;">—</span>
             </div>
         </div>
+    </div>
+
+    <div id="perfCohortTetoLine" class="perf-distribuidos-bar" role="status" aria-live="polite">
+        <span>Contratos Distribuídos:</span>
+        <strong id="perfDistribuidosValue">—</strong>
     </div>
 
     <!-- Área de gráfico principal: performado (prazo de quitação) x não performado (atraso aberto) -->
@@ -165,6 +193,79 @@
         </div>
     </div>
 
+    <div class="control-panel" id="painelContratosRoot" style="margin-top:1.25rem">
+        <div class="control-card control-card-wide" style="grid-column:1/-1">
+            <div class="control-card-title">
+                <i class="fa-solid fa-list-ul"></i>
+                <span>Contratos do painel & busca</span>
+            </div>
+            <p class="control-card-desc" style="margin:0 0 12px">
+                Mesmo cohort do mês, faixa (calendário) e teto de atraso do gráfico. Refina como em
+                <em>Busca por Contratos</em> abaixo.
+            </p>
+            <form id="painelBuscaForm" class="filter-form painel-filter-form" style="flex-wrap:wrap; gap:10px" onsubmit="return false">
+                <div class="form-group" style="min-width:150px">
+                    <label for="painelTipoBusca">Tipo</label>
+                    <select id="painelTipoBusca" class="form-control" name="tipo">
+                        <option value="pessoa">Nome ou CPF/CNPJ</option>
+                        <option value="contrato" selected>Grupo / Cota</option>
+                        <option value="bem">Bem / descrição</option>
+                    </select>
+                </div>
+                <div class="form-group" style="min-width:220px; flex:1">
+                    <label for="painelTermo">Termo (opcional)</label>
+                    <input type="text" id="painelTermo" class="form-control" placeholder="Grupo/cota..." autocomplete="off" />
+                </div>
+                <div class="form-group" style="min-width:130px">
+                    <label for="painelStatusFiltro">Status contrato</label>
+                    <select id="painelStatusFiltro" class="form-control" name="status">
+                        <option value="">Todos</option>
+                        <option value="aberto">Aberto</option>
+                        <option value="fechado">Fechado</option>
+                        <option value="indenizado">Indenizado</option>
+                    </select>
+                </div>
+                <div class="form-group" style="align-self:flex-end">
+                    <button type="submit" class="btn-search" style="margin:0">
+                        <i class="fa-solid fa-magnifying-glass"></i> Atualizar
+                    </button>
+                </div>
+            </form>
+            <p id="painelContratosLimitado" class="control-card-hint" style="display:none; margin:10px 0 0; color:#b45309"></p>
+            <h4 id="painelContratosTitle" style="margin:14px 0 8px; font-size:0.95rem; color:var(--text-secondary)">—</h4>
+            <div class="table-responsive" style="max-height:min(55vh,520px); overflow:auto">
+                <table class="styled-table">
+                    <thead>
+                        <tr>
+                            <th>Grupo / Cota</th>
+                            <th>Nro</th>
+                            <th>Devedor</th>
+                            <th>Status</th>
+                            <th>Faixa</th>
+                            <th>Desempenho</th>
+                            <th>Prazo atraso</th>
+                            <th class="text-right">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="painelContratosBody">
+                    </tbody>
+                </table>
+            </div>
+            <p id="painelContratosVazio" class="d-none" style="padding:12px; color:var(--text-muted)">Nenhum contrato com os filtros atuais.</p>
+        </div>
+    </div>
+
+</div>
+
+<!-- Mesmo modal de detalhes do Dashboard / Busca -->
+<div id="detalhesModal" class="modal-overlay">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h2 id="modalTitle">Detalhes</h2>
+            <button class="close-modal-btn" type="button" id="closeModalBtn" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="modal-body" id="modalContent"></div>
+    </div>
 </div>
 
 <script>
@@ -174,4 +275,5 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='performance.js') }}"></script>
+<script src="{{ url_for('static', filename='painel_lista_contratos.js') }}"></script>
 {% endblock %}

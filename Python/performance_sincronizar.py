@@ -7,14 +7,18 @@ usada no relatorio de Performance (mesmos JOINs e regra de atraso).
 Cobertura (padrao, recomendado):
     python3 performance_sincronizar.py
 
-    Reconstroi a tabela inteira para todas as ocorrencia em aberto, sem filtrar
-    `data_arquivo` aqui. As faixas (5/10/15/20) e o recorte de periodo sao
-    responsabilidade da tela (filtro no app); na base mantemos o universo em
-    cobranca.
+    Reconstroi a tabela para ocorrencias em aberto *contrato novo* ou
+    *contrato voltou* (universo igual ao Dashboard, ex.: 1.376+736 no mes),
+    com LEFT JOIN na parcela-ancora (quem ainda nao tem parcela fechada
+    entra, is_performado=0). As faixas (5/10/15/20) sao do app na leitura.
 
 `recovery_code` (d30/d60/d90/dplus) e `grupo_atraso` batem com os buckets
 DATEDIFF do relatorio; o painel Performance aplica teto cumulativo 30/60/90 dias
 sobre essa mesma escala (90 = ate 90 dias, sem a fatia 90+).
+
+Apenas ocorrencias de *entrada na safra* (cobranca) sao consideradas, alinhado ao
+app/tracker: `descricao` = 'contrato novo' OR 'contrato voltou' (e status=aberto);
+nao entram, por ex., ocorrencias de parcela vencida sem ser novo/voltou.
 
 Janela opcional (reimportacao, debug - mesmo criterio da referencia, so que
 cortado por data_arquivo):
@@ -47,11 +51,14 @@ _SQL_DELETE_INTERVALO = """
 DELETE p FROM performance p
 INNER JOIN ocorrencia o ON o.id = p.id_ocorrencia
 WHERE o.status = 'aberto'
+  AND (o.descricao = 'contrato novo' OR o.descricao = 'contrato voltou')
   AND o.data_arquivo >= %s
   AND o.data_arquivo <= %s
 """
 
-# Alinhado a referencia: o LEFT c; INNER p_antiga em c.id; parcela "mais antiga" fechada
+# Universo: mesmas ocorrencias abertas (contrato novo|voltou) que o Dashboard/Performance
+# (total mensal 1,376+736, etc.); parcela-ancora so para classificacao, sem excluir
+# quem ainda nao tem parcela fechada (LEFT; mesmo padrao do _SAFRA_ENTRADA_SQL do app).
 _SQL_INSERT = """
 INSERT INTO performance (
     id_ocorrencia, id_contrato, id_arquivo_gm, data_arquivo,
@@ -61,7 +68,7 @@ INSERT INTO performance (
 )
 SELECT
     o.id,
-    c.id,
+    COALESCE(c.id, o.id_contrato),
     o.id_arquivo_gm,
     o.data_arquivo,
     c.grupo,
@@ -72,7 +79,7 @@ SELECT
     p_antiga.vencimento,
     p_antiga.data_pagamento,
     p_antiga.valor_total,
-    1,
+    CASE WHEN p_antiga.id_contrato IS NOT NULL THEN 1 ELSE 0 END,
     CASE
         WHEN p_antiga.data_pagamento IS NULL
              OR p_antiga.vencimento IS NULL
@@ -99,7 +106,7 @@ SELECT
     END
 FROM ocorrencia o
 LEFT JOIN contrato c ON c.id = o.id_contrato
-INNER JOIN (
+LEFT JOIN (
     SELECT
         p1.id,
         p1.id_contrato,
@@ -118,8 +125,9 @@ INNER JOIN (
         ON p1.id_contrato = p2.id_contrato
        AND p1.vencimento = p2.min_vencimento
     WHERE p1.status = 'fechado'
-) p_antiga ON p_antiga.id_contrato = c.id
+) p_antiga ON p_antiga.id_contrato = o.id_contrato
 WHERE o.status = 'aberto'
+  AND (o.descricao = 'contrato novo' OR o.descricao = 'contrato voltou')
 """
 
 _SQL_OU_INTERVALO = """
@@ -137,8 +145,8 @@ def _parse_data(s, label):
 
 def sincronizar_tudo(*, verbose=True):
     """
-    Limpa `performance` e reconstroi a partir de todas ocorrencia com status=aberto
-    que participam do mesmo SELECT da referencia (INNER p_antiga; sem filtro de data).
+    Limpa `performance` e reconstroi: toda ocorrencia aberta contrato novo|voltou
+    (mesma base do Dashboard; LEFT p_antiga para nao excluir contrato sem fechada).
     """
     deleted = 0
     inserted = 0

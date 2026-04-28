@@ -2112,7 +2112,8 @@ def api_tramitacao_item(tramitacao_id):
 # ---------------------------------------------------------------------------
 
 _RELATORIO_COLUMNS = [
-    ('Grupo / Cota', 'grupo'),
+    ('Grupo', 'grupo'),
+    ('Cota', 'cota'),
     ('CPF / CNPJ', 'cpf_cnpj'),
     ('Nome Devedor', 'nome_devedor'),
     ('Status', 'status'),
@@ -2330,7 +2331,8 @@ def api_relatorios_pdf():
     pdf.cell(0, 6, f'Periodo: {periodo_titulo}', ln=True, align='C')
     pdf.ln(6)
 
-    col_widths = [30, 25, 40, 90, 40, 35]
+    # Grupo, Cota, CPF, Nome, Status, Data
+    col_widths = [22, 16, 24, 35, 78, 32, 32]
     headers = [label for label, _key in _RELATORIO_COLUMNS]
 
     pdf.set_font('Helvetica', 'B', 9)
@@ -2375,11 +2377,12 @@ def api_relatorios_pdf():
 def api_dashboard():
     """Dashboard totalmente reativo.
 
-    Retorna, para os ultimos 12 meses, series mensais com contagens de:
-      - pagos       (ocorrencia.status = 'fechado')
-      - indenizados (ocorrencia.status = 'indenizado')
-      - novos       (ocorrencia.descricao = 'contrato novo')
-      - retomados   (ocorrencia.descricao = 'contrato voltou')
+    Retorna, para os ultimos 12 meses, series mensais com:
+      - pagos, indenizados: 1 ocorrencia = 1 contrato distinto no mes
+      - novos, retomados: 1 ponto = 1 ocorrencia (status=aberto, mesmo criterio do *Relatorios*),
+        para refletir varias ocorrencias do mesmo contrato no mes
+      - entradas_safra: 1 contrato distinto (novo|voltou, aberto) alinhado ao eixo do Performance
+      - ambos_mes_safra: contratos com ocorrencia novo e ocorrencia voltou no mesmo mes (abertas)
 
     Todo o recorte (periodo / series) e feito no front-end sobre esse payload,
     sem novas requisicoes.
@@ -2421,10 +2424,54 @@ def api_dashboard():
         by_month = {r['mes']: int(r['total']) for r in cursor.fetchall()}
         return [by_month.get(m, 0) for m in all_months]
 
+    def _series_ocorrencias_aberto(where_clause, params):
+        """1 linha = 1 ocorrencia. Alinha ao relatorio (novo/voltou com status=aberto)."""
+        cursor.execute(
+            "SELECT DATE_FORMAT(o.data_arquivo, '%%Y-%%m') AS mes, "
+            "       COUNT(*) AS total "
+            "FROM ocorrencia o "
+            + where_clause +
+            " AND o.data_arquivo >= %s "
+            "GROUP BY mes ORDER BY mes",
+            tuple(params) + (window_start,),
+        )
+        by_month = {r['mes']: int(r['total']) for r in cursor.fetchall()}
+        return [by_month.get(m, 0) for m in all_months]
+
+    def _ambos_mes_safra():
+        """Qtd. de contratos com ocorrencia 'novo' e ocorrencia 'voltou' no mesmo MES (calendario)."""
+        cursor.execute(
+            "SELECT DATE_FORMAT(o1.data_arquivo, '%%Y-%%m') AS mes, "
+            "       COUNT(DISTINCT o1.id_contrato) AS n "
+            "FROM ocorrencia o1 "
+            "INNER JOIN ocorrencia o2 "
+            "  ON o1.id_contrato = o2.id_contrato AND o1.id <> o2.id "
+            " AND YEAR(o1.data_arquivo) = YEAR(o2.data_arquivo) "
+            " AND MONTH(o1.data_arquivo) = MONTH(o2.data_arquivo) "
+            "WHERE o1.data_arquivo >= %s "
+            "  AND o1.status = 'aberto' AND o1.descricao LIKE '%%novo%%' "
+            "  AND o2.status = 'aberto' AND o2.descricao LIKE '%%contrato voltou%%' "
+            "GROUP BY mes",
+            (window_start,),
+        )
+        by_month = {r['mes']: int(r['n'] or 0) for r in cursor.fetchall()}
+        return [by_month.get(m, 0) for m in all_months]
+
     serie_pagos = _series("WHERE o.status = 'fechado'", [])
     serie_indenizados = _series("WHERE o.status = 'indenizado'", [])
-    serie_novos = _series("WHERE o.descricao = 'contrato novo'", [])
-    serie_retomados = _series("WHERE o.descricao = 'contrato voltou'", [])
+    # Ocorrencias (nao 1x por contrato) — alinha ao relatorio: status=aberto + LIKE
+    serie_novos = _series_ocorrencias_aberto(
+        "WHERE o.status = 'aberto' AND o.descricao LIKE '%%novo%%'", []
+    )
+    serie_retomados = _series_ocorrencias_aberto(
+        "WHERE o.status = 'aberto' AND o.descricao LIKE '%%contrato voltou%%'", []
+    )
+    serie_entradas_safra = _series(
+        "WHERE o.status = 'aberto' AND (o.descricao = 'contrato novo' OR o.descricao = 'contrato voltou')",
+        [],
+    )
+    # Contratos (mes) com as duas naturezas (novo e voltou) no mesmo mes — destaque p/ dupla entrada
+    ambos_mes_safra = _ambos_mes_safra()
 
     # --- KPIs snapshot (tabela `cobranca` = contratos em aberto no ultimo dia GM) ---
     data_dash_ref = _get_data_referencia_arquivos_gm(cursor)
@@ -2444,11 +2491,192 @@ def api_dashboard():
             'indenizados': serie_indenizados,
             'novos': serie_novos,
             'retomados': serie_retomados,
+            'entradas_safra': serie_entradas_safra,
         },
+        'ambos_mes_safra': ambos_mes_safra,
         'snapshot': {
             'em_cobranca': kpi_em_cobranca,
         },
         'pie_chart': pie_raw,
+    })
+
+
+@app.route('/api/dashboard/panel_contratos')
+def api_dashboard_panel_contratos():
+    """Contratos com ocorrencia no periodo/series ativos (mesma base do export), com busca opcional."""
+    ps = str(request.args.get('period_start', '')).strip()
+    pe = str(request.args.get('period_end', '')).strip()
+    raw = request.args.getlist('series')
+    if not raw and request.args.get('series'):
+        raw = [x.strip() for x in str(request.args.get('series', '')).split(',') if x.strip()]
+    series_keys = [s for s in (raw or []) if s in _PAINEL_DASH_SERIES_WHERE]
+    if not series_keys:
+        series_keys = ['pagos', 'indenizados']
+    or_sql, or_p = _or_ocorrencia_filtro_series_sql(series_keys, _PAINEL_DASH_SERIES_WHERE)
+    if not or_sql:
+        return jsonify({'error': 'Nenhuma serie valida.'}), 400
+    if not ps or not pe or len(ps) < 7 or len(pe) < 7:
+        return jsonify({'error': 'Informe period_start e period_end (YYYY-MM).'}), 400
+    try:
+        y1, m1 = int(ps[:4]), int(ps[5:7])
+        y2, m2 = int(pe[:4]), int(pe[5:7])
+        d_ini = datetime.date(y1, m1, 1).isoformat()
+        d_fim = datetime.date(y2, m2, _last_day_of(y2, m2)).isoformat()
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Periodo invalido.'}), 400
+
+    join_x, and_busca, p_busca = _panel_dash_busca_filtro_sql(
+        request.args.get('tipo', 'contrato'),
+        request.args.get('termo', ''),
+        request.args.get('status', ''),
+    )
+    params = list(or_p) + [d_ini, d_fim] + p_busca
+    count_sql = (
+        "SELECT COUNT(DISTINCT c.id) AS n FROM ocorrencia o "
+        "INNER JOIN contrato c ON c.id = o.id_contrato "
+        "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
+        + (join_x or '') +
+        f"WHERE ({or_sql}) "
+        "AND o.data_arquivo >= %s AND o.data_arquivo <= %s "
+        + and_busca
+    )
+    sql = (
+        "SELECT DISTINCT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
+        "       p.nome_completo AS devedor, p.cpf_cnpj AS devedor_cpf_cnpj "
+        "FROM ocorrencia o "
+        "INNER JOIN contrato c ON c.id = o.id_contrato "
+        "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
+        + (join_x or '') +
+        f"WHERE ({or_sql}) "
+        "AND o.data_arquivo >= %s AND o.data_arquivo <= %s "
+        + and_busca +
+        f" ORDER BY c.grupo, c.cota LIMIT {int(_PAINEL_DASH_LIM)}"
+    )
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(count_sql, tuple(params))
+        full_total = int((cursor.fetchone() or {}).get('n') or 0)
+        cursor.execute(sql, tuple(params))
+        rows = _clean_rows(cursor.fetchall())
+    finally:
+        cursor.close()
+        conn.close()
+    lim_ok = _PAINEL_DASH_LIM
+    return jsonify({
+        'results': rows,
+        'total': full_total,
+        'limited': full_total > lim_ok,
+        'limit': lim_ok,
+    })
+
+
+def _panel_perf_contratos_rows(cursor, y, m, safra_index, teto, tipo, termo, st):
+    """Cohort Performance (teto) + busca, mesma base do export."""
+    enriched = _cohort_enriched_rows_for_export(cursor, y, m, safra_index, teto)
+    if not enriched:
+        return [], 0, False
+    by_id = {e['id_contrato']: e for e in enriched}
+    ordered = list(by_id.keys())
+    if not ordered:
+        return [], 0, False
+    join_x, and_busca, p_busca = _panel_dash_busca_filtro_sql(
+        (tipo or 'contrato'),
+        (termo or '').strip(),
+        (st or '').strip(),
+    )
+    out = []
+    chunk = 300
+    for i in range(0, len(ordered), chunk):
+        part = ordered[i : i + chunk]
+        ph = ','.join(['%s'] * len(part))
+        sql = (
+            "SELECT DISTINCT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
+            "p.nome_completo AS devedor, p.cpf_cnpj AS devedor_cpf_cnpj "
+            "FROM contrato c "
+            "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
+        )
+        sql += join_x or ''
+        # Sem LIMIT por chunk: o LIMIT antigo cortava o universo (~501) antes de varrer o cohort inteiro.
+        sql += f" WHERE c.id IN ({ph})" + (f" {and_busca}" if and_busca else "") + " ORDER BY c.grupo, c.cota"
+        params = list(part) + p_busca
+        try:
+            cursor.execute(sql, tuple(params))
+        except Exception:
+            app.logger.exception('panel_perf_contratos')
+            break
+        for row in _clean_rows(cursor.fetchall()):
+            cid = int(row['id'])
+            meta = by_id.get(cid)
+            if not meta:
+                continue
+            out.append({
+                'id': cid,
+                'grupo': row.get('grupo'),
+                'cota': row.get('cota'),
+                'numero_contrato': row.get('numero_contrato'),
+                'status': row.get('status'),
+                'devedor': row.get('devedor'),
+                'devedor_cpf_cnpj': row.get('devedor_cpf_cnpj'),
+                'faixa_calendario': meta.get('faixa_calendario'),
+                'desempenho': meta.get('desempenho'),
+                'prazo_atraso': meta.get('prazo_atraso'),
+            })
+    out.sort(key=lambda r: (str(r.get('grupo') or ''), str(r.get('cota') or '')))
+    total = len(out)
+    limited = total > _PAINEL_DASH_LIM
+    return out[:_PAINEL_DASH_LIM], total, limited
+
+
+@app.route('/api/performance/panel_contratos')
+def api_performance_panel_contratos():
+    mes = str(request.args.get('mes', '')).strip()
+    if not mes or len(mes) < 7:
+        return jsonify({'error': 'mes obrigatorio (YYYY-MM)'}), 400
+    try:
+        y, m = int(mes[:4]), int(mes[5:7])
+        datetime.date(y, m, 1)
+    except ValueError:
+        return jsonify({'error': 'mes invalido.'}), 400
+    raw_idx = request.args.get('safra_index', 'all')
+    if raw_idx in (None, '', 'all'):
+        safra_index = None
+    else:
+        try:
+            safra_index = int(raw_idx)
+            if safra_index < 0 or safra_index > 3:
+                safra_index = None
+        except (TypeError, ValueError):
+            safra_index = None
+    try:
+        atraso_teto = int(request.args.get('atraso_teto', 90) or 90)
+    except (TypeError, ValueError):
+        atraso_teto = 90
+    if atraso_teto not in (30, 60, 90):
+        atraso_teto = 90
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        rows, total, limited = _panel_perf_contratos_rows(
+            cursor,
+            y,
+            m,
+            safra_index,
+            atraso_teto,
+            request.args.get('tipo', 'contrato'),
+            request.args.get('termo', ''),
+            request.args.get('status', ''),
+        )
+    finally:
+        cursor.close()
+        conn.close()
+    return jsonify({
+        'results': rows,
+        'total': total,
+        'limited': limited,
+        'limit': _PAINEL_DASH_LIM,
     })
 
 
@@ -3110,6 +3338,7 @@ def _nao_b_from_open_delay(dd):
 _SAFRA_ENTRADA_SQL = """
 SELECT 
     COALESCE(c.id, o.id_contrato) AS id_contrato,
+    c.valor_credito AS valor_credito,
     o.data_arquivo AS dt_entrada,
     p_antiga.vencimento AS vencimento,
     p_antiga.data_pagamento AS dt_paga,
@@ -3132,9 +3361,10 @@ SELECT
         )
     END AS delay_open
 FROM (
-    SELECT id_contrato, MIN(data_arquivo) as data_arquivo
+    SELECT id_contrato, MIN(data_arquivo) AS data_arquivo
     FROM ocorrencia
     WHERE status = 'aberto'
+      AND (descricao = 'contrato novo' OR descricao = 'contrato voltou')
       AND data_arquivo >= %s AND data_arquivo <= %s
     GROUP BY id_contrato
 ) o
@@ -3161,6 +3391,15 @@ def _safra_entrada_rows(cursor, d_a, d_b, y, m):
         (d_a.isoformat(), d_b.isoformat()),
     )
     return cursor.fetchall()
+
+
+def _valor_total_contrato_brl(r) -> float:
+    """Totais em R$ no Performance (KPI, grafico, export): valor cheio do contrato."""
+    v = r.get('valor_credito')
+    try:
+        return float(v) if v is not None and v != '' else 0.0
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _bool_sql(val):
@@ -3255,17 +3494,13 @@ def _cohort_enriched_rows_for_export(cursor, y, m, safra_index, teto: int):
             if cid in seen:
                 continue
             seen.add(cid)
-            vp = r.get('valor_parcela')
-            try:
-                vp = float(vp) if vp is not None and vp != '' else 0.0
-            except (TypeError, ValueError):
-                vp = 0.0
+            vt = _valor_total_contrato_brl(r)
             out.append({
                 'id_contrato': cid,
                 'faixa_calendario': _SAFRA_LABELS_EXPORT[parte],
                 'desempenho': _export_desempenho_label(r),
                 'prazo_atraso': _export_prazo_atraso_label(r),
-                'valor_parcela_entrada_brl': round(vp, 2),
+                'valor_parcela_entrada_brl': round(vt, 2),
             })
     return out
 
@@ -3293,11 +3528,7 @@ def _kpi_teto_cumulativo_distinct_global(cursor, y, m):
             except (TypeError, ValueError):
                 continue
             is_p = _bool_sql(r.get('is_performado'))
-            v = r.get('valor_parcela')
-            try:
-                v = float(v) if v is not None and v != '' else 0.0
-            except (TypeError, ValueError):
-                v = 0.0
+            v = _valor_total_contrato_brl(r)
             for teto in (30, 60, 90):
                 if not _row_matches_atraso_teto(r, teto):
                     continue
@@ -3359,8 +3590,7 @@ def _aggregate_performance_faixa(cursor, y, m, parte):
         dd = r.get('delay_open')
         seg = _seg_from_delay_days(int(dd) if dd is not None else None)
         keyg = 'performado' if is_p else 'nao_performado'
-        v = r.get('valor_parcela')
-        v = 0.0 if v is None or v == '' else float(v)
+        v = _valor_total_contrato_brl(r)
         vol_val += v
         segs[keyg][seg] += 1
         val[keyg][seg] += v
@@ -3470,7 +3700,7 @@ def _daily_series(cursor, d1, d2):
     pagos_val_map = {}
     
     for r in rows_cohort:
-        v = float(r.get('valor_parcela') or 0)
+        v = _valor_total_contrato_brl(r)
         
         # Entrada (Novos)
         dt_e = r.get('dt_entrada')
@@ -3877,6 +4107,18 @@ def _export_context_labels(ctx):
     return safra_lbl, series_lbl, faixas_lbl, teto_lbl
 
 
+def _format_reais_pt_br_export(value):
+    """Valor monetario como texto pt-BR para Excel/LibreOffice (milhar '.' ; decimal ',')."""
+    if value is None or value == '':
+        return ''
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    s = f'{n:,.2f}'
+    return s.replace(',', 'X').replace('.', ',').replace('X', '.')
+
+
 def _export_to_xlsx(ctx, dataset):
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -3955,7 +4197,7 @@ def _export_to_xlsx(ctx, dataset):
     ws4 = wb.create_sheet('Contratos')
     contratos = dataset['contratos']
     headers = [
-        'ID', 'Faixa (calendario)', 'Desempenho', 'Prazo (atraso)', 'Valor parcela entrada (R$)',
+        'ID', 'Faixa (calendario)', 'Desempenho', 'Prazo (atraso)', 'Valor total contrato (R$)',
         'Grupo', 'Cota', 'Nro Contrato', 'Status', 'Valor do Credito',
         'Data de Adesao', 'Devedor', 'CPF/CNPJ',
     ]
@@ -3964,7 +4206,19 @@ def _export_to_xlsx(ctx, dataset):
         'grupo', 'cota', 'numero_contrato', 'status', 'valor_credito',
         'data_adesao', 'devedor', 'devedor_cpf_cnpj',
     ]
-    _write_sheet(ws4, headers, [[c.get(k, '') for k in keys] for c in contratos])
+    _monetary_key = {'valor_parcela_entrada_brl', 'valor_credito'}
+
+    def _row_contrato_exp(c):
+        row = []
+        for k in keys:
+            v = c.get(k, '')
+            if k in _monetary_key:
+                row.append(_format_reais_pt_br_export(v))
+            else:
+                row.append(v if v is not None else '')
+        return row
+
+    _write_sheet(ws4, headers, [_row_contrato_exp(c) for c in contratos])
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -4121,7 +4375,7 @@ def _export_to_pdf(ctx, dataset):
         pdf.cell(0, 7, 'Contratos selecionados (' + str(len(dataset['contratos'])) + ' total, mostrando ' + str(len(contratos)) + ')', ln=True)
         pdf.set_font('Helvetica', 'B', 7)
         pdf.set_fill_color(59, 130, 246); pdf.set_text_color(255, 255, 255)
-        ch = ['Faixa', 'Desemp.', 'Prazo', 'G/C', 'Nro', 'R$ parc.', 'R$ créd.', 'St.', 'Devedor']
+        ch = ['Faixa', 'Desemp.', 'Prazo', 'G/C', 'Nro', 'R$ total', 'R$ créd.', 'St.', 'Devedor']
         cw = [36, 18, 28, 20, 22, 20, 22, 10, 62]
         for i, h in enumerate(ch):
             pdf.cell(cw[i], 5, h, border=1, align='C', fill=True)
@@ -4210,20 +4464,97 @@ def api_performance_export(formato):
 _DASH_SERIES_LABELS = {
     'pagos':       'Contratos Pagos',
     'indenizados': 'Contratos Indenizados',
-    'novos':       'Contratos Novos',
-    'retomados':   'Contratos que Voltaram',
+    'novos':       'Ocorrencias Novo (aberto)',
+    'retomados':   'Ocorrencias Voltou (aberto)',
 }
 _DASH_SERIES_WHERE = {
     'pagos':       ("o.status = 'fechado'", []),
     'indenizados': ("o.status = 'indenizado'", []),
-    'novos':       ("o.descricao = 'contrato novo'", []),
-    'retomados':   ("o.descricao = 'contrato voltou'", []),
+    'novos':       ("o.status = 'aberto' AND o.descricao LIKE '%%novo%%'", []),
+    'retomados':   ("o.status = 'aberto' AND o.descricao LIKE '%%contrato voltou%%'", []),
+}
+# Novos/retomados: soma ocorrencias; demais: contratos distintos no mes
+_DASH_SERIES_COUNT_FUNC = {
+    'pagos': 'COUNT(DISTINCT o.id_contrato)',
+    'indenizados': 'COUNT(DISTINCT o.id_contrato)',
+    'novos': 'COUNT(*)',
+    'retomados': 'COUNT(*)',
 }
 _DASH_PIE_LABELS = {
     'aberto':     'Em Cobranca',
     'fechado':    'Pagos',
     'indenizado': 'Indenizados',
 }
+
+# Inclui entradas_safra (1 ctt) para OR no painel: mesmo escopo do grafico de "Entradas (safra)"
+_PAINEL_DASH_SERIES_WHERE = {**_DASH_SERIES_WHERE}
+_PAINEL_DASH_SERIES_WHERE['entradas_safra'] = (
+    "o.status = 'aberto' AND (o.descricao = 'contrato novo' OR o.descricao = 'contrato voltou')",
+    [],
+)
+_PAINEL_DASH_LIM = 500
+
+
+def _or_ocorrencia_filtro_series_sql(series_keys, painel_map: dict) -> tuple:
+    """(sql_or_subexpr, list_params) para ocorrencia o."""
+    parts, params = [], []
+    for k in series_keys:
+        if not k or k not in painel_map:
+            continue
+        w, p = painel_map[k]
+        parts.append('(' + w + ')')
+        params.extend(p)
+    if not parts:
+        return None, []
+    return ' OR '.join(parts), params
+
+
+def _panel_dash_busca_filtro_sql(tipo: str, termo: str, status_contrato: str) -> tuple:
+    """Retorna (join_extra, and_sql, params) para a lista do painel Dashboard (apos WHERE base)."""
+    tipo = (tipo or 'contrato').strip()
+    termo = (termo or '').strip()
+    st = (status_contrato or '').strip()
+    st_ok = st in ('aberto', 'fechado', 'indenizado')
+    join_ex = ''
+    and_bits = []
+    params = []
+    if st_ok:
+        and_bits.append('c.status = %s')
+        params.append(st)
+    if not termo:
+        if not and_bits:
+            return '', '', []
+        return join_ex, 'AND ' + ' AND '.join(and_bits), params
+    if tipo == 'pessoa':
+        t = f'%{termo}%'
+        join_ex = 'LEFT JOIN pessoa p_ava ON p_ava.id = c.id_avalista '
+        and_bits.append(
+            '(p.nome_completo LIKE %s OR p.cpf_cnpj LIKE %s OR p_ava.nome_completo LIKE %s OR p_ava.cpf_cnpj LIKE %s)'
+        )
+        params.extend([t, t, t, t])
+    elif tipo == 'contrato':
+        p2 = [p.strip() for p in termo.replace('-', '/').split('/')]
+        if len(p2) == 2 and p2[0] and p2[1]:
+            and_bits.append('c.grupo LIKE %s AND c.cota LIKE %s')
+            params.extend([f'%{p2[0]}%', f'%{p2[1]}%'])
+        else:
+            t = f'%{termo}%'
+            and_bits.append('(c.grupo LIKE %s OR c.cota LIKE %s OR c.numero_contrato LIKE %s)')
+            params.extend([t, t, t])
+    elif tipo == 'bem':
+        jb = _bem_join_clause('c', 'b')
+        b_where, b_params = _bem_where_clause(termo, 'b')
+        if not jb or not b_where:
+            and_bits.append('0=1')
+        else:
+            join_ex = jb
+            and_bits.append('(' + b_where + ')')
+            params.extend(b_params)
+    else:
+        t = f'%{termo}%'
+        and_bits.append('(c.grupo LIKE %s OR c.cota LIKE %s)')
+        params.extend([t, t])
+    return join_ex, 'AND ' + ' AND '.join(and_bits), params
 
 
 def _month_range_from_yyyymm(ym_start, ym_end):
@@ -4302,9 +4633,10 @@ def _fetch_dash_export_dataset(cursor, ctx):
 
     for key in ctx['series']:
         where, params = _DASH_SERIES_WHERE[key]
+        count_expr = _DASH_SERIES_COUNT_FUNC.get(key, 'COUNT(DISTINCT o.id_contrato)')
         cursor.execute(
             "SELECT DATE_FORMAT(o.data_arquivo, '%%Y-%%m') AS mes, "
-            "       COUNT(DISTINCT o.id_contrato) AS total "
+            f"       {count_expr} AS total "
             "FROM ocorrencia o "
             f"WHERE {where} "
             "AND o.data_arquivo >= %s AND o.data_arquivo <= %s "
@@ -4442,7 +4774,19 @@ def _dash_export_to_xlsx(ctx, dataset):
                'Data de Adesao', 'Devedor', 'CPF/CNPJ']
     keys = ['id', 'grupo', 'cota', 'numero_contrato', 'status', 'valor_credito',
             'data_adesao', 'devedor', 'devedor_cpf_cnpj']
-    _write_sheet(ws4, headers, [[c.get(kk, '') for kk in keys] for c in dataset['contratos']])
+    _dash_m = {'valor_credito'}
+
+    def _row_dash_contrato(c):
+        row = []
+        for kk in keys:
+            v = c.get(kk, '')
+            if kk in _dash_m:
+                row.append(_format_reais_pt_br_export(v))
+            else:
+                row.append(v if v is not None else '')
+        return row
+
+    _write_sheet(ws4, headers, [_row_dash_contrato(c) for c in dataset['contratos']])
 
     buf = io.BytesIO()
     wb.save(buf)

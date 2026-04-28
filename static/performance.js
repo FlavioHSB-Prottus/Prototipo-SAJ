@@ -23,6 +23,8 @@ document.addEventListener('DOMContentLoaded', function () {
     var perfKpiSubQtdN = document.getElementById('perfKpiSubQtdN');
     var perfKpiSubValP = document.getElementById('perfKpiSubValP');
     var perfKpiSubValN = document.getElementById('perfKpiSubValN');
+    var perfCohortTetoLine = document.getElementById('perfCohortTetoLine');
+    var perfDistribuidosValue = document.getElementById('perfDistribuidosValue');
 
     // --- Estado ---
     var safraChartInstance = null;
@@ -217,6 +219,9 @@ document.addEventListener('DOMContentLoaded', function () {
         if (viewBar) viewBar.style.display = 'flex';
         renderBarChart(d, safraName);
         updatePerformanceKpis();
+        if (typeof window.painelListaRefresh === 'function') {
+            window.painelListaRefresh();
+        }
     }
 
     function buildPerfDatasets() {
@@ -297,10 +302,14 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!performanceKpiRow) return;
         if (activeSafraIndex !== null) {
             performanceKpiRow.style.display = 'none';
+            if (perfCohortTetoLine) perfCohortTetoLine.style.display = 'none';
             return;
         }
         performanceKpiRow.style.display = 'grid';
-        if (!safraData || !safraData.all) return;
+        if (!safraData || !safraData.all) {
+            if (perfCohortTetoLine) perfCohortTetoLine.style.display = 'none';
+            return;
+        }
         var teto = atrasoTetoDias;
         var tKey = teto <= 30 ? '30' : teto <= 60 ? '60' : '90';
         var kpiB = (safraData.all.kpi_teto_cumulativo && safraData.all.kpi_teto_cumulativo[tKey]) || null;
@@ -362,6 +371,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 : ' · % do total em contratos · mesma base do gráfico') + subCtx;
         if (perfKpiSubValP) perfKpiSubValP.textContent = subPct;
         if (perfKpiSubValN) perfKpiSubValN.textContent = subPct;
+        if (perfCohortTetoLine) {
+            var sumDistrib = (Number(nP0) || 0) + (Number(nN0) || 0);
+            perfCohortTetoLine.style.display = 'flex';
+            if (perfDistribuidosValue) perfDistribuidosValue.textContent = formatInt(sumDistrib);
+        }
     }
 
     function renderBarChart(data, safraName) {
@@ -374,7 +388,7 @@ document.addEventListener('DOMContentLoaded', function () {
             barSubtitleEl.textContent = 'Dias do período — safra ' + formatMesLabel(lastMes);
         } else {
             barTitleEl.textContent = 'Desempenho na cobrança por faixa (calendário)';
-            var subBase = (viewMode === 'valor' ? 'Soma do valor da parcela de entrada (R$) — ' : 'Contagem (safra, por faixa de calendário) — ') +
+            var subBase = (viewMode === 'valor' ? 'Soma do valor total do contrato (R$) — ' : 'Contagem (safra, por faixa de calendário) — ') +
                 formatMesLabel(lastMes) +
                 ' · Teto: até ' + atrasoTetoDias + ' d (quitação: performado; aberto: não performado)' +
                 ' · Resumos e export: 1 contrato = 1 linha (contagem distinta).';
@@ -385,7 +399,7 @@ document.addEventListener('DOMContentLoaded', function () {
         
         if (safraName) {
             barTitleEl.textContent = 'Detalhamento (safra): ' + safraName;
-            barSubtitleEl.textContent = (isValor ? 'Soma do valor das parcelas (R$) ' : 'Contagem de ocorrências ') + ' — dias do período';
+            barSubtitleEl.textContent = (isValor ? 'Soma do valor total do contrato (R$) ' : 'Contagem de ocorrências ') + ' — dias do período';
             
             var keysO = Object.keys(OCORRENCIAS_META);
             var datasets = keysO.map(function (key) {
@@ -677,6 +691,35 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 
-    // --- Init ---
+    // --- Atualiza mês (lastMes) antes de carregar a lista alinhada ao painel
+    if (mesAnoInput && mesAnoInput.value) {
+        lastMes = mesAnoInput.value;
+    }
+
+    if (window.PainelListaContratos) {
+        window.PainelListaContratos.init({
+            mode: 'performance',
+            hookName: 'painelListaRefresh',
+            endpoint: '/api/performance/panel_contratos',
+            onDetalhe: function (id) {
+                if (window.ContratoDetalhesModal && typeof window.ContratoDetalhesModal.open === 'function') {
+                    window.ContratoDetalhesModal.open(id);
+                }
+            },
+            getBaseQuery: function () {
+                var s = new URLSearchParams();
+                s.set('mes', (lastMes && lastMes.length >= 7) ? lastMes : (mesAnoInput && mesAnoInput.value) || '');
+                s.set('atraso_teto', String(readAtrasoTetoFromDom()));
+                if (activeSafraIndex === null) {
+                    s.set('safra_index', 'all');
+                } else {
+                    s.set('safra_index', String(activeSafraIndex));
+                }
+                return s;
+            }
+        });
+    }
+
+    // --- Init dados do desempenho
     loadPerformance(mesAnoInput.value);
 });

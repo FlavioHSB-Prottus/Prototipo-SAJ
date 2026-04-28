@@ -101,7 +101,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!validar()) return;
         var params = getParams();
 
-        resultsBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text-muted)"><i class="fa-solid fa-spinner fa-spin"></i> Buscando...</td></tr>';
+        resultsBody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text-muted)"><i class="fa-solid fa-spinner fa-spin"></i> Buscando...</td></tr>';
         noResults.classList.add('d-none');
         resultsSection.classList.remove('d-none');
 
@@ -109,7 +109,7 @@ document.addEventListener('DOMContentLoaded', function () {
             var resp = await fetch(buildUrl('/api/relatorios', params));
             var data = await resp.json();
             if (data.error) {
-                resultsBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:#ef4444">' + esc(data.error) + '</td></tr>';
+                resultsBody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:#ef4444">' + esc(data.error) + '</td></tr>';
                 return;
             }
             currentResults = data.results || [];
@@ -150,7 +150,8 @@ document.addEventListener('DOMContentLoaded', function () {
         results.forEach(function (c) {
             var tr = document.createElement('tr');
             tr.innerHTML =
-                '<td class="fw-bold">' + esc(c.grupo) + '/' + esc(c.cota) + '</td>' +
+                '<td class="fw-bold">' + esc(c.grupo) + '</td>' +
+                '<td class="fw-bold">' + esc(c.cota) + '</td>' +
                 '<td>' + esc(c.cpf_cnpj || '-') + '</td>' +
                 '<td>' + esc(c.nome_devedor || '-') + '</td>' +
                 '<td><span class="status-badge ' + getStatusClass(c.status) + '">' + esc(c.status || '-') + '</span></td>' +
@@ -222,10 +223,10 @@ document.addEventListener('DOMContentLoaded', function () {
                     valA = nA;
                     valB = nB;
                 }
-            } else if (col === 'grupo') {
-                // Grupo/Cota: ordenar por grupo e depois cota
-                var aFull = (a.grupo || '') + (a.cota || '');
-                var bFull = (b.grupo || '') + (b.cota || '');
+            } else if (col === 'grupo' || col === 'cota') {
+                // Grupo e Cota: chave composta
+                var aFull = (a.grupo || '') + '\0' + (a.cota || '');
+                var bFull = (b.grupo || '') + '\0' + (b.cota || '');
                 return aFull.localeCompare(bFull) * order;
             }
 

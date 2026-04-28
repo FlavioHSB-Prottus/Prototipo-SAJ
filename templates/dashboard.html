@@ -39,7 +39,7 @@
         <div class="kpi-card info" data-kpi="novos">
             <div class="kpi-icon"><i class="fa-solid fa-file-circle-plus"></i></div>
             <div class="kpi-content">
-                <p class="kpi-title">Novos <span class="kpi-hint" id="kpiNovosPeriodo">(período)</span></p>
+                <p class="kpi-title">Novos (ocorr. abertas) <span class="kpi-hint" id="kpiNovosPeriodo">(período)</span></p>
                 <h2 class="kpi-value" id="kpiNovos">--</h2>
             </div>
         </div>
@@ -47,7 +47,7 @@
         <div class="kpi-card neutral" data-kpi="retomados">
             <div class="kpi-icon"><i class="fa-solid fa-rotate-left"></i></div>
             <div class="kpi-content">
-                <p class="kpi-title">Retomados <span class="kpi-hint" id="kpiRetomadosPeriodo">(período)</span></p>
+                <p class="kpi-title">Voltou (ocorr. abertas) <span class="kpi-hint" id="kpiRetomadosPeriodo">(período)</span></p>
                 <h2 class="kpi-value" id="kpiRetomados">--</h2>
             </div>
         </div>
@@ -111,14 +111,26 @@
                     <label class="chip-option chip-novos">
                         <input type="checkbox" data-serie="novos">
                         <span class="chip-dot" style="background:#3b82f6"></span>
-                        <span>Contratos novos</span>
+                        <span>Novo (ocorr. abertas)</span>
                     </label>
                     <label class="chip-option chip-retomados">
                         <input type="checkbox" data-serie="retomados">
                         <span class="chip-dot" style="background:#8b5cf6"></span>
-                        <span>Contratos que voltaram</span>
+                        <span>Voltou (ocorr. abertas)</span>
+                    </label>
+                    <label class="chip-option">
+                        <input type="checkbox" data-serie="entradas_safra">
+                        <span class="chip-dot" style="background:#0d9488"></span>
+                        <span>Entradas (safra) — 1 ctt. dist.</span>
                     </label>
                 </div>
+                <p class="control-card-hint" style="margin-top:10px;font-size:0.8rem;color:var(--text-muted)">
+                    Cada ponto de <strong>Novo</strong>/<strong>Voltou</strong> soma ocorrências com
+                    <code>status=aberto</code> (como o módulo <strong>Relatórios</strong>). A soma
+                    de tipos no tooltip pode exceder contratos; o mesmo ctt. pode contar no novo e
+                    no voltou. A curva <em>Entradas (safra, distintos)</em> acompanha o
+                    <strong>Performance JB</strong> (1 ctt. por mês, mesma regra de entrada).
+                </p>
             </div>
 
             <!-- 2. Periodo -->
@@ -187,6 +199,66 @@
         </div>
     </div>
 
+    <!-- Lista de contratos (seleção do painel) + busca (estilo Busca) -->
+    <div class="control-panel" id="painelContratosRoot" style="margin-top:1.25rem">
+        <div class="control-card control-card-wide" style="grid-column:1/-1">
+            <div class="control-card-title">
+                <i class="fa-solid fa-list-ul"></i>
+                <span>Contratos do painel & busca</span>
+            </div>
+            <p class="control-card-desc" style="margin:0 0 12px">
+                Lista os contratos que têm ocorrência no <strong>período</strong> e <strong>séries</strong> ativos
+                (mesma base do export). Filtre como em <em>Busca por Contratos</em> abaixo.
+            </p>
+            <form id="painelBuscaForm" class="filter-form painel-filter-form" style="flex-wrap:wrap; gap:10px" onsubmit="return false">
+                <div class="form-group" style="min-width:150px">
+                    <label for="painelTipoBusca">Tipo</label>
+                    <select id="painelTipoBusca" class="form-control" name="tipo">
+                        <option value="pessoa">Nome ou CPF/CNPJ</option>
+                        <option value="contrato" selected>Grupo / Cota</option>
+                        <option value="bem">Bem / descrição</option>
+                    </select>
+                </div>
+                <div class="form-group" style="min-width:220px; flex:1">
+                    <label for="painelTermo">Termo (opcional)</label>
+                    <input type="text" id="painelTermo" class="form-control" placeholder="Grupo/cota ou deixe vazio para listar tudo" autocomplete="off" />
+                </div>
+                <div class="form-group" style="min-width:130px">
+                    <label for="painelStatusFiltro">Status contrato</label>
+                    <select id="painelStatusFiltro" class="form-control" name="status">
+                        <option value="">Todos</option>
+                        <option value="aberto">Aberto</option>
+                        <option value="fechado">Fechado</option>
+                        <option value="indenizado">Indenizado</option>
+                    </select>
+                </div>
+                <div class="form-group" style="align-self:flex-end">
+                    <button type="submit" class="btn-search" style="margin:0">
+                        <i class="fa-solid fa-magnifying-glass"></i> Atualizar
+                    </button>
+                </div>
+            </form>
+            <p id="painelContratosLimitado" class="control-card-hint" style="display:none; margin:10px 0 0; color:#b45309"></p>
+            <h4 id="painelContratosTitle" style="margin:14px 0 8px; font-size:0.95rem; color:var(--text-secondary)">Carregando...</h4>
+            <div class="table-responsive" style="max-height:min(55vh,520px); overflow:auto">
+                <table class="styled-table">
+                    <thead>
+                        <tr>
+                            <th>Grupo / Cota</th>
+                            <th>Nro</th>
+                            <th>Devedor</th>
+                            <th>Status</th>
+                            <th class="text-right">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="painelContratosBody">
+                    </tbody>
+                </table>
+            </div>
+            <p id="painelContratosVazio" class="d-none" style="padding:12px; color:var(--text-muted)">Nenhum contrato com os filtros atuais.</p>
+        </div>
+    </div>
+
 </div>
 
 <!-- Modal de Detalhes -->
@@ -208,4 +280,5 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+<script src="{{ url_for('static', filename='painel_lista_contratos.js') }}"></script>
 {% endblock %}
