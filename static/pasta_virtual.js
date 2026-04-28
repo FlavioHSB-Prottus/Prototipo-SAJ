@@ -52,7 +52,7 @@ document.addEventListener('DOMContentLoaded', function () {
     function getStatusClass(status) {
         if (!status) return '';
         var s = String(status).toLowerCase();
-        if (s === 'aberto' || s === 'em cobranca' || s === 'em cobran?a') return 'status-active';
+        if (s === 'aberto' || s === 'em cobranca' || s === 'em cobrança') return 'status-active';
         if (s === 'fechado' || s === 'pago' || s === 'parcela paga') return 'status-success';
         if (s === 'indenizado') return 'status-warning';
         if (s === 'parcela vencida') return 'status-danger';
@@ -74,14 +74,14 @@ document.addEventListener('DOMContentLoaded', function () {
         html += dataItem('Nome', pessoa.nome_completo);
         html += dataItem('CPF / CNPJ', pessoa.cpf_cnpj);
         html += dataItem('Data de Nascimento', formatDate(pessoa.data_nascimento));
-        html += dataItem('Profiss?o', pessoa.profissao);
-        html += dataItem('C?njuge', pessoa.conjuge_nome);
+        html += dataItem('Profissão', pessoa.profissao);
+        html += dataItem('Cônjuge', pessoa.conjuge_nome);
         html += '</div>';
 
         if (enderecos && enderecos.length > 0) {
             enderecos.forEach(function (e) {
                 html += '<div class="detail-grid" style="margin-top:12px">';
-                html += dataItem('Endere?o (' + (e.tipo || '') + ')', [e.logradouro, e.complemento, e.bairro, e.cidade, e.estado, e.cep].filter(Boolean).join(', '));
+                html += dataItem('Endereço (' + (e.tipo || '') + ')', [e.logradouro, e.complemento, e.bairro, e.cidade, e.estado, e.cep].filter(Boolean).join(', '));
                 html += '</div>';
             });
         }
@@ -119,12 +119,12 @@ document.addEventListener('DOMContentLoaded', function () {
         html += '<div class="detail-section"><h3><i class="fa-solid fa-file-contract"></i> Dados do Contrato</h3>';
         html += '<div class="detail-grid">';
         html += dataItem('Grupo / Cota', c.grupo + '/' + c.cota);
-        html += dataItem('N? Contrato', c.numero_contrato);
-        html += dataItem('Vers?o', c.versao);
+        html += dataItem('Nº Contrato', c.numero_contrato);
+        html += dataItem('Versão', c.versao);
         html += dataItem('Status', c.status || c.status_txt, true, c.status);
-        html += dataItem('Valor do Cr?dito', formatCurrency(c.valor_credito));
+        html += dataItem('Valor do Crédito', formatCurrency(c.valor_credito));
         html += dataItem('Prazo (meses)', c.prazo_meses);
-        html += dataItem('Data de Ades?o', formatDate(c.data_adesao));
+        html += dataItem('Data de Adesão', formatDate(c.data_adesao));
         html += dataItem('Encerramento Grupo', formatDate(c.encerramento_grupo));
         html += '</div>';
         html += '<div style="margin-top:14px"><button type="button" class="btn-search btn-pv-insert-from-contrato" style="max-width:380px" data-grupo="' + encodeURIComponent(String(c.grupo != null ? c.grupo : '')) + '" data-cota="' + encodeURIComponent(String(c.cota != null ? c.cota : '')) + '"><i class="fa-solid fa-folder-plus"></i> Registrar na Pasta Virtual</button></div>';
@@ -140,7 +140,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (data.parcelas && data.parcelas.length > 0) {
             html += '<div class="detail-section"><h3><i class="fa-solid fa-list-ol"></i> Parcelas (' + data.parcelas.length + ')</h3>';
             html += '<div class="table-responsive"><table class="styled-table modal-table"><thead><tr>';
-            html += '<th>N?</th><th>Vencimento</th><th>Valor Nominal</th><th>Multa/Juros</th><th>Valor Total</th><th>Status</th>';
+            html += '<th>Nº</th><th>Vencimento</th><th>Valor Nominal</th><th>Multa/Juros</th><th>Valor Total</th><th>Status</th>';
             html += '</tr></thead><tbody>';
             data.parcelas.forEach(function (p) {
                 html += '<tr>';
@@ -155,16 +155,8 @@ document.addEventListener('DOMContentLoaded', function () {
             html += '</tbody></table></div></div>';
         }
 
-        if (data.ocorrencias && data.ocorrencias.length > 0) {
-            html += '<div class="detail-section"><h3><i class="fa-solid fa-timeline"></i> Hist?rico de Ocorr?ncias (' + data.ocorrencias.length + ')</h3>';
-            html += '<div class="timeline">';
-            data.ocorrencias.forEach(function (o) {
-                html += '<div class="timeline-item">';
-                html += '<div class="timeline-date">' + formatDate(o.data_arquivo) + '</div>';
-                html += '<div class="timeline-event"><strong><span class="status-badge ' + getStatusClass(o.status) + '">' + esc(o.status || '') + '</span></strong> ' + esc(o.descricao || '') + '</div>';
-                html += '</div>';
-            });
-            html += '</div></div>';
+        if (data.ocorrencias && data.ocorrencias.length > 0 && window.ContratoDetalhesModal && typeof window.ContratoDetalhesModal.buildOcorrenciasTimelineHtml === 'function') {
+            html += window.ContratoDetalhesModal.buildOcorrenciasTimelineHtml(data.ocorrencias);
         }
 
         html += (typeof TramitacoesDetalhe !== 'undefined')
@@ -279,7 +271,7 @@ document.addEventListener('DOMContentLoaded', function () {
             trDesc.className = 'pv-row-desc';
             trDesc.innerHTML =
                 '<td class="pv-desc-cell" colspan="7">' +
-                '<div class="pv-desc-label">Descricao</div>' + descBlock +
+                '<div class="pv-desc-label">Descrição</div>' + descBlock +
                 '</td>';
             pvBody.appendChild(trDesc);
         });

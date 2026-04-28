@@ -357,6 +357,63 @@ def _ensure_negativacao_table(cursor):
     )
 
 
+def _ensure_negativacao_historico_table(cursor):
+    """Alinhado a app._ensure_negativacao_historico_table (append-only)."""
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS negativacao_historico (
+            id BIGINT PRIMARY KEY AUTO_INCREMENT,
+            id_contrato BIGINT NOT NULL,
+            id_parcela BIGINT NULL,
+            numero_parcela INT NULL,
+            tipo_evento VARCHAR(40) NOT NULL,
+            data_evento DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            id_funcionario INT NULL,
+            dias_atraso INT NULL,
+            status_snapshot VARCHAR(64) NULL,
+            detalhe TEXT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            KEY idx_neg_hist_contrato (id_contrato),
+            KEY idx_neg_hist_parcela (id_parcela),
+            KEY idx_neg_hist_data (data_evento),
+            KEY idx_neg_hist_tipo (tipo_evento),
+            CONSTRAINT fk_neg_hist_contrato FOREIGN KEY (id_contrato)
+                REFERENCES contrato(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+    )
+
+
+def _sync_negativacao_historico_pos_tracker(cursor, data_hora_ref):
+    """Registra no histórico linhas recém-inseridas pelo tracker (status registrado_tracker)."""
+    _ensure_negativacao_historico_table(cursor)
+    cursor.execute(
+        """
+        INSERT INTO negativacao_historico (
+            id_contrato, id_parcela, numero_parcela, tipo_evento, data_evento,
+            id_funcionario, dias_atraso, status_snapshot, detalhe
+        )
+        SELECT n.id_contrato, n.id_parcela, n.numero_parcela, 'negativado_tracker',
+               n.data_negativacao, NULL, n.dias_atraso, n.status,
+               CONCAT(
+                   'Registro automático pelo arquivo GM (data referência ',
+                   DATE_FORMAT(n.data_negativacao, '%d/%m/%Y'),
+                   ').'
+               )
+        FROM negativacao n
+        WHERE n.status = 'registrado_tracker'
+          AND n.data_negativacao <=> %s
+          AND NOT EXISTS (
+              SELECT 1 FROM negativacao_historico h
+              WHERE h.id_parcela = n.id_parcela
+                AND h.tipo_evento = 'negativado_tracker'
+                AND h.data_evento <=> n.data_negativacao
+          )
+        """,
+        (data_hora_ref,),
+    )
+
+
 def negativacao_inserir_elegiveis_apos_gm(cursor, _conn, data_referencia, id_arquivo_gm):
     """
     Apos o delta (dia a dia) no tracker, grava ocorrências em `negativacao` para
@@ -418,6 +475,10 @@ def negativacao_inserir_elegiveis_apos_gm(cursor, _conn, data_referencia, id_arq
     """
     cursor.execute(sql, (data_d, j, data_hora, data_d, data_d))
     n = cursor.rowcount
+    try:
+        _sync_negativacao_historico_pos_tracker(cursor, data_hora)
+    except Exception:
+        pass
     return int(n) if n is not None else 0
 
 
@@ -439,6 +500,39 @@ def _liberar_negativacao_parcela_paga(cursor, conn, id_parcela, id_contrato, arq
     Grava ocorrencia com status *aberto*, liberando a cobranca visual
     e a elegibilidade futura para a nova parcela-alvo."""
     _ensure_negativacao_table(cursor)
+    _ensure_negativacao_historico_table(cursor)
+    try:
+        cursor.execute(
+            "SELECT * FROM negativacao WHERE id_parcela = %s LIMIT 1",
+            (id_parcela,),
+        )
+        row = cursor.fetchone()
+    except Exception:
+        return
+    if not row:
+        return
+    try:
+        cursor.execute(
+            """
+            INSERT INTO negativacao_historico (
+                id_contrato, id_parcela, numero_parcela, tipo_evento, data_evento,
+                id_funcionario, dias_atraso, status_snapshot, detalhe
+            ) VALUES (%s, %s, %s, %s, %s, NULL, %s, %s, %s)
+            """,
+            (
+                int(row["id_contrato"]),
+                int(row["id_parcela"]),
+                row.get("numero_parcela"),
+                "removido_pagamento",
+                datetime.datetime.now(),
+                row.get("dias_atraso"),
+                row.get("status"),
+                "Parcela quitada; negativação retirada para esta parcela (positivação). "
+                "Outra parcela poderá ser negativada se elegível.",
+            ),
+        )
+    except Exception:
+        pass
     try:
         cursor.execute("DELETE FROM negativacao WHERE id_parcela = %s", (id_parcela,))
     except Exception:
@@ -451,7 +545,7 @@ def _liberar_negativacao_parcela_paga(cursor, conn, id_parcela, id_contrato, arq
             id_contrato,
             arquivo_gm_id,
             OCORRENCIA_ABERTO,
-            "Parcela paga (antes negativada , agora outra parcela podera ser negativada se elegivel).",
+            "Parcela paga (antes negativada; outra parcela poderá ser negativada se elegível).",
         )
     except Exception:
         pass
@@ -790,7 +884,7 @@ def apply_delta(cursor, conn, arquivo_gm_id,
                     num = int(float(num_p_raw or 0))
                 except (TypeError, ValueError):
                     num = num_p_raw
-                insert_ocorrencia(cursor, cid, arquivo_gm_id, OCORRENCIA_PARCELA_VENCIDA, f"parcela {num} esta vencida")
+                insert_ocorrencia(cursor, cid, arquivo_gm_id, OCORRENCIA_PARCELA_VENCIDA, f"parcela {num} está vencida")
 
         conn.commit()
         return None
@@ -881,7 +975,7 @@ def apply_delta(cursor, conn, arquivo_gm_id,
             num = int(float(num_p_raw or 0))
         except (TypeError, ValueError):
             num = num_p_raw
-        insert_ocorrencia(cursor, cid, arquivo_gm_id, OCORRENCIA_PARCELA_VENCIDA, f"parcela {num} esta vencida")
+        insert_ocorrencia(cursor, cid, arquivo_gm_id, OCORRENCIA_PARCELA_VENCIDA, f"parcela {num} está vencida")
 
     removed_parcels = prev_r2_set - curr_r2_set
     paid_parcels = {(g, c, n) for g, c, n in removed_parcels if (g, c) in curr_r1_set}

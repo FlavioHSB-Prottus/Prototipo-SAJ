@@ -278,7 +278,9 @@ document.addEventListener('DOMContentLoaded', function () {
         html += dataItem('Prazo (meses)', c.prazo_meses);
         html += dataItem('Data de Adesao', formatDate(c.data_adesao));
         html += dataItem('Encerramento Grupo', formatDate(c.encerramento_grupo));
-        html += dataItem('Taxa Administracao', c.taxa_administracao);
+        html += dataItem('Taxa Administracao', typeof formatTaxaAdministracaoPercent === 'function'
+            ? formatTaxaAdministracaoPercent(c.taxa_administracao)
+            : c.taxa_administracao);
         html += dataItem('Fundo Reserva', c.fundo_reserva);
         html += dataItem('Percentual Lance', c.percentual_lance);
         html += '</div>';
@@ -312,16 +314,8 @@ document.addEventListener('DOMContentLoaded', function () {
             html += '</tbody></table></div></div>';
         }
 
-        if (data.ocorrencias && data.ocorrencias.length > 0) {
-            html += '<div class="detail-section"><h3><i class="fa-solid fa-timeline"></i> Historico de Ocorrencias (' + data.ocorrencias.length + ')</h3>';
-            html += '<div class="timeline">';
-            data.ocorrencias.forEach(function (o) {
-                html += '<div class="timeline-item">';
-                html += '<div class="timeline-date">' + formatDate(o.data_arquivo) + '</div>';
-                html += '<div class="timeline-event"><strong><span class="status-badge ' + getStatusClass(o.status) + '">' + esc(o.status || '') + '</span></strong> ' + esc(o.descricao || '') + '</div>';
-                html += '</div>';
-            });
-            html += '</div></div>';
+        if (data.ocorrencias && data.ocorrencias.length > 0 && window.ContratoDetalhesModal && typeof window.ContratoDetalhesModal.buildOcorrenciasTimelineHtml === 'function') {
+            html += window.ContratoDetalhesModal.buildOcorrenciasTimelineHtml(data.ocorrencias);
         }
 
         html += (typeof TramitacoesDetalhe !== 'undefined')

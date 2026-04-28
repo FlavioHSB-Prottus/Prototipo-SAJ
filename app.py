@@ -47,6 +47,137 @@ def _funcionario_esta_ativo(val):
     return bool(val)
 
 
+def _nivel_normalizado(val):
+    """Normaliza `funcionario.nivel_acesso` para gestor | administrador | cobranca.
+
+    Aceita legacy 'Cobranca' sem cedilha e 'Cobrança'. Qualquer valor desconhecido
+    cai em 'cobranca' (perfil mais restrito).
+    """
+    s = (val or '').strip().lower()
+    if s in ('cobranca', 'cobrança'):
+        return 'cobranca'
+    if s == 'gestor':
+        return 'gestor'
+    if s == 'administrador':
+        return 'administrador'
+    return 'cobranca'
+
+
+def _nivel_acesso_valor_db_amigavel(raw):
+    """Valor gravado no MySQL: Gestor, Administrador ou Cobrança."""
+    n = _nivel_normalizado(str(raw or '').strip())
+    return {'gestor': 'Gestor', 'administrador': 'Administrador', 'cobranca': 'Cobrança'}.get(n, 'Cobrança')
+
+
+def _session_pode_gerir_operadores():
+    """Página Operadores e APIs /api/admin/funcionario: Gestor ou Administrador."""
+    return _nivel_normalizado(session.get('funcionario_nivel_acesso')) in ('gestor', 'administrador')
+
+
+def _admin_json_forbidden():
+    if not _session_pode_gerir_operadores():
+        return jsonify({'error': 'Acesso restrito a gestores ou administradores.'}), 403
+    return None
+
+
+_COBRANCA_API_PREFIXES_OK = (
+    '/api/busca',
+    '/api/contrato/',
+    '/api/pessoa/',
+    '/api/tramitacao',
+    '/api/pasta-virtual',
+    '/api/relatorios',
+    '/api/agenda',
+    '/api/protocolos',
+    '/api/solicitacoes',
+    '/api/mensagens',
+    '/api/cobranca',
+    '/api/funcionarios',
+    '/api/funcionario/perfil',
+    '/api/avisos',
+    '/api/automacao/',
+    '/api/negativacao/',
+)
+
+
+def _cobranca_api_ok(path):
+    return any(path.startswith(p) for p in _COBRANCA_API_PREFIXES_OK)
+
+
+def _cobranca_html_ok(path):
+    if path in ('/', '/home'):
+        return True
+    if path.startswith('/minha-foto'):
+        return True
+    prefixes = (
+        '/cobranca',
+        '/negativacao',
+        '/busca',
+        '/pasta-virtual',
+        '/relatorios',
+        '/agenda',
+        '/protocolo',
+        '/solicitacao',
+        '/mensagem',
+    )
+    return any(path.startswith(p) for p in prefixes)
+
+
+@app.before_request
+def _enforce_nivel_acesso_modulos():
+    """Gestor: tudo. Administrador: tudo exceto Performance JB. Cobrança: módulos limitados."""
+    if request.endpoint is None:
+        return None
+    if request.endpoint in ('login', 'static', 'recuperar_senha', 'logout'):
+        return None
+    if not session.get('funcionario_id'):
+        return None
+    path = request.path
+    if path.startswith('/static'):
+        return None
+
+    n = _nivel_normalizado(session.get('funcionario_nivel_acesso'))
+
+    if n == 'gestor':
+        return None
+
+    if n == 'cobranca':
+        if path.startswith('/api/'):
+            if not _cobranca_api_ok(path):
+                return jsonify({'error': 'Acesso negado.'}), 403
+            return None
+        if not _cobranca_html_ok(path):
+            flash('Seu perfil não tem acesso a esta área.', 'error')
+            return redirect(url_for('home'))
+        return None
+
+    if path.startswith('/performance') or path.startswith('/api/performance'):
+        if path.startswith('/api/'):
+            return jsonify({'error': 'Acesso negado ao módulo Performance JB.'}), 403
+        flash('Seu perfil não tem acesso ao módulo Performance JB.', 'error')
+        return redirect(url_for('home'))
+
+    return None
+
+
+@app.context_processor
+def inject_perfil_ui():
+    na = session.get('funcionario_nivel_acesso')
+    n = _nivel_normalizado(na)
+    labels = {'gestor': 'Gestor', 'administrador': 'Administrador', 'cobranca': 'Cobrança'}
+    label = labels.get(n, (na or '').strip() or 'Usuário')
+    pode_op = n in ('gestor', 'administrador')
+    return {
+        'perfil_header_label': label,
+        'is_admin': pode_op,
+        'nav_importacao': n in ('gestor', 'administrador'),
+        'nav_dashboard': n in ('gestor', 'administrador'),
+        'nav_performance': n == 'gestor',
+        'nav_cadastro': n in ('gestor', 'administrador'),
+        'nav_operadores': pode_op,
+    }
+
+
 FOTO_MAX_BYTES = 5 * 1024 * 1024
 
 
@@ -96,7 +227,7 @@ def login():
             conn = _get_db()
             with conn.cursor() as cursor:
                 cursor.execute(
-                    'SELECT id, nome, senha, ativo FROM funcionario WHERE login = %s LIMIT 1',
+                    'SELECT id, nome, senha, ativo, nivel_acesso FROM funcionario WHERE login = %s LIMIT 1',
                     (login_val,),
                 )
                 row = cursor.fetchone()
@@ -124,6 +255,7 @@ def login():
         session.clear()
         session['funcionario_id'] = int(row['id'])
         session['funcionario_nome'] = row.get('nome') or ''
+        session['funcionario_nivel_acesso'] = row.get('nivel_acesso') or ''
         return redirect(url_for('home'))
 
     if session.get('funcionario_id'):
@@ -257,10 +389,35 @@ def importacao():
 
 @app.route('/cobranca')
 def cobranca():
-    return render_template('cobranca.html')
+    # Perfil Cobrança: painel já abre filtrando pelo operador logado.
+    # Gestor / Administrador: mantém "Todos os Operadores" (valor vazio).
+    n = _nivel_normalizado(session.get('funcionario_nivel_acesso'))
+    cobranca_page_config = {}
+    if n == 'cobranca':
+        fid = session.get('funcionario_id')
+        try:
+            fid = int(fid) if fid is not None else None
+        except (TypeError, ValueError):
+            fid = None
+        if fid is not None:
+            nome = (session.get('funcionario_nome') or '').strip() or ('#' + str(fid))
+            cobranca_page_config = {
+                'defaultOperadorId': fid,
+                'defaultOperadorNome': nome,
+            }
+    return render_template('cobranca.html', cobranca_page_config=cobranca_page_config)
+
+
+@app.route('/negativacao')
+def negativacao():
+    return render_template('negativacao.html')
+
 
 @app.route('/operadores')
 def operadores():
+    if not _session_pode_gerir_operadores():
+        flash('Acesso à página Operadores é restrito a gestores ou administradores.', 'error')
+        return redirect(url_for('home'))
     return render_template('operadores.html')
 
 @app.route('/protocolo')
@@ -1920,7 +2077,7 @@ def api_contrato_detalhe(contrato_id):
             (contrato_id,),
         )
         ocorrencias = _safe_all(
-            "SELECT * FROM ocorrencia WHERE id_contrato = %s ORDER BY data_arquivo DESC",
+            "SELECT * FROM ocorrencia WHERE id_contrato = %s ORDER BY data_arquivo ASC, id ASC",
             (contrato_id,),
         )
         tramitacoes = _safe_all(
@@ -1937,6 +2094,28 @@ def api_contrato_detalhe(contrato_id):
             app.logger.warning('api_contrato_detalhe: falha em bens (%s)', exc)
             bens = []
 
+        negativacao_ativas = []
+        negativacao_historico = []
+        try:
+            _ensure_negativacao_table(cursor)
+            _ensure_negativacao_historico_table(cursor)
+            negativacao_ativas = _safe_all(
+                "SELECT n.*, f.nome AS funcionario_nome "
+                "FROM negativacao n "
+                "LEFT JOIN funcionario f ON n.id_funcionario = f.id "
+                "WHERE n.id_contrato = %s ORDER BY n.data_negativacao DESC, n.id DESC",
+                (contrato_id,),
+            )
+            negativacao_historico = _safe_all(
+                "SELECT h.*, f.nome AS funcionario_nome "
+                "FROM negativacao_historico h "
+                "LEFT JOIN funcionario f ON h.id_funcionario = f.id "
+                "WHERE h.id_contrato = %s ORDER BY h.data_evento ASC, h.id ASC",
+                (contrato_id,),
+            )
+        except Exception as exc:
+            app.logger.warning('api_contrato_detalhe: negativacao (%s)', exc)
+
         return jsonify({
             'contrato': contrato,
             'devedor': devedor,
@@ -1951,6 +2130,8 @@ def api_contrato_detalhe(contrato_id):
             'ocorrencias': ocorrencias,
             'tramitacoes': tramitacoes,
             'bens': bens,
+            'negativacao_ativas': negativacao_ativas,
+            'negativacao_historico': negativacao_historico,
         })
     except Exception as exc:
         app.logger.exception('api_contrato_detalhe: erro inesperado')
@@ -3182,6 +3363,9 @@ def api_operadores_dashboard():
     com `funcionario_cobranca`. dias_atraso = DATEDIFF(data_GM, vencimento mais
     antigo em aberto), nao CURDATE().
     """
+    forbidden = _admin_json_forbidden()
+    if forbidden:
+        return forbidden
     conn = _get_db()
     cursor = conn.cursor()
     try:
@@ -3336,14 +3520,31 @@ def _nao_b_from_open_delay(dd):
 
 
 _SAFRA_ENTRADA_SQL = """
-SELECT 
+SELECT
     COALESCE(c.id, o.id_contrato) AS id_contrato,
     c.valor_credito AS valor_credito,
     o.data_arquivo AS dt_entrada,
-    p_antiga.vencimento AS vencimento,
+    -- vencimento de referencia: performado -> p_antiga; nao performado -> menor entre aberta/indenizada
+    CASE
+        WHEN p_antiga.id_contrato IS NOT NULL THEN p_antiga.vencimento
+        WHEN p_aberta.id_contrato IS NOT NULL
+             AND (p_inden.id_contrato IS NULL OR p_aberta.vencimento <= p_inden.vencimento)
+            THEN p_aberta.vencimento
+        WHEN p_inden.id_contrato IS NOT NULL THEN p_inden.vencimento
+        ELSE NULL
+    END AS vencimento,
     p_antiga.data_pagamento AS dt_paga,
-    p_antiga.valor_total AS valor_parcela,
-    CASE 
+    -- VALOR: performado -> parcela paga mais antiga; nao performado -> parcela mais antiga entre aberta e indenizada
+    CASE
+        WHEN p_antiga.id_contrato IS NOT NULL THEN p_antiga.valor_total
+        WHEN p_aberta.id_contrato IS NOT NULL
+             AND (p_inden.id_contrato IS NULL OR p_aberta.vencimento <= p_inden.vencimento)
+            THEN p_aberta.valor_total
+        WHEN p_inden.id_contrato IS NOT NULL THEN p_inden.valor_total
+        ELSE NULL
+    END AS valor_parcela,
+    -- CLASSIFICACAO original: contrato com qualquer parcela paga -> performado
+    CASE
         WHEN p_antiga.data_pagamento IS NULL THEN 'nao_performado'
         WHEN DATEDIFF(p_antiga.data_pagamento, p_antiga.vencimento) <= 30 THEN 'd30'
         WHEN DATEDIFF(p_antiga.data_pagamento, p_antiga.vencimento) <= 60 THEN 'd60'
@@ -3351,8 +3552,10 @@ SELECT
         ELSE 'dplus'
     END AS recovery_group,
     CASE WHEN p_antiga.id_contrato IS NOT NULL THEN 1 ELSE 0 END AS is_performado,
-    -- delay_open (for non-performados)
-    CASE 
+    -- delay_open mantido identico ao original (so olha parcelas em aberto).
+    -- Contratos com parcela indenizada (sem aberta) ficam com delay_open NULL,
+    -- caindo em b30 e entrando na contagem do teto <= 90 d (igual antes).
+    CASE
         WHEN p_antiga.id_contrato IS NOT NULL THEN NULL
         ELSE (
             SELECT DATEDIFF(CURDATE(), MIN(p2.vencimento))
@@ -3370,17 +3573,36 @@ FROM (
 ) o
 LEFT JOIN contrato c ON c.id = o.id_contrato
 LEFT JOIN (
-    -- Busca os dados exatos apenas da parcela mais antiga que foi paga (fechada)
     SELECT p1.id_contrato, p1.vencimento, p1.data_pagamento, p1.valor_total
     FROM parcela p1
     INNER JOIN (
-        SELECT id_contrato, MIN(vencimento) as min_vencimento
+        SELECT id_contrato, MIN(vencimento) AS min_vencimento
         FROM parcela
         WHERE status = 'fechado'
         GROUP BY id_contrato
     ) p2 ON p1.id_contrato = p2.id_contrato AND p1.vencimento = p2.min_vencimento
     WHERE p1.status = 'fechado'
 ) p_antiga ON p_antiga.id_contrato = c.id
+LEFT JOIN (
+    SELECT p1.id_contrato, p1.vencimento, p1.valor_total
+    FROM parcela p1
+    INNER JOIN (
+        SELECT id_contrato, MIN(vencimento) AS min_vencimento
+        FROM parcela
+        WHERE status = 'aberto'
+        GROUP BY id_contrato
+    ) pm ON p1.id_contrato = pm.id_contrato AND p1.vencimento = pm.min_vencimento AND p1.status = 'aberto'
+) p_aberta ON p_aberta.id_contrato = c.id
+LEFT JOIN (
+    SELECT p1.id_contrato, p1.vencimento, p1.valor_total
+    FROM parcela p1
+    INNER JOIN (
+        SELECT id_contrato, MIN(vencimento) AS min_vencimento
+        FROM parcela
+        WHERE status = 'indenizado'
+        GROUP BY id_contrato
+    ) pm ON p1.id_contrato = pm.id_contrato AND p1.vencimento = pm.min_vencimento AND p1.status = 'indenizado'
+) p_inden ON p_inden.id_contrato = c.id
 """
 
 
@@ -3393,9 +3615,14 @@ def _safra_entrada_rows(cursor, d_a, d_b, y, m):
     return cursor.fetchall()
 
 
-def _valor_total_contrato_brl(r) -> float:
-    """Totais em R$ no Performance (KPI, grafico, export): valor cheio do contrato."""
-    v = r.get('valor_credito')
+def _valor_metrica_performance_brl(r) -> float:
+    """R$ na Performance/Dashboard: valor_total da parcela mais antiga do contrato.
+
+    Esse valor representa exatamente:
+      - performado: a parcela paga (que passou de aberto -> fechado);
+      - nao performado: a parcela em aberto que originou a classificacao.
+    """
+    v = r.get('valor_parcela')
     try:
         return float(v) if v is not None and v != '' else 0.0
     except (TypeError, ValueError):
@@ -3494,7 +3721,7 @@ def _cohort_enriched_rows_for_export(cursor, y, m, safra_index, teto: int):
             if cid in seen:
                 continue
             seen.add(cid)
-            vt = _valor_total_contrato_brl(r)
+            vt = _valor_metrica_performance_brl(r)
             out.append({
                 'id_contrato': cid,
                 'faixa_calendario': _SAFRA_LABELS_EXPORT[parte],
@@ -3506,11 +3733,11 @@ def _cohort_enriched_rows_for_export(cursor, y, m, safra_index, teto: int):
 
 
 def _kpi_teto_cumulativo_distinct_global(cursor, y, m):
-    """Totais distintos de id_contrato (e valor uma vez por id) com o teto 30/60/90 d.
+    """Totais distintos de id_contrato (e valor metrica parcela uma vez por id) com teto 30/60/90 d.
 
-    O gráfico soma, por barra, linhas de cohort (_aggregate_performance_faixa) — o mesmo
-    contrato pode entrar em mais de uma faixa de calendário no mês, inflando a soma das
-    4 faixas. A export e os KPI de visão geral usam 1 contrato = 1 linha (dedup global).
+    O grafico soma, por barra, linhas de cohort (_aggregate_performance_faixa) — o mesmo
+    contrato pode entrar em mais de uma faixa de calendario no mes, inflando a soma das
+    4 faixas. A export e os KPI de visao geral usam 1 contrato = 1 linha (dedup global).
     """
     st = {
         30: {'p': set(), 'n': set(), 'v_p': {}, 'v_n': {}},
@@ -3528,7 +3755,7 @@ def _kpi_teto_cumulativo_distinct_global(cursor, y, m):
             except (TypeError, ValueError):
                 continue
             is_p = _bool_sql(r.get('is_performado'))
-            v = _valor_total_contrato_brl(r)
+            v = _valor_metrica_performance_brl(r)
             for teto in (30, 60, 90):
                 if not _row_matches_atraso_teto(r, teto):
                     continue
@@ -3590,7 +3817,7 @@ def _aggregate_performance_faixa(cursor, y, m, parte):
         dd = r.get('delay_open')
         seg = _seg_from_delay_days(int(dd) if dd is not None else None)
         keyg = 'performado' if is_p else 'nao_performado'
-        v = _valor_total_contrato_brl(r)
+        v = _valor_metrica_performance_brl(r)
         vol_val += v
         segs[keyg][seg] += 1
         val[keyg][seg] += v
@@ -3700,7 +3927,7 @@ def _daily_series(cursor, d1, d2):
     pagos_val_map = {}
     
     for r in rows_cohort:
-        v = _valor_total_contrato_brl(r)
+        v = _valor_metrica_performance_brl(r)
         
         # Entrada (Novos)
         dt_e = r.get('dt_entrada')
@@ -4197,7 +4424,7 @@ def _export_to_xlsx(ctx, dataset):
     ws4 = wb.create_sheet('Contratos')
     contratos = dataset['contratos']
     headers = [
-        'ID', 'Faixa (calendario)', 'Desempenho', 'Prazo (atraso)', 'Valor total contrato (R$)',
+        'ID', 'Faixa (calendario)', 'Desempenho', 'Prazo (atraso)', 'Valor parcela (metrica) (R$)',
         'Grupo', 'Cota', 'Nro Contrato', 'Status', 'Valor do Credito',
         'Data de Adesao', 'Devedor', 'CPF/CNPJ',
     ]
@@ -4375,7 +4602,7 @@ def _export_to_pdf(ctx, dataset):
         pdf.cell(0, 7, 'Contratos selecionados (' + str(len(dataset['contratos'])) + ' total, mostrando ' + str(len(contratos)) + ')', ln=True)
         pdf.set_font('Helvetica', 'B', 7)
         pdf.set_fill_color(59, 130, 246); pdf.set_text_color(255, 255, 255)
-        ch = ['Faixa', 'Desemp.', 'Prazo', 'G/C', 'Nro', 'R$ total', 'R$ créd.', 'St.', 'Devedor']
+        ch = ['Faixa', 'Desemp.', 'Prazo', 'G/C', 'Nro', 'R$ parcela', 'R$ cred.', 'St.', 'Devedor']
         cw = [36, 18, 28, 20, 22, 20, 22, 10, 62]
         for i, h in enumerate(ch):
             pdf.cell(cw[i], 5, h, border=1, align='C', fill=True)
@@ -4681,10 +4908,39 @@ def _fetch_dash_export_dataset(cursor, ctx):
     sql = (
         "SELECT DISTINCT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
         "       c.valor_credito, c.data_adesao, "
+        "       CASE "
+        "         WHEN dash_pq.id_contrato IS NOT NULL THEN dash_pq.valor_total "
+        "         WHEN dash_pa.id_contrato IS NOT NULL "
+        "              AND (dash_pi.id_contrato IS NULL OR dash_pa.vencimento <= dash_pi.vencimento) "
+        "             THEN dash_pa.valor_total "
+        "         WHEN dash_pi.id_contrato IS NOT NULL THEN dash_pi.valor_total "
+        "         ELSE NULL "
+        "       END AS valor_metrica_parcela, "
         "       p.nome_completo AS devedor, p.cpf_cnpj AS devedor_cpf_cnpj "
         "FROM ocorrencia o "
         "INNER JOIN contrato c ON c.id = o.id_contrato "
         "LEFT JOIN pessoa p ON p.id = c.id_pessoa "
+        "LEFT JOIN ( "
+        "  SELECT p1.id_contrato, p1.vencimento, p1.valor_total "
+        "  FROM parcela p1 INNER JOIN ( "
+        "    SELECT id_contrato, MIN(vencimento) AS mv "
+        "    FROM parcela WHERE status = 'aberto' GROUP BY id_contrato "
+        "  ) t ON p1.id_contrato = t.id_contrato AND p1.vencimento = t.mv AND p1.status = 'aberto' "
+        ") dash_pa ON dash_pa.id_contrato = c.id "
+        "LEFT JOIN ( "
+        "  SELECT p1.id_contrato, p1.vencimento, p1.valor_total "
+        "  FROM parcela p1 INNER JOIN ( "
+        "    SELECT id_contrato, MIN(vencimento) AS mv "
+        "    FROM parcela WHERE status = 'fechado' GROUP BY id_contrato "
+        "  ) t ON p1.id_contrato = t.id_contrato AND p1.vencimento = t.mv AND p1.status = 'fechado' "
+        ") dash_pq ON dash_pq.id_contrato = c.id "
+        "LEFT JOIN ( "
+        "  SELECT p1.id_contrato, p1.vencimento, p1.valor_total "
+        "  FROM parcela p1 INNER JOIN ( "
+        "    SELECT id_contrato, MIN(vencimento) AS mv "
+        "    FROM parcela WHERE status = 'indenizado' GROUP BY id_contrato "
+        "  ) t ON p1.id_contrato = t.id_contrato AND p1.vencimento = t.mv AND p1.status = 'indenizado' "
+        ") dash_pi ON dash_pi.id_contrato = c.id "
         f"WHERE {where_series} "
         "AND o.data_arquivo >= %s AND o.data_arquivo <= %s "
         "ORDER BY c.grupo, c.cota"
@@ -4770,11 +5026,11 @@ def _dash_export_to_xlsx(ctx, dataset):
     _write_sheet(ws3, ['Status', 'Total'], [[r['status'], r['total']] for r in dataset['pie_rows']])
 
     ws4 = wb.create_sheet('Contratos')
-    headers = ['ID', 'Grupo', 'Cota', 'Nro Contrato', 'Status', 'Valor do Credito',
-               'Data de Adesao', 'Devedor', 'CPF/CNPJ']
-    keys = ['id', 'grupo', 'cota', 'numero_contrato', 'status', 'valor_credito',
-            'data_adesao', 'devedor', 'devedor_cpf_cnpj']
-    _dash_m = {'valor_credito'}
+    headers = ['ID', 'Grupo', 'Cota', 'Nro Contrato', 'Status', 'Valor parcela (metrica) (R$)',
+               'Valor credito (ref.) (R$)', 'Data de Adesao', 'Devedor', 'CPF/CNPJ']
+    keys = ['id', 'grupo', 'cota', 'numero_contrato', 'status', 'valor_metrica_parcela',
+            'valor_credito', 'data_adesao', 'devedor', 'devedor_cpf_cnpj']
+    _dash_m = {'valor_credito', 'valor_metrica_parcela'}
 
     def _row_dash_contrato(c):
         row = []
@@ -4827,7 +5083,8 @@ def _dash_export_to_csv_powerbi(ctx, dataset):
             str(c.get('grupo') or '') + '/' + str(c.get('cota') or ''),
             c.get('data_adesao') or '',
             c.get('status') or '',
-            c.get('valor_credito') or 0,
+            c.get('valor_metrica_parcela') if c.get('valor_metrica_parcela') is not None else (
+                c.get('valor_credito') or 0),
             c.get('devedor') or '',
             c.get('devedor_cpf_cnpj') or '',
             c.get('numero_contrato') or '',
@@ -4909,8 +5166,8 @@ def _dash_export_to_pdf(ctx, dataset):
         pdf.cell(0, 7, 'Contratos envolvidos (' + str(len(dataset['contratos'])) + ' total, mostrando ' + str(len(contratos)) + ')', ln=True)
         pdf.set_font('Helvetica', 'B', 8)
         pdf.set_fill_color(59, 130, 246); pdf.set_text_color(255, 255, 255)
-        ch = ['Grupo/Cota', 'Nro Contrato', 'Status', 'Valor Credito', 'Adesao', 'Devedor', 'CPF/CNPJ']
-        cw = [28, 32, 22, 32, 24, 90, 40]
+        ch = ['Grupo/Cota', 'Nro Contrato', 'Status', 'R$ parcela (m.)', 'R$ credito', 'Adesao', 'Devedor', 'CPF/CNPJ']
+        cw = [26, 30, 18, 26, 26, 22, 82, 38]
         for i, h in enumerate(ch):
             pdf.cell(cw[i], 6, h, border=1, align='C', fill=True)
         pdf.ln()
@@ -4919,16 +5176,22 @@ def _dash_export_to_pdf(ctx, dataset):
         for idx, c in enumerate(contratos):
             fill = idx % 2 == 1
             pdf.set_fill_color(248 if fill else 255, 250 if fill else 255, 252 if fill else 255)
-            valor = c.get('valor_credito')
+            vm = c.get('valor_metrica_parcela')
+            vc = c.get('valor_credito')
             try:
-                valor_fmt = 'R$ ' + f"{float(valor):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                vm_fmt = 'R$ ' + f"{float(vm):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
             except Exception:
-                valor_fmt = str(valor or '-')
+                vm_fmt = str(vm or '-')
+            try:
+                vc_fmt = 'R$ ' + f"{float(vc):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            except Exception:
+                vc_fmt = str(vc or '-')
             row = [
                 str(c.get('grupo') or '') + '/' + str(c.get('cota') or ''),
                 str(c.get('numero_contrato') or '-'),
                 str(c.get('status') or '-'),
-                valor_fmt,
+                vm_fmt,
+                vc_fmt,
                 str(c.get('data_adesao') or '-'),
                 (str(c.get('devedor') or '-'))[:50],
                 str(c.get('devedor_cpf_cnpj') or '-'),
@@ -4979,6 +5242,232 @@ def api_dashboard_export(formato):
     buf = _dash_export_to_csv_powerbi(ctx, dataset)
     return send_file(buf, as_attachment=True, download_name=base + '_powerbi.csv',
                      mimetype='text/csv')
+
+
+# ==========================================
+# CRUD funcionário (somente administrador — página Operadores)
+# ==========================================
+
+def _coerce_bit_mysql(val, default=1):
+    if val is None:
+        return default
+    if isinstance(val, bool):
+        return 1 if val else 0
+    s = str(val).strip().lower()
+    if s in ('0', 'false', 'off', 'no', 'inativo'):
+        return 0
+    return 1
+
+
+def _empty_to_none(val):
+    if val is None:
+        return None
+    if isinstance(val, str) and val.strip() == '':
+        return None
+    return val
+
+
+@app.route('/api/admin/funcionario', methods=['POST'])
+def api_admin_funcionario_create():
+    """Cadastra um registro em `funcionario`. Exige sessão de administrador."""
+    forbidden = _admin_json_forbidden()
+    if forbidden:
+        return forbidden
+    data = request.get_json(force=True, silent=True) or {}
+    nome = (data.get('nome') or '').strip()
+    cpf_cnpj = (data.get('cpf_cnpj') or '').strip()
+    login_v = (data.get('login') or '').strip()
+    senha = data.get('senha') or ''
+    if not nome or not cpf_cnpj or not login_v:
+        return jsonify({'error': 'Nome, CPF e login são obrigatórios.'}), 400
+    if len(str(senha)) < 4:
+        return jsonify({'error': 'Informe uma senha com pelo menos 4 caracteres.'}), 400
+
+    nivel_acesso = _nivel_acesso_valor_db_amigavel(data.get('nivel_acesso') or 'Cobrança')
+    ativo = _coerce_bit_mysql(data.get('ativo'), 1)
+    acesso_externo = _coerce_bit_mysql(data.get('acesso_externo'), 0)
+
+    email = _empty_to_none((data.get('email') or '').strip())
+    ddd = _empty_to_none((data.get('ddd') or '').strip())
+    numero = _empty_to_none((data.get('numero') or '').strip())
+    logradouro = _empty_to_none((data.get('logradouro') or '').strip())
+    bairro = _empty_to_none((data.get('bairro') or '').strip())
+    complemento = _empty_to_none((data.get('complemento') or '').strip())
+    cep = _empty_to_none((data.get('cep') or '').strip())
+    cidade = _empty_to_none((data.get('cidade') or '').strip())
+    estado = _empty_to_none((data.get('estado') or '').strip())
+    departamento = _empty_to_none((data.get('departamento') or '').strip())
+    sexo = _empty_to_none((data.get('sexo') or '').strip())
+    matricula = _empty_to_none((data.get('matricula') or '').strip())
+    data_nascimento = _empty_to_none(data.get('data_nascimento'))
+
+    conn = None
+    try:
+        conn = _get_db()
+        with conn.cursor() as cursor:
+            cursor.execute('SELECT id FROM funcionario WHERE cpf_cnpj = %s LIMIT 1', (cpf_cnpj,))
+            if cursor.fetchone():
+                return jsonify({'error': 'Já existe funcionário com este CPF.'}), 409
+            cursor.execute('SELECT id FROM funcionario WHERE login = %s LIMIT 1', (login_v,))
+            if cursor.fetchone():
+                return jsonify({'error': 'Já existe funcionário com este login.'}), 409
+
+            cursor.execute(
+                """
+                INSERT INTO funcionario (
+                    nome, cpf_cnpj, login, senha, nivel_acesso, ativo, acesso_externo,
+                    email, ddd, numero, logradouro, bairro, complemento, cep, cidade, estado,
+                    departamento, sexo, matricula, data_nascimento
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s
+                )
+                """,
+                (
+                    nome,
+                    cpf_cnpj,
+                    login_v,
+                    str(senha),
+                    nivel_acesso,
+                    ativo,
+                    acesso_externo,
+                    email,
+                    ddd,
+                    numero,
+                    logradouro,
+                    bairro,
+                    complemento,
+                    cep,
+                    cidade,
+                    estado,
+                    departamento,
+                    sexo,
+                    matricula,
+                    data_nascimento,
+                ),
+            )
+            new_id = cursor.lastrowid
+        conn.commit()
+        return jsonify({'ok': True, 'id': new_id})
+    except Exception as e:
+        if conn is not None:
+            conn.rollback()
+        app.logger.exception('api_admin_funcionario_create')
+        return jsonify({'error': str(e)}), 500
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+@app.route('/api/admin/funcionario/<int:fid>', methods=['GET', 'PUT'])
+def api_admin_funcionario_one(fid):
+    """Detalhe (GET) ou atualização (PUT) de um funcionário. Sem devolver senha."""
+    forbidden = _admin_json_forbidden()
+    if forbidden:
+        return forbidden
+    conn = None
+    try:
+        conn = _get_db()
+        with conn.cursor() as cursor:
+            if request.method == 'GET':
+                cursor.execute(
+                    """
+                    SELECT id, nome, data_nascimento, cpf_cnpj, ativo, login,
+                           acesso_externo, email, ddd, numero, logradouro, bairro, complemento,
+                           cep, cidade, estado, departamento, nivel_acesso, sexo, matricula,
+                           created_at, updated_at
+                    FROM funcionario WHERE id = %s
+                    """,
+                    (fid,),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return jsonify({'error': 'Funcionário não encontrado.'}), 404
+                return jsonify({'funcionario': _clean_row(row)})
+
+            data = request.get_json(force=True, silent=True) or {}
+            cursor.execute('SELECT id FROM funcionario WHERE id = %s', (fid,))
+            if not cursor.fetchone():
+                return jsonify({'error': 'Funcionário não encontrado.'}), 404
+
+            updates = []
+            params = []
+            updatable_str = (
+                'nome',
+                'data_nascimento',
+                'cpf_cnpj',
+                'email',
+                'ddd',
+                'numero',
+                'logradouro',
+                'bairro',
+                'complemento',
+                'cep',
+                'cidade',
+                'estado',
+                'departamento',
+                'nivel_acesso',
+                'sexo',
+                'matricula',
+                'login',
+            )
+            for key in updatable_str:
+                if key not in data:
+                    continue
+                v = data.get(key)
+                if isinstance(v, str) and v.strip() == '':
+                    v = None
+                if key == 'nivel_acesso' and v is not None:
+                    v = _nivel_acesso_valor_db_amigavel(v)
+                updates.append(f'`{key}` = %s')
+                params.append(v)
+
+            if 'ativo' in data:
+                updates.append('`ativo` = %s')
+                params.append(_coerce_bit_mysql(data.get('ativo'), 1))
+            if 'acesso_externo' in data:
+                updates.append('`acesso_externo` = %s')
+                params.append(_coerce_bit_mysql(data.get('acesso_externo'), 0))
+
+            pw = data.get('senha')
+            if pw is not None and str(pw).strip() != '':
+                updates.append('`senha` = %s')
+                params.append(str(pw))
+
+            if not updates:
+                return jsonify({'error': 'Nenhum campo para atualizar.'}), 400
+
+            if 'cpf_cnpj' in data:
+                cpf_chk = data.get('cpf_cnpj')
+                cursor.execute(
+                    'SELECT id FROM funcionario WHERE cpf_cnpj = %s AND id <> %s LIMIT 1',
+                    (cpf_chk, fid),
+                )
+                if cursor.fetchone():
+                    return jsonify({'error': 'CPF já cadastrado para outro funcionário.'}), 409
+            if 'login' in data:
+                login_chk = data.get('login')
+                cursor.execute(
+                    'SELECT id FROM funcionario WHERE login = %s AND id <> %s LIMIT 1',
+                    (login_chk, fid),
+                )
+                if cursor.fetchone():
+                    return jsonify({'error': 'Login já cadastrado para outro funcionário.'}), 409
+
+            params.append(fid)
+            sql = 'UPDATE funcionario SET ' + ', '.join(updates) + ' WHERE id = %s'
+            cursor.execute(sql, params)
+        conn.commit()
+        return jsonify({'ok': True})
+    except Exception as e:
+        if conn is not None:
+            conn.rollback()
+        app.logger.exception('api_admin_funcionario_one')
+        return jsonify({'error': str(e)}), 500
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 # ==========================================
@@ -5424,6 +5913,90 @@ def _ensure_negativacao_table(cursor):
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """
     )
+    _ensure_negativacao_id_funcionario_column(cursor)
+
+
+def _ensure_negativacao_id_funcionario_column(cursor):
+    """Adiciona `id_funcionario` em `negativacao` quando a tabela ja existia sem a coluna."""
+    try:
+        cursor.execute(
+            "SELECT COUNT(*) AS c FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'negativacao' "
+            "AND COLUMN_NAME = 'id_funcionario'"
+        )
+        row = cursor.fetchone()
+        cnt = int(row['c'] if isinstance(row, dict) else (row[0] if row else 0))
+        if cnt == 0:
+            cursor.execute(
+                "ALTER TABLE negativacao ADD COLUMN id_funcionario INT NULL "
+                "DEFAULT NULL AFTER resposta_api"
+            )
+    except Exception:
+        pass
+
+
+def _ensure_negativacao_historico_table(cursor):
+    """Historico append-only de eventos de negativação / positivação por contrato."""
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS negativacao_historico (
+            id BIGINT PRIMARY KEY AUTO_INCREMENT,
+            id_contrato BIGINT NOT NULL,
+            id_parcela BIGINT NULL,
+            numero_parcela INT NULL,
+            tipo_evento VARCHAR(40) NOT NULL,
+            data_evento DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            id_funcionario INT NULL,
+            dias_atraso INT NULL,
+            status_snapshot VARCHAR(64) NULL,
+            detalhe TEXT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            KEY idx_neg_hist_contrato (id_contrato),
+            KEY idx_neg_hist_parcela (id_parcela),
+            KEY idx_neg_hist_data (data_evento),
+            KEY idx_neg_hist_tipo (tipo_evento),
+            CONSTRAINT fk_neg_hist_contrato FOREIGN KEY (id_contrato)
+                REFERENCES contrato(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+    )
+
+
+def _insert_negativacao_historico(
+    cursor,
+    id_contrato,
+    id_parcela,
+    numero_parcela,
+    tipo_evento,
+    data_evento,
+    id_funcionario=None,
+    dias_atraso=None,
+    status_snapshot=None,
+    detalhe=None,
+):
+    """Insere um evento no histórico (sem deduplicação — quem chama decide)."""
+    if data_evento is None:
+        data_evento = datetime.datetime.now()
+    _ensure_negativacao_historico_table(cursor)
+    cursor.execute(
+        """
+        INSERT INTO negativacao_historico (
+            id_contrato, id_parcela, numero_parcela, tipo_evento, data_evento,
+            id_funcionario, dias_atraso, status_snapshot, detalhe
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+            id_contrato,
+            id_parcela,
+            numero_parcela,
+            tipo_evento,
+            data_evento,
+            id_funcionario,
+            dias_atraso,
+            status_snapshot,
+            detalhe,
+        ),
+    )
 
 
 # Registros de `negativacao` muito antigos podem nao ter `id_parcela` (modelo
@@ -5701,24 +6274,52 @@ def api_negativacao_enviar():
     # request concorrente ja gravou a mesma parcela, esta tentativa e
     # silenciosamente descartada e rowcount reflete isso.
     gravados = 0
+    fid = session.get('funcionario_id')
+    try:
+        fid = int(fid) if fid is not None else None
+    except (TypeError, ValueError):
+        fid = None
+    _ensure_negativacao_historico_table(cursor)
     if elegiveis:
-        cursor.executemany(
-            "INSERT IGNORE INTO negativacao "
-            "  (id_contrato, id_parcela, numero_parcela, dias_atraso, status, resposta_api) "
-            "VALUES (%s, %s, %s, %s, 'enviado', %s)",
-            [
+        resposta_json = '{"mock": true}'
+        for e in elegiveis:
+            cursor.execute(
+                "INSERT IGNORE INTO negativacao "
+                "  (id_contrato, id_parcela, numero_parcela, dias_atraso, status, resposta_api, id_funcionario) "
+                "VALUES (%s, %s, %s, %s, 'enviado', %s, %s)",
                 (
                     e['id_contrato'],
                     e['id_parcela'],
                     e['numero_parcela'],
                     e['dias_atraso'],
-                    '{"mock": true}',
-                )
-                for e in elegiveis
-            ],
-        )
+                    resposta_json,
+                    fid,
+                ),
+            )
+            if cursor.rowcount:
+                gravados += 1
+                try:
+                    cursor.execute(
+                        "SELECT data_negativacao FROM negativacao WHERE id_parcela = %s LIMIT 1",
+                        (e['id_parcela'],),
+                    )
+                    row_dn = cursor.fetchone()
+                    data_ev = row_dn.get('data_negativacao') if row_dn else None
+                    _insert_negativacao_historico(
+                        cursor,
+                        e['id_contrato'],
+                        e['id_parcela'],
+                        e.get('numero_parcela'),
+                        'negativado_manual',
+                        data_ev,
+                        fid,
+                        e['dias_atraso'],
+                        'enviado',
+                        'Negativação registrada pelo fluxo manual (envio à API / mock).',
+                    )
+                except Exception as exc_hist:
+                    app.logger.warning('api_negativacao_enviar: historico (%s)', exc_hist)
         conn.commit()
-        gravados = cursor.rowcount if cursor.rowcount is not None else 0
 
     # --- Fase 5: disparo para a API externa (mock hoje; Flavio depois) ------
     # TODO: substituir pelo POST real. Se falhar, atualizar status p/ 'falhou':
@@ -5764,6 +6365,246 @@ def api_negativacao_enviar():
             f'{len(fora_janela)} fora da janela (30 < dias < 90).'
         ),
     })
+
+
+@app.route('/api/negativacao/listagem')
+def api_negativacao_listagem():
+    """Lista histórico global de negativações e parcelas ainda ativas (painel do módulo)."""
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        per_page = int(request.args.get('per_page', 40))
+    except (TypeError, ValueError):
+        per_page = 40
+    per_page = min(100, max(5, per_page))
+    offset = (page - 1) * per_page
+    q = (request.args.get('q') or '').strip()
+    tipo_busca = (request.args.get('tipo_busca') or 'contrato').strip().lower()
+    if tipo_busca not in ('contrato', 'texto'):
+        tipo_busca = 'contrato'
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        _ensure_negativacao_table(cursor)
+        _ensure_negativacao_historico_table(cursor)
+
+        where_hist = []
+        params_hist = []
+        where_at = []
+        params_at = []
+        if q:
+            like = f"%{q}%"
+            if tipo_busca == 'contrato':
+                clause = (
+                    "(CAST(c.grupo AS CHAR) LIKE %s OR CAST(c.cota AS CHAR) LIKE %s "
+                    "OR CONCAT(c.grupo, '/', c.cota) LIKE %s OR CAST(c.numero_contrato AS CHAR) LIKE %s)"
+                )
+                where_hist.append(clause)
+                params_hist.extend([like, like, like, like])
+                where_at.append(clause)
+                params_at.extend([like, like, like, like])
+            else:
+                where_hist.append("(h.detalhe LIKE %s OR h.tipo_evento LIKE %s)")
+                params_hist.extend([like, like])
+                where_at.append(
+                    "EXISTS (SELECT 1 FROM negativacao_historico h2 WHERE h2.id_contrato = n.id_contrato "
+                    "AND (h2.detalhe LIKE %s OR h2.tipo_evento LIKE %s))"
+                )
+                params_at.extend([like, like])
+
+        wh = ("WHERE " + " AND ".join(where_hist)) if where_hist else ""
+        wh_at = ("WHERE " + " AND ".join(where_at)) if where_at else ""
+
+        cursor.execute(
+            f"""
+            SELECT COUNT(*) AS total
+            FROM negativacao_historico h
+            JOIN contrato c ON c.id = h.id_contrato
+            {wh}
+            """,
+            params_hist,
+        )
+        total_hist = int((cursor.fetchone() or {}).get('total') or 0)
+
+        cursor.execute(
+            f"""
+            SELECT h.*, c.grupo, c.cota, c.numero_contrato, c.status AS contrato_status,
+                   f.nome AS funcionario_nome
+            FROM negativacao_historico h
+            JOIN contrato c ON c.id = h.id_contrato
+            LEFT JOIN funcionario f ON h.id_funcionario = f.id
+            {wh}
+            ORDER BY h.data_evento DESC, h.id DESC
+            LIMIT %s OFFSET %s
+            """,
+            params_hist + [per_page, offset],
+        )
+        historico = _clean_rows(cursor.fetchall())
+
+        cursor.execute(
+            f"""
+            SELECT COUNT(*) AS total
+            FROM negativacao n
+            JOIN contrato c ON c.id = n.id_contrato
+            {wh_at}
+            """,
+            params_at,
+        )
+        total_ativos = int((cursor.fetchone() or {}).get('total') or 0)
+
+        cursor.execute(
+            f"""
+            SELECT n.*, c.grupo, c.cota, c.numero_contrato, c.status AS contrato_status,
+                   f.nome AS funcionario_nome
+            FROM negativacao n
+            JOIN contrato c ON c.id = n.id_contrato
+            LEFT JOIN funcionario f ON n.id_funcionario = f.id
+            {wh_at}
+            ORDER BY n.data_negativacao DESC, n.id DESC
+            LIMIT 400
+            """,
+            params_at,
+        )
+        ativos = _clean_rows(cursor.fetchall())
+
+        return jsonify({
+            'historico': historico,
+            'total_historico': total_hist,
+            'ativos': ativos,
+            'total_ativos': total_ativos,
+            'page': page,
+            'per_page': per_page,
+        })
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+@app.route('/api/negativacao/observacao', methods=['POST'])
+def api_negativacao_observacao():
+    payload = request.get_json(silent=True) or {}
+    try:
+        id_contrato = int(payload.get('id_contrato'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'id_contrato invalido.'}), 400
+    detalhe = (payload.get('detalhe') or '').strip()
+    if not detalhe:
+        return jsonify({'error': 'detalhe e obrigatorio.'}), 400
+
+    fid = session.get('funcionario_id')
+    try:
+        fid = int(fid) if fid is not None else None
+    except (TypeError, ValueError):
+        fid = None
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        _ensure_negativacao_historico_table(cursor)
+        _insert_negativacao_historico(
+            cursor,
+            id_contrato,
+            None,
+            None,
+            'observacao',
+            datetime.datetime.now(),
+            fid,
+            None,
+            None,
+            detalhe,
+        )
+        conn.commit()
+        return jsonify({'success': True})
+    except Exception as exc:
+        app.logger.exception('api_negativacao_observacao')
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return jsonify({'error': str(exc)}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+@app.route('/api/negativacao/remover-manual', methods=['POST'])
+def api_negativacao_remover_manual():
+    payload = request.get_json(silent=True) or {}
+    try:
+        id_parcela = int(payload.get('id_parcela'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'id_parcela invalido.'}), 400
+    motivo = (payload.get('motivo') or '').strip() or (
+        'Remocao manual da negativacao registrada neste painel.'
+    )
+
+    fid = session.get('funcionario_id')
+    try:
+        fid = int(fid) if fid is not None else None
+    except (TypeError, ValueError):
+        fid = None
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        _ensure_negativacao_table(cursor)
+        _ensure_negativacao_historico_table(cursor)
+        cursor.execute(
+            "SELECT * FROM negativacao WHERE id_parcela = %s LIMIT 1",
+            (id_parcela,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({'error': 'Nenhuma negativacao ativa para esta parcela.'}), 404
+
+        id_contrato = int(row['id_contrato'])
+        data_ev = datetime.datetime.now()
+        _insert_negativacao_historico(
+            cursor,
+            id_contrato,
+            id_parcela,
+            row.get('numero_parcela'),
+            'removido_manual',
+            data_ev,
+            fid,
+            row.get('dias_atraso'),
+            row.get('status'),
+            motivo,
+        )
+        cursor.execute("DELETE FROM negativacao WHERE id_parcela = %s", (id_parcela,))
+        conn.commit()
+        return jsonify({'success': True})
+    except Exception as exc:
+        app.logger.exception('api_negativacao_remover_manual')
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return jsonify({'error': str(exc)}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------

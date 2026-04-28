@@ -365,6 +365,20 @@ select.form-control {
     color: var(--text-main);
 }
 
+.timeline-ocorrencias .timeline-month-heading {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--text-muted, #64748b);
+    margin: 18px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-color);
+    letter-spacing: 0.02em;
+}
+
+.timeline-ocorrencias .timeline-month-heading:first-child {
+    margin-top: 0;
+}
+
 /* Utilitarios */
 .d-none { display: none !important; }
 

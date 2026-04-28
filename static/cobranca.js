@@ -1,5 +1,17 @@
 document.addEventListener('DOMContentLoaded', function () {
 
+    function parseCobrancaPageConfig() {
+        try {
+            var el = document.getElementById('cobranca-page-config');
+            if (!el || !el.textContent) return {};
+            return JSON.parse(el.textContent.trim());
+        } catch (e) {
+            return {};
+        }
+    }
+
+    var cobrancaPageCfg = parseCobrancaPageConfig();
+
     // ---- Referências DOM ----
     const blocksContainer = document.getElementById('blocksContainer');
     const kanbanContainer = document.getElementById('kanbanContainer');
@@ -51,8 +63,27 @@ document.addEventListener('DOMContentLoaded', function () {
         bem: 'Digite a descrição do bem...'
     };
 
+    /** Perfil Cobrança: pré-seleciona o operador logado antes do primeiro GET /api/cobranca. */
+    function bootstrapOperadorSelectParaPerfilCobranca() {
+        if (!operadorSelect) return;
+        var id = cobrancaPageCfg.defaultOperadorId;
+        if (id == null || id === '') return;
+        var nome = cobrancaPageCfg.defaultOperadorNome || ('#' + id);
+        operadorSelect.innerHTML = '';
+        var o0 = document.createElement('option');
+        o0.value = '';
+        o0.textContent = 'Todos os Operadores';
+        operadorSelect.appendChild(o0);
+        var o1 = document.createElement('option');
+        o1.value = String(id);
+        o1.textContent = nome;
+        o1.selected = true;
+        operadorSelect.appendChild(o1);
+    }
+
     // ---- Carregamento Inicial ----
     applyViewMode(currentView);
+    bootstrapOperadorSelectParaPerfilCobranca();
     loadCobranca();
     bindFooterBulkActions();
 
@@ -269,18 +300,30 @@ document.addEventListener('DOMContentLoaded', function () {
                 recente: { column: null, order: 'asc' }
             };
 
-            // Preencher dropdown de funcionarios (apenas 1 vez ou se lista mudou)
+            // Dropdown de operadores: sempre sincroniza com a lista da API e preserva a seleção.
             if (data.funcionarios && data.funcionarios.length > 0) {
-                const currentVal = operadorSelect.value;
-                const hasOptions = operadorSelect.options.length > 1;
-                if (!hasOptions) {
-                    data.funcionarios.forEach(function (f) {
-                        const opt = document.createElement('option');
-                        opt.value = String(f.id);
-                        opt.textContent = f.nome;
-                        operadorSelect.appendChild(opt);
-                    });
-                    if (currentVal) operadorSelect.value = currentVal;
+                const prevVal = operadorSelect.value;
+                operadorSelect.innerHTML = '';
+                const optTodos = document.createElement('option');
+                optTodos.value = '';
+                optTodos.textContent = 'Todos os Operadores';
+                operadorSelect.appendChild(optTodos);
+                data.funcionarios.forEach(function (f) {
+                    const opt = document.createElement('option');
+                    opt.value = String(f.id);
+                    opt.textContent = f.nome;
+                    operadorSelect.appendChild(opt);
+                });
+                const ids = {};
+                data.funcionarios.forEach(function (f) { ids[String(f.id)] = true; });
+                if (prevVal && ids[prevVal]) {
+                    operadorSelect.value = prevVal;
+                } else if (
+                    cobrancaPageCfg.defaultOperadorId != null &&
+                    cobrancaPageCfg.defaultOperadorId !== '' &&
+                    ids[String(cobrancaPageCfg.defaultOperadorId)]
+                ) {
+                    operadorSelect.value = String(cobrancaPageCfg.defaultOperadorId);
                 }
             }
 
@@ -799,7 +842,9 @@ document.addEventListener('DOMContentLoaded', function () {
         html += dataItem('Prazo (meses)', c.prazo_meses);
         html += dataItem('Data de Adesao', formatDate(c.data_adesao));
         html += dataItem('Encerramento Grupo', formatDate(c.encerramento_grupo));
-        html += dataItem('Taxa Administracao', c.taxa_administracao);
+        html += dataItem('Taxa Administracao', typeof formatTaxaAdministracaoPercent === 'function'
+            ? formatTaxaAdministracaoPercent(c.taxa_administracao)
+            : c.taxa_administracao);
         html += dataItem('Fundo Reserva', c.fundo_reserva);
         html += dataItem('Percentual Lance', c.percentual_lance);
         html += '</div>';
@@ -838,17 +883,8 @@ document.addEventListener('DOMContentLoaded', function () {
             html += '</tbody></table></div></div>';
         }
 
-        // Ocorrencias
-        if (data.ocorrencias && data.ocorrencias.length > 0) {
-            html += '<div class="detail-section"><h3><i class="fa-solid fa-timeline"></i> Historico de Ocorrencias (' + data.ocorrencias.length + ')</h3>';
-            html += '<div class="timeline">';
-            data.ocorrencias.forEach(function (o) {
-                html += '<div class="timeline-item">';
-                html += '<div class="timeline-date">' + formatDate(o.data_arquivo) + '</div>';
-                html += '<div class="timeline-event"><strong><span class="status-badge ' + getStatusClass(o.status) + '">' + esc(o.status || '') + '</span></strong> ' + esc(o.descricao || '') + '</div>';
-                html += '</div>';
-            });
-            html += '</div></div>';
+        if (data.ocorrencias && data.ocorrencias.length > 0 && window.ContratoDetalhesModal && typeof window.ContratoDetalhesModal.buildOcorrenciasTimelineHtml === 'function') {
+            html += window.ContratoDetalhesModal.buildOcorrenciasTimelineHtml(data.ocorrencias);
         }
 
         html += (typeof TramitacoesDetalhe !== 'undefined')

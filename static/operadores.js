@@ -32,6 +32,17 @@ document.addEventListener('DOMContentLoaded', function () {
     const modalTitle = document.getElementById('modalTitle');
     const modalContent = document.getElementById('modalContent');
 
+    const operadorFuncionarioModal = document.getElementById('operadorFuncionarioModal');
+    const operadorFuncionarioForm = document.getElementById('operadorFuncionarioForm');
+    const operadorFuncionarioTitle = document.getElementById('operadorFuncionarioTitle');
+    const operadorFuncionarioMsg = document.getElementById('operadorFuncionarioMsg');
+    const btnNovoOperador = document.getElementById('btnNovoOperador');
+    const closeOperadorFuncionarioBtn = document.getElementById('closeOperadorFuncionarioBtn');
+    const operadorFormCancelBtn = document.getElementById('operadorFormCancelBtn');
+    const ofId = document.getElementById('ofId');
+    const ofSenha = document.getElementById('ofSenha');
+    const ofSenhaStar = document.getElementById('ofSenhaStar');
+
     let currentData = null;
     let searchDebounce = null;
     /** Ordenação da tabela de contratos por nome do operador: { key, dir } */
@@ -106,6 +117,13 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     operadorBlocksContainer.addEventListener('click', (e) => {
+        const btnEdit = e.target.closest('.btn-edit-operador');
+        if (btnEdit) {
+            e.stopPropagation();
+            const id = parseInt(btnEdit.getAttribute('data-id'), 10);
+            if (Number.isFinite(id)) openOperadorFuncionarioForm(id);
+            return;
+        }
         const th = e.target.closest('th.th-sortable');
         if (!th) return;
         e.stopPropagation();
@@ -134,17 +152,23 @@ document.addEventListener('DOMContentLoaded', function () {
         try {
             const resp = await fetch('/api/operadores/dashboard');
             const data = await resp.json();
+            if (!resp.ok || data.error) {
+                operadorBlocksContainer.innerHTML =
+                    '<div class="empty-block"><i class="fa-solid fa-lock"></i> ' +
+                    (data.error || 'Não foi possível carregar os operadores.') +
+                    '</div>';
+                showLoading(false);
+                return;
+            }
             currentData = data;
 
-            // Preencher Select de Operadores
-            if (filterOperador.options.length <= 1) {
-                data.operadores.forEach(op => {
-                    const option = document.createElement('option');
-                    option.value = op.nome;
-                    option.textContent = op.nome;
-                    filterOperador.appendChild(option);
-                });
-            }
+            filterOperador.innerHTML = '<option value="">Todos os Operadores</option>';
+            data.operadores.forEach(op => {
+                const option = document.createElement('option');
+                option.value = op.nome;
+                option.textContent = op.nome;
+                filterOperador.appendChild(option);
+            });
 
             updateKPIs(data.kpis);
             renderOperators(data.operadores);
@@ -318,6 +342,9 @@ document.addEventListener('DOMContentLoaded', function () {
                     </div>
                 </div>
                 <div class="operador-header-right">
+                    <button type="button" class="btn-edit-operador" data-id="${Number(op.id)}" title="Editar cadastro do funcionário" aria-label="Editar funcionário">
+                        <i class="fa-solid fa-pen"></i>
+                    </button>
                     <div class="op-mini-badges">
                         <div class="op-mini-badge critico"><i class="fa-solid fa-fire"></i> ${op.stats.critico}</div>
                         <div class="op-mini-badge atencao"><i class="fa-solid fa-exclamation-triangle"></i> ${op.stats.atencao}</div>
@@ -515,6 +542,190 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     closeModalBtn.addEventListener('click', () => detalhesModal.classList.remove('active'));
+
+    // ---- Cadastro / edição funcionário (admin) ----
+    function showOperadorFormMsg(text, ok) {
+        if (!operadorFuncionarioMsg) return;
+        if (!text) {
+            operadorFuncionarioMsg.hidden = true;
+            operadorFuncionarioMsg.textContent = '';
+            return;
+        }
+        operadorFuncionarioMsg.hidden = false;
+        operadorFuncionarioMsg.textContent = text;
+        operadorFuncionarioMsg.className = 'operador-form-msg ' + (ok ? 'ok' : 'err');
+    }
+
+    function closeOperadorFuncionarioModal() {
+        if (!operadorFuncionarioModal) return;
+        operadorFuncionarioModal.classList.remove('active');
+        document.body.style.overflow = '';
+        showOperadorFormMsg('', true);
+    }
+
+    function parseBitUi(v) {
+        if (v === true || v === 1) return true;
+        if (v === false || v === 0) return false;
+        const s = String(v);
+        return s === '1' || s === '\u0001';
+    }
+
+    function fillOperadorFormFields(f) {
+        document.getElementById('ofNome').value = f.nome || '';
+        document.getElementById('ofCpf').value = f.cpf_cnpj || '';
+        document.getElementById('ofLogin').value = f.login || '';
+        document.getElementById('ofEmail').value = f.email || '';
+        document.getElementById('ofDepto').value = f.departamento || '';
+        document.getElementById('ofMatricula').value = f.matricula || '';
+        document.getElementById('ofDdd').value = f.ddd || '';
+        document.getElementById('ofNumero').value = f.numero || '';
+        document.getElementById('ofLogradouro').value = f.logradouro || '';
+        document.getElementById('ofBairro').value = f.bairro || '';
+        document.getElementById('ofCompl').value = f.complemento || '';
+        document.getElementById('ofCep').value = f.cep || '';
+        document.getElementById('ofCidade').value = f.cidade || '';
+        document.getElementById('ofEstado').value = (f.estado || '').toString().substring(0, 2);
+
+        const nv = (f.nivel_acesso || 'Cobrança').trim();
+        const nivelSel = document.getElementById('ofNivel');
+        if (nv === 'Gestor') nivelSel.value = 'Gestor';
+        else if (nv === 'Administrador') nivelSel.value = 'Administrador';
+        else nivelSel.value = 'Cobrança';
+
+        document.getElementById('ofAtivo').value = parseBitUi(f.ativo) ? '1' : '0';
+        document.getElementById('ofAcessoExterno').checked = parseBitUi(f.acesso_externo);
+
+        const sx = (f.sexo || '').toString().trim().charAt(0).toUpperCase();
+        document.getElementById('ofSexo').value = sx === 'M' || sx === 'F' ? sx : '';
+
+        let dn = f.data_nascimento || '';
+        if (dn && typeof dn === 'string' && dn.indexOf('T') !== -1) dn = dn.split('T')[0];
+        document.getElementById('ofNasc').value = dn || '';
+    }
+
+    async function openOperadorFuncionarioForm(fid) {
+        if (!operadorFuncionarioModal || !operadorFuncionarioForm) return;
+        showOperadorFormMsg('', true);
+        operadorFuncionarioForm.reset();
+        if (ofSenha) ofSenha.value = '';
+
+        if (fid) {
+            operadorFuncionarioTitle.textContent = 'Editar operador';
+            ofId.value = String(fid);
+            if (ofSenha) {
+                ofSenha.required = false;
+                if (ofSenhaStar) ofSenhaStar.style.visibility = 'hidden';
+            }
+            try {
+                const resp = await fetch('/api/admin/funcionario/' + encodeURIComponent(fid));
+                const data = await resp.json();
+                if (!resp.ok || data.error) {
+                    showOperadorFormMsg(data.error || 'Erro ao carregar funcionário.', false);
+                    operadorFuncionarioModal.classList.add('active');
+                    document.body.style.overflow = 'hidden';
+                    return;
+                }
+                fillOperadorFormFields(data.funcionario || {});
+            } catch (err) {
+                showOperadorFormMsg(err.message || String(err), false);
+            }
+        } else {
+            operadorFuncionarioTitle.textContent = 'Novo operador';
+            ofId.value = '';
+            if (ofSenha) {
+                ofSenha.required = true;
+                if (ofSenhaStar) ofSenhaStar.style.visibility = '';
+            }
+        }
+
+        operadorFuncionarioModal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function collectOperadorPayload() {
+        const payload = {
+            nome: document.getElementById('ofNome').value.trim(),
+            cpf_cnpj: document.getElementById('ofCpf').value.trim(),
+            login: document.getElementById('ofLogin').value.trim(),
+            nivel_acesso: document.getElementById('ofNivel').value,
+            ativo: document.getElementById('ofAtivo').value === '1',
+            acesso_externo: document.getElementById('ofAcessoExterno').checked,
+            email: document.getElementById('ofEmail').value.trim(),
+            departamento: document.getElementById('ofDepto').value.trim(),
+            matricula: document.getElementById('ofMatricula').value.trim(),
+            ddd: document.getElementById('ofDdd').value.trim(),
+            numero: document.getElementById('ofNumero').value.trim(),
+            logradouro: document.getElementById('ofLogradouro').value.trim(),
+            bairro: document.getElementById('ofBairro').value.trim(),
+            complemento: document.getElementById('ofCompl').value.trim(),
+            cep: document.getElementById('ofCep').value.trim(),
+            cidade: document.getElementById('ofCidade').value.trim(),
+            estado: document.getElementById('ofEstado').value.trim(),
+        };
+        const sx = document.getElementById('ofSexo').value;
+        payload.sexo = sx || null;
+        const dn = document.getElementById('ofNasc').value;
+        payload.data_nascimento = dn || null;
+        return payload;
+    }
+
+    if (btnNovoOperador) {
+        btnNovoOperador.addEventListener('click', () => openOperadorFuncionarioForm(null));
+    }
+    if (closeOperadorFuncionarioBtn) {
+        closeOperadorFuncionarioBtn.addEventListener('click', closeOperadorFuncionarioModal);
+    }
+    if (operadorFormCancelBtn) {
+        operadorFormCancelBtn.addEventListener('click', closeOperadorFuncionarioModal);
+    }
+    if (operadorFuncionarioModal) {
+        operadorFuncionarioModal.addEventListener('click', (e) => {
+            if (e.target === operadorFuncionarioModal) closeOperadorFuncionarioModal();
+        });
+    }
+    if (operadorFuncionarioForm) {
+        operadorFuncionarioForm.addEventListener('submit', async (ev) => {
+            ev.preventDefault();
+            showOperadorFormMsg('', true);
+            const idRaw = ofId && ofId.value ? parseInt(ofId.value, 10) : NaN;
+            const isCreate = !Number.isFinite(idRaw);
+            const payload = collectOperadorPayload();
+            const pw = ofSenha && ofSenha.value.trim() ? ofSenha.value.trim() : '';
+
+            if (isCreate) {
+                if (pw.length < 4) {
+                    showOperadorFormMsg('Informe uma senha inicial com pelo menos 4 caracteres.', false);
+                    return;
+                }
+                payload.senha = pw;
+            } else if (pw) {
+                payload.senha = pw;
+            }
+
+            try {
+                const resp = isCreate
+                    ? await fetch('/api/admin/funcionario', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify(payload),
+                      })
+                    : await fetch('/api/admin/funcionario/' + encodeURIComponent(idRaw), {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify(payload),
+                      });
+                const out = await resp.json();
+                if (!resp.ok || out.error) {
+                    showOperadorFormMsg(out.error || 'Não foi possível salvar.', false);
+                    return;
+                }
+                closeOperadorFuncionarioModal();
+                await loadDashboard();
+            } catch (err) {
+                showOperadorFormMsg(err.message || String(err), false);
+            }
+        });
+    }
 
     // ---- Helpers ----
     function esc(val) {
