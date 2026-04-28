@@ -169,7 +169,9 @@
         html += dataItem('Taxa Administracao', c.taxa_administracao);
         html += dataItem('Fundo Reserva', c.fundo_reserva);
         html += dataItem('Percentual Lance', c.percentual_lance);
-        html += '</div></div>';
+        html += '</div>';
+        html += '<div style="margin-top:14px"><button type="button" class="btn-search btn-pv-insert-from-contrato" style="max-width:380px" data-grupo="' + encodeURIComponent(String(c.grupo != null ? c.grupo : '')) + '" data-cota="' + encodeURIComponent(String(c.cota != null ? c.cota : '')) + '"><i class="fa-solid fa-folder-plus"></i> Registrar na Pasta Virtual</button></div>';
+        html += '</div>';
 
         if (data.devedor) html += renderPessoaSection('Devedor', data.devedor, data.devedor_enderecos, data.devedor_telefones, data.devedor_emails);
         if (data.avalista) html += renderPessoaSection('Avalista', data.avalista, data.avalista_enderecos, data.avalista_telefones, data.avalista_emails);

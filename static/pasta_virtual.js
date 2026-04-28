@@ -6,22 +6,12 @@ document.addEventListener('DOMContentLoaded', function () {
     var modalTitle = document.getElementById('modalTitle');
     var modalContent = document.getElementById('modalContent');
     var btnNovoPV = document.getElementById('btnNovoPV');
-    var insertModal = document.getElementById('insertModal');
-    var closeInsertModalBtn = document.getElementById('closeInsertModalBtn');
-    var cancelInsertBtn = document.getElementById('cancelInsertBtn');
-    var insertForm = document.getElementById('insertForm');
-    var insertMsg = document.getElementById('insertMsg');
-    var pvGrupo = document.getElementById('pvGrupo');
-    var pvCota = document.getElementById('pvCota');
-    var pvDescricao = document.getElementById('pvDescricao');
-    var pvArquivo = document.getElementById('pvArquivo');
     var pvFilterForm = document.getElementById('pvFilterForm');
     var filtroContrato = document.getElementById('filtroContrato');
     var filtroFuncionario = document.getElementById('filtroFuncionario');
     var btnLimparPV = document.getElementById('btnLimparPV');
 
     var rowsCache = [];
-    var pvMeta = null;
 
     function esc(val) {
         if (val === null || val === undefined) return '-';
@@ -136,7 +126,9 @@ document.addEventListener('DOMContentLoaded', function () {
         html += dataItem('Prazo (meses)', c.prazo_meses);
         html += dataItem('Data de Ades?o', formatDate(c.data_adesao));
         html += dataItem('Encerramento Grupo', formatDate(c.encerramento_grupo));
-        html += '</div></div>';
+        html += '</div>';
+        html += '<div style="margin-top:14px"><button type="button" class="btn-search btn-pv-insert-from-contrato" style="max-width:380px" data-grupo="' + encodeURIComponent(String(c.grupo != null ? c.grupo : '')) + '" data-cota="' + encodeURIComponent(String(c.cota != null ? c.cota : '')) + '"><i class="fa-solid fa-folder-plus"></i> Registrar na Pasta Virtual</button></div>';
+        html += '</div>';
 
         if (data.devedor) {
             html += renderPessoaSection('Devedor', data.devedor, data.devedor_enderecos, data.devedor_telefones, data.devedor_emails);
@@ -192,49 +184,6 @@ document.addEventListener('DOMContentLoaded', function () {
     function closeModal() {
         detalhesModal.classList.remove('active');
         document.body.style.overflow = '';
-    }
-
-    function showInsertMsg(msg, ok) {
-        if (!insertMsg) return;
-        insertMsg.style.display = msg ? 'block' : 'none';
-        insertMsg.style.color = ok ? '#15803d' : '#ef4444';
-        insertMsg.textContent = msg || '';
-    }
-
-    function openInsertModal() {
-        if (!insertModal) return;
-        showInsertMsg('');
-        if (insertForm) insertForm.reset();
-        if (pvMeta && pvMeta.contrato_col === null && pvGrupo && pvCota) {
-            pvGrupo.closest('.form-group').style.display = 'none';
-            pvCota.closest('.form-group').style.display = 'none';
-        } else if (pvGrupo && pvCota) {
-            pvGrupo.closest('.form-group').style.display = '';
-            pvCota.closest('.form-group').style.display = '';
-        }
-        if (pvMeta && pvMeta.blob_col === null && pvArquivo) {
-            pvArquivo.closest('.form-group').style.display = 'none';
-        } else if (pvArquivo) {
-            pvArquivo.closest('.form-group').style.display = '';
-        }
-        insertModal.classList.add('active');
-        document.body.style.overflow = 'hidden';
-    }
-
-    function closeInsertModal() {
-        if (!insertModal) return;
-        insertModal.classList.remove('active');
-        document.body.style.overflow = '';
-    }
-
-    async function loadPastaVirtualMeta() {
-        try {
-            var resp = await fetch('/api/pasta-virtual/meta');
-            var data = await resp.json();
-            if (!data.error) pvMeta = data;
-        } catch (err) {
-            pvMeta = null;
-        }
     }
 
     async function openContrato(idContrato) {
@@ -397,20 +346,9 @@ document.addEventListener('DOMContentLoaded', function () {
         if (e.target === detalhesModal) closeModal();
     });
 
-    if (btnNovoPV) {
+    if (btnNovoPV && window.PastaVirtualInsertGlobal) {
         btnNovoPV.addEventListener('click', function () {
-            openInsertModal();
-        });
-    }
-    if (closeInsertModalBtn) {
-        closeInsertModalBtn.addEventListener('click', closeInsertModal);
-    }
-    if (cancelInsertBtn) {
-        cancelInsertBtn.addEventListener('click', closeInsertModal);
-    }
-    if (insertModal) {
-        insertModal.addEventListener('click', function (e) {
-            if (e.target === insertModal) closeInsertModal();
+            window.PastaVirtualInsertGlobal.open({ returnToContrato: false });
         });
     }
 
@@ -428,65 +366,15 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    if (insertForm) {
-        insertForm.addEventListener('submit', async function (e) {
-            e.preventDefault();
-            showInsertMsg('');
-            var fd = new FormData();
-            if (pvGrupo && !pvGrupo.value.trim()) {
-                showInsertMsg('Grupo e obrigatorio.', false);
-                return;
-            }
-            if (pvCota && !pvCota.value.trim()) {
-                showInsertMsg('Cota e obrigatoria.', false);
-                return;
-            }
-            if (pvGrupo) {
-                fd.append('grupo', pvGrupo.value.trim());
-            }
-            if (pvCota) {
-                fd.append('cota', pvCota.value.trim());
-            }
-            if (!pvDescricao || !pvDescricao.value.trim()) {
-                showInsertMsg('Descricao e obrigatoria.', false);
-                return;
-            }
-            fd.append('descricao', pvDescricao.value.trim());
-            if (pvArquivo && pvArquivo.files && pvArquivo.files[0]) fd.append('arquivo', pvArquivo.files[0]);
-
-            try {
-                var resp = await fetch('/api/pasta-virtual/inserir', {
-                    method: 'POST',
-                    body: fd,
-                });
-                var data = await resp.json();
-                if (!resp.ok || data.error) {
-                    var msg = data.error || 'Erro ao inserir.';
-                    if (data.missing && data.missing.length) {
-                        msg += ' Campos obrigatorios: ' + data.missing.join(', ');
-                    }
-                    showInsertMsg(msg, false);
-                    return;
-                }
-                if (insertForm) insertForm.reset();
-                showInsertMsg('');
-                await loadPastaVirtual();
-                closeInsertModal();
-                window.alert('Registro inserido com sucesso.');
-            } catch (err) {
-                showInsertMsg('Erro ao inserir: ' + err.message, false);
-            }
-        });
-    }
-
     document.addEventListener('keydown', function (e) {
         if (e.key !== 'Escape') return;
         if (detalhesModal.classList.contains('active')) closeModal();
-        if (insertModal && insertModal.classList.contains('active')) closeInsertModal();
+    });
+
+    document.addEventListener('pastaVirtualInserted', function () {
+        loadPastaVirtual();
     });
 
     loadFuncionariosFiltro();
-    loadPastaVirtualMeta().finally(function () {
-        loadPastaVirtual();
-    });
+    loadPastaVirtual();
 });

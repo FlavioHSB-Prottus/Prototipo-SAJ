@@ -330,7 +330,9 @@ document.addEventListener('DOMContentLoaded', function () {
         html += dataItem('Prazo (meses)', c.prazo_meses);
         html += dataItem('Data de Adesao', formatDate(c.data_adesao));
         html += dataItem('Encerramento Grupo', formatDate(c.encerramento_grupo));
-        html += '</div></div>';
+        html += '</div>';
+        html += '<div style="margin-top:14px"><button type="button" class="btn-search btn-pv-insert-from-contrato" style="max-width:380px" data-grupo="' + encodeURIComponent(String(c.grupo != null ? c.grupo : '')) + '" data-cota="' + encodeURIComponent(String(c.cota != null ? c.cota : '')) + '"><i class="fa-solid fa-folder-plus"></i> Registrar na Pasta Virtual</button></div>';
+        html += '</div>';
 
         if (data.devedor) {
             html += renderPessoaSection('Devedor', data.devedor, data.devedor_enderecos, data.devedor_telefones, data.devedor_emails);
