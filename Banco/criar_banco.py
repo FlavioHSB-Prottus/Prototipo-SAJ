@@ -61,9 +61,11 @@ CREATE TABLE `funcionario` (
   `sexo` varchar(1) DEFAULT NULL,
   `matricula` varchar(25) DEFAULT NULL,
   `foto` mediumblob DEFAULT NULL,
+  `ramal` int(11) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `cpf_cnpj` (`cpf_cnpj`),
-  UNIQUE KEY `funcionario_login_IDX` (`login`) USING BTREE
+  UNIQUE KEY `funcionario_login_IDX` (`login`) USING BTREE,
+  UNIQUE KEY `ramal` (`ramal`)
 );
 
 CREATE TABLE `grupo` (
