@@ -10,6 +10,15 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <link rel="stylesheet" href="{{ url_for('static', filename='home.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='busca.css') }}">
+    <style>
+        #globalPvInsertModal .modal-container { width: 96vw; max-width: 980px; }
+        #globalPvInsertModal .modal-body { overflow-x: hidden; max-height: 72vh; }
+        .pv-insert-form-global { display: flex; flex-direction: column; align-items: stretch; gap: 14px; }
+        .pv-insert-form-global .form-group { width: 100%; }
+        .pv-insert-form-global .form-control { width: 100%; max-width: 100%; }
+        .pv-insert-form-global textarea.form-control { min-height: 120px; resize: vertical; padding-top: 10px; padding-bottom: 10px; }
+    </style>
     {% block head %}{% endblock %}
 </head>
 
@@ -180,11 +189,51 @@
         </div>
     </div>
 
+    <div id="globalPvInsertModal" class="modal-overlay">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h2>Novo registro - Pasta Virtual</h2>
+                <button type="button" class="close-modal-btn" id="gPvCloseInsert" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body">
+                <div id="gPvBackWrap" style="display:none;margin-bottom:14px">
+                    <button type="button" class="btn-secondary" id="gPvBackToContrato"><i class="fa-solid fa-arrow-left"></i> Voltar aos detalhes do contrato</button>
+                </div>
+                <form id="globalPvInsertForm" class="pv-insert-form-global" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="gPvGrupo">Grupo</label>
+                        <input type="text" id="gPvGrupo" name="grupo" class="form-control" placeholder="Ex: 001234" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="gPvCota">Cota</label>
+                        <input type="text" id="gPvCota" name="cota" class="form-control" placeholder="Ex: 0001" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="gPvDescricao">Descricao</label>
+                        <textarea id="gPvDescricao" name="descricao" class="form-control" placeholder="Digite a descricao do registro" required></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="gPvArquivo">Arquivo</label>
+                        <input type="file" id="gPvArquivo" name="arquivo" class="form-control">
+                    </div>
+                    <div id="gPvInsertMsg" style="margin:6px 0 12px;color:#ef4444;display:none"></div>
+                    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+                        <button type="button" class="btn-secondary" id="gPvCancelInsert">Cancelar</button>
+                        <button type="submit" class="btn-search" style="max-width:180px">
+                            <i class="fa-solid fa-floppy-disk"></i> Inserir
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- Script para lógica de UI global -->
     <script src="{{ url_for('static', filename='home.js') }}"></script>
     <script src="{{ url_for('static', filename='avisos.js') }}"></script>
     <script src="{{ url_for('static', filename='tramitacoes_detail.js') }}"></script>
     <script src="{{ url_for('static', filename='contrato_detalhes_modal.js') }}"></script>
+    <script src="{{ url_for('static', filename='pasta_virtual_insert_global.js') }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 
