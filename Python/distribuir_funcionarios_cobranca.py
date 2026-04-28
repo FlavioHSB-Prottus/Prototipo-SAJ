@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 Popula a tabela `funcionario_cobranca` distribuindo os contratos abertos
-entre os funcionarios de cobranca cadastrados em `funcionario`.
+entre os funcionarios com `funcionario.nivel_acesso` = Cobrança (perfis
+Gestor e Administrador nunca entram neste pool).
 
 Esquema (pre-existente, NAO e criado por este script):
 
@@ -91,14 +92,36 @@ def connect_db():
     )
 
 
-def fetch_funcionarios(cursor):
-    """Lista todos os funcionarios disponiveis.
+def fetch_funcionarios_cobranca(cursor):
+    """Lista apenas funcionarios com nivel_acesso de cobranca (operadores).
 
-    Assume colunas (id, nome). Se o schema usar outro nome de coluna,
-    ajustar aqui.
+    Gestores e administradores nao participam da distribuicao automatica.
     """
-    cursor.execute("SELECT id, nome FROM funcionario ORDER BY nome")
+    cursor.execute(
+        """
+        SELECT id, nome FROM funcionario
+        WHERE COALESCE(TRIM(nivel_acesso), '') IN ('Cobrança', 'Cobranca')
+        ORDER BY nome
+        """
+    )
     return cursor.fetchall()
+
+
+def remover_atribuicoes_para_nao_cobranca(cursor):
+    """Remove linhas em funcionario_cobranca cujo funcionario nao e perfil Cobrança.
+
+    Evita que contratos continuem vinculados a Gestor/Administrador apos
+    mudanca de perfil e permite redistribuir sem violar unicidade.
+    """
+    cursor.execute(
+        """
+        DELETE fc FROM funcionario_cobranca fc
+        INNER JOIN funcionario f ON f.id = fc.id_funcionario
+        WHERE COALESCE(TRIM(f.nivel_acesso), '') NOT IN ('Cobrança', 'Cobranca')
+        """
+    )
+    n = cursor.rowcount
+    return int(n) if n is not None else 0
 
 
 def fetch_contratos_abertos(cursor, data_arquivo):
@@ -363,17 +386,27 @@ def main():
     data_arquivo = row["data_arquivo"]
     print(f"Data de referencia: {data_arquivo}")
 
-    funcionarios = fetch_funcionarios(cursor)
+    funcionarios = fetch_funcionarios_cobranca(cursor)
     if not funcionarios:
-        print("ERRO: nenhum funcionario cadastrado na tabela 'funcionario'.")
+        print(
+            "ERRO: nenhum funcionario com nivel_acesso 'Cobrança' na tabela "
+            "'funcionario'. A distribuicao so inclui esse perfil."
+        )
         cursor.close()
         conn.close()
         sys.exit(1)
     ids_func = [int(f["id"]) for f in funcionarios]
     print(
-        f"Funcionarios disponiveis: {len(funcionarios)} -> "
+        f"Funcionarios de cobranca (perfil Cobrança): {len(funcionarios)} -> "
         + ", ".join(f"[{f['id']}] {f['nome']}" for f in funcionarios)
     )
+
+    removidos = remover_atribuicoes_para_nao_cobranca(cursor)
+    if removidos:
+        print(
+            f"Removidos {removidos} vinculo(s) em funcionario_cobranca para "
+            "perfis que nao sao Cobrança (ex.: Gestor, Administrador)."
+        )
 
     contratos = fetch_contratos_abertos(cursor, data_arquivo)
     if not contratos:

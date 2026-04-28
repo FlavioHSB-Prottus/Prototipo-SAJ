@@ -1,7 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-Carrega / atualiza os 4 funcionarios reais de cobranca da empresa na
-tabela `funcionario`.
+Carrega / atualiza funcionários na tabela `funcionario`.
+
+Inclui registros de exemplo **Gestor** e **Administrador**, além dos
+operadores de **Cobrança** (extraídos dos prints do sistema antigo).
+
+Os valores de `nivel_acesso` devem ser: **Gestor**, **Administrador** ou **Cobrança**
+(UTF-8). Legacy sem cedilha é aceito no aplicativo, mas o seed grava com acentuação correta.
 
 Comportamento:
     - Detecta dinamicamente as colunas da tabela `funcionario` via
@@ -63,10 +68,56 @@ SENHA_PADRAO = os.environ.get("SENHA_PADRAO", "Trocar@123")
 # -----------------------------------------------------------------------------
 DADOS = [
     {
+        # -------- Conta Gestor (acesso total ao sistema) --------
+        "login":            "gestor.jb",
+        "senha":            SENHA_PADRAO,
+        "nivel_acesso":     "Gestor",
+        "ativo":            1,
+        "cpf_cnpj":         "10000000001",
+        "matricula":        "GESTOR-01",
+        "departamento":     "Administrativo",
+        "nome":             "Usuario Gestor Master",
+        "data_nascimento":  "1985-01-01",
+        "sexo":             "M",
+        "logradouro":       "Av. Exemplo, 100",
+        "complemento":      None,
+        "estado":           "PE",
+        "cidade":           "Recife",
+        "bairro":           "Centro",
+        "cep":              "50000000",
+        "ddd":              "81",
+        "numero":           "999990001",
+        "email":            None,
+        "acesso_externo":   0,
+    },
+    {
+        # -------- Conta Administrador (sem módulo Performance JB) --------
+        "login":            "admin.jb",
+        "senha":            SENHA_PADRAO,
+        "nivel_acesso":     "Administrador",
+        "ativo":            1,
+        "cpf_cnpj":         "10000000002",
+        "matricula":        "ADM-01",
+        "departamento":     "Administrativo",
+        "nome":             "Usuario Administrador Master",
+        "data_nascimento":  "1985-06-15",
+        "sexo":             "F",
+        "logradouro":       "Av. Exemplo, 200",
+        "complemento":      None,
+        "estado":           "PE",
+        "cidade":           "Recife",
+        "bairro":           "Boa Viagem",
+        "cep":              "51000000",
+        "ddd":              "81",
+        "numero":           "999990002",
+        "email":            None,
+        "acesso_externo":   0,
+    },
+    {
         # -------- Imagem 1 --------
         "login":            "ARTHUR.JOSE.T",
         "senha":            SENHA_PADRAO,
-        "nivel_acesso":     "Cobranca",
+        "nivel_acesso":     "Cobrança",
         "ativo":            1,
         "cpf_cnpj":         "12553467443",
         "matricula":        "matricula",
@@ -89,7 +140,7 @@ DADOS = [
         # -------- Imagem 2 --------
         "login":            "angela.m",
         "senha":            SENHA_PADRAO,
-        "nivel_acesso":     "Cobranca",
+        "nivel_acesso":     "Cobrança",
         "ativo":            1,
         "cpf_cnpj":         "91944244468",
         "matricula":        "matricula",
@@ -112,7 +163,7 @@ DADOS = [
         # -------- Imagem 3 --------
         "login":            "MAISA.T",
         "senha":            SENHA_PADRAO,
-        "nivel_acesso":     "Cobranca",
+        "nivel_acesso":     "Cobrança",
         "ativo":            1,
         "cpf_cnpj":         "05809238432",
         "matricula":        "matricula",
@@ -135,7 +186,7 @@ DADOS = [
         # -------- Imagem 4 --------
         "login":            "alzeni.m",
         "senha":            SENHA_PADRAO,
-        "nivel_acesso":     "Cobranca",
+        "nivel_acesso":     "Cobrança",
         "ativo":            1,
         "cpf_cnpj":         "09598628469",
         "matricula":        "matricula",

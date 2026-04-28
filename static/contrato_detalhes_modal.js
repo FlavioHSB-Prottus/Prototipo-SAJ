@@ -1,5 +1,5 @@
 /**
- * Modal completo "Detalhes do Contrato" (parcelas, ocorr?ncias, tramita??es, etc.)
+ * Modal completo "Detalhes do Contrato" (parcelas, ocorrências, tramitações, etc.)
  * Usado em Dashboard e Performance JB (painel de busca). Requer tramitacoes_detail.js e #detalhesModal no HTML.
  */
 (function (global) {
@@ -86,7 +86,7 @@
     }
 
     var _MESES_PT = [
-        'Janeiro', 'Fevereiro', 'Mar?o', 'Abril', 'Maio', 'Junho',
+        'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
         'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
     ];
 
@@ -94,7 +94,7 @@
         if (!ocorrencias || !ocorrencias.length) return '';
         var sorted = sortOcorrenciasForTimeline(ocorrencias);
         var html = '';
-        html += '<div class="detail-section"><h3><i class="fa-solid fa-timeline"></i> Hist?rico de Ocorr?ncias (' + ocorrencias.length + ')</h3>';
+        html += '<div class="detail-section"><h3><i class="fa-solid fa-timeline"></i> Histórico de Ocorrências (' + ocorrencias.length + ')</h3>';
         html += '<div class="timeline timeline-ocorrencias">';
         var lastYm = null;
         sorted.forEach(function (o) {
@@ -120,10 +120,102 @@
         return html;
     }
 
+    function negativacaoTipoLabel(tipo) {
+        var m = {
+            negativado_manual: 'Negativado (manual)',
+            negativado_tracker: 'Negativado (automático)',
+            removido_pagamento: 'Positivação (pagamento)',
+            removido_manual: 'Positivação (manual)',
+            observacao: 'Observação'
+        };
+        return m[tipo] || (tipo || 'Evento');
+    }
+
+    function negativacaoTipoClass(tipo) {
+        if (!tipo) return 'status-active';
+        if (String(tipo).indexOf('negativado') === 0) return 'status-danger';
+        if (String(tipo).indexOf('removido') === 0) return 'status-success';
+        if (tipo === 'observacao') return 'status-warning';
+        return 'status-active';
+    }
+
+    function sortNegativacaoHistoricoForTimeline(arr) {
+        return arr.slice().sort(function (a, b) {
+            var da = calendarDayKey(a.data_evento);
+            var db = calendarDayKey(b.data_evento);
+            if (da !== db) return da < db ? -1 : da > db ? 1 : 0;
+            var ta = parseDataArquivoMs(a.data_evento);
+            var tb = parseDataArquivoMs(b.data_evento);
+            if (ta !== tb) return ta - tb;
+            var ida = parseInt(a.id, 10);
+            var idb = parseInt(b.id, 10);
+            ida = isNaN(ida) ? 0 : ida;
+            idb = isNaN(idb) ? 0 : idb;
+            return ida - idb;
+        });
+    }
+
+    function buildNegativacaoSectionHtml(data) {
+        var ativas = data.negativacao_ativas || [];
+        var historico = data.negativacao_historico || [];
+        var nHist = historico.length;
+        var nAt = ativas.length;
+        var html = '';
+        html += '<div class="detail-section"><h3><i class="fa-solid fa-ban"></i> Negativação e positivação (' + nHist + ' evento' + (nHist === 1 ? '' : 's') + ')</h3>';
+
+        if (nAt > 0) {
+            html += '<p style="margin:0 0 10px;font-size:0.9rem;color:#64748b">Parcelas com registro de negativação ainda <strong>ativo</strong> no cadastro interno (' + nAt + '):</p>';
+            html += '<ul style="margin:0 0 16px 18px;line-height:1.5;">';
+            ativas.forEach(function (n) {
+                var op = n.funcionario_nome ? (' — operador: ' + n.funcionario_nome) : '';
+                html += '<li>Parcela ' + esc(n.numero_parcela != null ? n.numero_parcela : '—') +
+                    ', ' + esc(n.status || '') + op + ' · ' + formatDateTime(n.data_negativacao) + '</li>';
+            });
+            html += '</ul>';
+        }
+
+        if (!nHist) {
+            html += '<p style="color:#64748b;margin:0">Nenhum evento de negativação/positivação registrado ainda no histórico. ' +
+                (nAt ? 'O contrato possui negativação ativa; novos eventos aparecerão aqui após alterações.' : '') + '</p>';
+            html += '</div>';
+            return html;
+        }
+
+        var sorted = sortNegativacaoHistoricoForTimeline(historico);
+        html += '<div class="timeline timeline-ocorrencias">';
+        var lastYm = null;
+        sorted.forEach(function (ev) {
+            var datePart = calendarDayKey(ev.data_evento);
+            var parts = datePart.split('-');
+            if (parts.length >= 2) {
+                var y = parseInt(parts[0], 10);
+                var mo = parseInt(parts[1], 10);
+                if (!isNaN(y) && !isNaN(mo) && mo >= 1 && mo <= 12) {
+                    var ym = y + '-' + (mo < 10 ? '0' + mo : String(mo));
+                    if (ym !== lastYm) {
+                        lastYm = ym;
+                        html += '<div class="timeline-month-heading">' + esc(_MESES_PT[mo - 1] + ' de ' + y) + '</div>';
+                    }
+                }
+            }
+            html += '<div class="timeline-item">';
+            html += '<div class="timeline-date">' + formatDateTime(ev.data_evento) + '</div>';
+            var rot = negativacaoTipoLabel(ev.tipo_evento);
+            var extra = '';
+            if (ev.funcionario_nome) extra += ' · Operador: ' + esc(ev.funcionario_nome);
+            if (ev.numero_parcela != null && ev.numero_parcela !== '') extra += ' · Parcela nº ' + esc(ev.numero_parcela);
+            html += '<div class="timeline-event"><strong><span class="status-badge ' + negativacaoTipoClass(ev.tipo_evento) + '">' + esc(rot) + '</span></strong> ';
+            html += esc(ev.detalhe || '') + (extra ? '<span style="color:#64748b;font-size:0.92em">' + extra + '</span>' : '');
+            html += '</div></div>';
+        });
+        html += '</div></div>';
+        return html;
+    }
+
     function getStatusClass(status) {
         if (!status) return '';
         var s = String(status).toLowerCase();
-        if (s === 'aberto' || s === 'em cobranca' || s === 'em cobran?a') return 'status-active';
+        if (s === 'aberto' || s === 'em cobranca' || s === 'em cobrança') return 'status-active';
         if (s === 'fechado' || s === 'pago') return 'status-success';
         if (s === 'indenizado') return 'status-warning';
         if (s === 'parcela paga') return 'status-success';
@@ -141,14 +233,14 @@
 
     function humanizeBemField(key) {
         var map = {
-            descricao: 'Descri??o', descricao_bem: 'Descri??o',
+            descricao: 'Descrição', descricao_bem: 'Descrição',
             modelo: 'Modelo', marca: 'Marca', categoria: 'Categoria',
-            codigo: 'C?digo', codigo_bem: 'C?digo do Bem',
-            valor: 'Valor', valor_bem: 'Valor do Bem', valor_avaliacao: 'Valor de Avalia??o',
-            nome: 'Nome', ano: 'Ano', ano_fabricacao: 'Ano de Fabrica??o',
+            codigo: 'Código', codigo_bem: 'Código do Bem',
+            valor: 'Valor', valor_bem: 'Valor do Bem', valor_avaliacao: 'Valor de Avaliação',
+            nome: 'Nome', ano: 'Ano', ano_fabricacao: 'Ano de Fabricação',
             ano_modelo: 'Ano Modelo', placa: 'Placa', chassi: 'Chassi',
             renavam: 'Renavam', cor: 'Cor', tipo: 'Tipo', status: 'Status',
-            combustivel: 'Combust?vel', observacao: 'Observa??o', observacoes: 'Observa??es'
+            combustivel: 'Combustível', observacao: 'Observação', observacoes: 'Observações'
         };
         if (map[key]) return map[key];
         return String(key).replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
@@ -180,7 +272,7 @@
                 anyField = true;
                 html += dataItem(humanizeBemField(key), formatBemValue(key, value));
             });
-            if (!anyField) html += '<div style="color:#9ca3af;">Sem informa??es adicionais.</div>';
+            if (!anyField) html += '<div style="color:#9ca3af;">Sem informações adicionais.</div>';
             html += '</div>';
         });
         html += '</div>';
@@ -194,13 +286,13 @@
         html += dataItem('Nome', pessoa.nome_completo);
         html += dataItem('CPF / CNPJ', pessoa.cpf_cnpj);
         html += dataItem('Data de Nascimento', formatDate(pessoa.data_nascimento));
-        html += dataItem('Profissao', pessoa.profissao);
-        html += dataItem('Conjuge', pessoa.conjuge_nome);
+        html += dataItem('Profissão', pessoa.profissao);
+        html += dataItem('Cônjuge', pessoa.conjuge_nome);
         html += '</div>';
         if (enderecos && enderecos.length > 0) {
             enderecos.forEach(function (e) {
                 html += '<div class="detail-grid" style="margin-top:12px">';
-                html += dataItem('Endereco (' + (e.tipo || '') + ')', [e.logradouro, e.complemento, e.bairro, e.cidade, e.estado, e.cep].filter(Boolean).join(', '));
+                html += dataItem('Endereço (' + (e.tipo || '') + ')', [e.logradouro, e.complemento, e.bairro, e.cidade, e.estado, e.cep].filter(Boolean).join(', '));
                 html += '</div>';
             });
         }
@@ -238,13 +330,13 @@
         html += '<div class="detail-grid">';
         html += dataItem('Grupo / Cota', c.grupo + '/' + c.cota);
         html += dataItem('Nro Contrato', c.numero_contrato);
-        html += dataItem('Versao', c.versao);
+        html += dataItem('Versão', c.versao);
         html += dataItem('Status', c.status || c.status_txt, true, c.status);
-        html += dataItem('Valor do Credito', formatCurrency(c.valor_credito));
+        html += dataItem('Valor do Crédito', formatCurrency(c.valor_credito));
         html += dataItem('Prazo (meses)', c.prazo_meses);
-        html += dataItem('Data de Adesao', formatDate(c.data_adesao));
+        html += dataItem('Data de Adesão', formatDate(c.data_adesao));
         html += dataItem('Encerramento Grupo', formatDate(c.encerramento_grupo));
-        html += dataItem('Taxa Administracao', c.taxa_administracao);
+        html += dataItem('Taxa Administração', c.taxa_administracao);
         html += dataItem('Fundo Reserva', c.fundo_reserva);
         html += dataItem('Percentual Lance', c.percentual_lance);
         html += '</div>';
@@ -276,6 +368,8 @@
         if (data.ocorrencias && data.ocorrencias.length > 0) {
             html += buildOcorrenciasTimelineHtml(data.ocorrencias);
         }
+
+        html += buildNegativacaoSectionHtml(data);
 
         html += (typeof TramitacoesDetalhe !== 'undefined')
             ? TramitacoesDetalhe.buildSection(data.tramitacoes || [], c.id, { esc: esc, formatDateTime: formatDateTime })
@@ -320,7 +414,7 @@
         var modalTitle = document.getElementById('modalTitle');
         var modalContent = document.getElementById('modalContent');
         if (!detalhesModal || !modalTitle || !modalContent) {
-            console.warn('[ContratoDetalhesModal] Elementos #detalhesModal / #modalTitle / #modalContent nao encontrados.');
+            console.warn('[ContratoDetalhesModal] Elementos #detalhesModal / #modalTitle / #modalContent não encontrados.');
             return;
         }
 

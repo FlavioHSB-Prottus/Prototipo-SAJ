@@ -18,6 +18,10 @@
         .pv-insert-form-global .form-group { width: 100%; }
         .pv-insert-form-global .form-control { width: 100%; max-width: 100%; }
         .pv-insert-form-global textarea.form-control { min-height: 120px; resize: vertical; padding-top: 10px; padding-bottom: 10px; }
+        .layout-flash-wrap .layout-flash { padding:10px 14px; border-radius:8px; margin-bottom:10px; font-size:0.9rem; }
+        .layout-flash-error { background:#fef2f2; color:#991b1b; border:1px solid #fecaca; }
+        .layout-flash-success { background:#ecfdf5; color:#047857; border:1px solid #a7f3d0; }
+        .layout-flash-message { background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe; }
     </style>
     {% block head %}{% endblock %}
 </head>
@@ -33,10 +37,13 @@
             <nav class="sidebar-nav">
                 <ul>
                     <li><a href="/home"><i class="fa-solid fa-house"></i> <span class="nav-text">Home</span></a></li>
+                    {% if nav_importacao %}
                     <li><a href="/importacao"><i class="fa-solid fa-file-import"></i> <span class="nav-text">Importação e
                                 Distribuição</span></a></li>
+                    {% endif %}
                     <li><a href="/cobranca"><i class="fa-solid fa-hand-holding-dollar"></i> <span
                                 class="nav-text">Cobrança</span></a></li>
+                    <li><a href="/negativacao"><i class="fa-solid fa-ban"></i> <span class="nav-text">Negativações</span></a></li>
                     <li><a href="/busca"><i class="fa-solid fa-magnifying-glass"></i> <span class="nav-text">Busca por
                                 Contratos</span></a></li>
                     <li><a href="/pasta-virtual"><i class="fa-solid fa-folder-open"></i> <span class="nav-text">Pasta Virtual</span></a></li>
@@ -44,14 +51,22 @@
                                 class="nav-text">Relatórios</span></a></li>
                     <li><a href="/agenda"><i class="fa-regular fa-calendar-days"></i> <span class="nav-text">Agenda</span></a>
                     </li>
+                    {% if nav_dashboard %}
                     <li><a href="/dashboard"><i class="fa-solid fa-chart-pie"></i> <span
                                 class="nav-text">Dashboard</span></a></li>
+                    {% endif %}
+                    {% if nav_performance %}
                     <li><a href="/performance"><i class="fa-solid fa-chart-line"></i> <span class="nav-text">Performance
                                 JB</span></a></li>
+                    {% endif %}
+                    {% if nav_cadastro %}
                     <li><a href="/cadastro"><i class="fa-solid fa-users-gear"></i> <span class="nav-text">Consorciados e
                                 Avalistas</span></a></li>
+                    {% endif %}
+                    {% if nav_operadores %}
                     <li><a href="/operadores"><i class="fa-solid fa-user-shield"></i> <span
                                 class="nav-text">Operadores</span></a></li>
+                    {% endif %}
                     <li class="sidebar-divider"></li>
                     <li><a href="/protocolo"><i class="fa-solid fa-file-signature"></i> <span class="nav-text">Protocolo</span></a></li>
                     <li><a href="/solicitacao"><i class="fa-solid fa-file-circle-question"></i> <span class="nav-text">Solicitação</span></a></li>
@@ -136,7 +151,7 @@
                     <div class="user-profile" id="userProfileBtn">
                         <div class="user-info">
                             <span class="user-name">{{ session.get('funcionario_nome') or 'Usuário' }}</span>
-                            <span class="user-role">Administrador</span>
+                            <span class="user-role">{{ perfil_header_label }}</span>
                         </div>
                         <div class="avatar">
                             <img class="header-avatar-img" src="{{ url_for('minha_foto') }}?u={{ session.get('funcionario_id', '') }}" alt="Avatar"
@@ -158,6 +173,15 @@
 
             <!-- Área do Módulo Atual -->
             <main class="home-area">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                <div class="layout-flash-wrap" style="padding:12px 24px 0;">
+                    {% for category, message in messages %}
+                    <div class="layout-flash layout-flash-{{ category }}" role="alert">{{ message }}</div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% endwith %}
                 {% block content %}{% endblock %}
             </main>
         </div>

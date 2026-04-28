@@ -9,6 +9,12 @@
 {% block content %}
 <div class="operadores-wrapper">
 
+    <div class="operadores-admin-actions">
+        <button type="button" id="btnNovoOperador" class="btn-novo-operador">
+            <i class="fa-solid fa-user-plus"></i> Novo operador
+        </button>
+    </div>
+
     <!-- Filtros -->
     <div class="operadores-filters" id="filtersBar">
         <div class="filter-group">
@@ -113,6 +119,122 @@
         </div>
     </div>
 
+</div>
+
+<!-- Cadastro / edição funcionário (admin) -->
+<div id="operadorFuncionarioModal" class="modal-overlay" aria-hidden="true">
+    <div class="modal-container operador-func-modal">
+        <div class="modal-header">
+            <h2 id="operadorFuncionarioTitle">Novo operador</h2>
+            <button type="button" class="close-modal-btn" id="closeOperadorFuncionarioBtn" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="modal-body">
+            <p id="operadorFuncionarioMsg" class="operador-form-msg" hidden></p>
+            <form id="operadorFuncionarioForm" class="operador-func-form">
+                <input type="hidden" id="ofId" name="id" value="">
+                <div class="operador-form-grid">
+                    <div class="form-group">
+                        <label for="ofNome">Nome completo <span class="req">*</span></label>
+                        <input type="text" id="ofNome" name="nome" class="form-control" required maxlength="255" autocomplete="name">
+                    </div>
+                    <div class="form-group">
+                        <label for="ofCpf">CPF <span class="req">*</span></label>
+                        <input type="text" id="ofCpf" name="cpf_cnpj" class="form-control" required maxlength="20" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label for="ofLogin">Login <span class="req">*</span></label>
+                        <input type="text" id="ofLogin" name="login" class="form-control" required maxlength="50" autocomplete="username">
+                    </div>
+                    <div class="form-group">
+                        <label for="ofSenha"><span id="ofSenhaLabel">Senha</span> <span class="req" id="ofSenhaStar">*</span></label>
+                        <input type="password" id="ofSenha" name="senha" class="form-control" maxlength="50" autocomplete="new-password" placeholder="">
+                        <small id="ofSenhaHint" class="form-hint">No cadastro novo, informe a senha inicial. Na edição, deixe em branco para não alterar.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="ofNivel">Nível de acesso</label>
+                        <select id="ofNivel" name="nivel_acesso" class="form-control">
+                            <option value="Cobrança">Cobrança</option>
+                            <option value="Administrador">Administrador</option>
+                            <option value="Gestor">Gestor</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="ofAtivo">Situação</label>
+                        <select id="ofAtivo" name="ativo" class="form-control">
+                            <option value="1">Ativo</option>
+                            <option value="0">Inativo</option>
+                        </select>
+                    </div>
+                    <div class="form-group form-group-check">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="ofAcessoExterno" name="acesso_externo" value="1">
+                            Acesso externo (login próprio na carteira)
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label for="ofEmail">E-mail</label>
+                        <input type="email" id="ofEmail" name="email" class="form-control" maxlength="255">
+                    </div>
+                    <div class="form-group">
+                        <label for="ofDepto">Departamento</label>
+                        <input type="text" id="ofDepto" name="departamento" class="form-control" maxlength="25">
+                    </div>
+                    <div class="form-group">
+                        <label for="ofMatricula">Matrícula</label>
+                        <input type="text" id="ofMatricula" name="matricula" class="form-control" maxlength="25">
+                    </div>
+                    <div class="form-group">
+                        <label for="ofNasc">Data de nascimento</label>
+                        <input type="date" id="ofNasc" name="data_nascimento" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label for="ofSexo">Sexo</label>
+                        <select id="ofSexo" name="sexo" class="form-control">
+                            <option value="">—</option>
+                            <option value="M">Masculino</option>
+                            <option value="F">Feminino</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="ofDdd">DDD</label>
+                        <input type="text" id="ofDdd" name="ddd" class="form-control" maxlength="5">
+                    </div>
+                    <div class="form-group">
+                        <label for="ofNumero">Telefone</label>
+                        <input type="text" id="ofNumero" name="numero" class="form-control" maxlength="30">
+                    </div>
+                    <div class="form-group full-span">
+                        <label for="ofLogradouro">Logradouro</label>
+                        <input type="text" id="ofLogradouro" name="logradouro" class="form-control" maxlength="255">
+                    </div>
+                    <div class="form-group">
+                        <label for="ofBairro">Bairro</label>
+                        <input type="text" id="ofBairro" name="bairro" class="form-control" maxlength="100">
+                    </div>
+                    <div class="form-group">
+                        <label for="ofCompl">Complemento</label>
+                        <input type="text" id="ofCompl" name="complemento" class="form-control" maxlength="100">
+                    </div>
+                    <div class="form-group">
+                        <label for="ofCep">CEP</label>
+                        <input type="text" id="ofCep" name="cep" class="form-control" maxlength="10">
+                    </div>
+                    <div class="form-group">
+                        <label for="ofCidade">Cidade</label>
+                        <input type="text" id="ofCidade" name="cidade" class="form-control" maxlength="100">
+                    </div>
+                    <div class="form-group">
+                        <label for="ofEstado">UF</label>
+                        <input type="text" id="ofEstado" name="estado" class="form-control" maxlength="2" placeholder="PE">
+                    </div>
+                </div>
+                <div class="operador-form-actions">
+                    <button type="button" class="btn-secondary" id="operadorFormCancelBtn">Cancelar</button>
+                    <button type="submit" class="btn-search" id="operadorFormSaveBtn" style="max-width:200px"><i class="fa-solid fa-floppy-disk"></i> Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
 </div>
 
 <!-- Modal de Detalhes -->

@@ -1,6 +1,6 @@
 /**
- * Lista de contratos alinhada ao painel (Dashboard / Performance) + busca estilo mùdulo Busca.
- * Requer: busca.css, tabela .styled-table, funùùo onDetalhe(id) no parent (ex.: openDetails do dashboard).
+ * Lista de contratos alinhada ao painel (Dashboard / Performance) + busca estilo m√≥dulo Busca.
+ * Requer: busca.css, tabela .styled-table, fun√ß√£o onDetalhe(id) no parent (ex.: openDetails do dashboard).
  */
 (function () {
     'use strict';
@@ -15,7 +15,7 @@
     function getStatusClass(status) {
         if (!status) return '';
         var s = String(status).toLowerCase();
-        if (s === 'aberto' || s === 'em cobranca' || s === 'em cobranùa') return 'status-active';
+        if (s === 'aberto' || s === 'em cobranca' || s === 'em cobran√ßa') return 'status-active';
         if (s === 'fechado' || s === 'pago') return 'status-success';
         if (s === 'indenizado') return 'status-warning';
         return 'status-active';
@@ -81,7 +81,7 @@
                         '<td>' +
                         esc(c.faixa_calendario || '-') +
                         '</td><td><span class="status-badge ' +
-                        (c.desempenho && String(c.desempenho).indexOf('Nùo') >= 0 ? 'status-warning' : 'status-success') +
+                        (c.desempenho && String(c.desempenho).indexOf('N√£o') >= 0 ? 'status-warning' : 'status-success') +
                         '">' +
                         esc(c.desempenho || '-') +
                         '</span></td><td class="text-muted" style="font-size:0.8rem">' +
@@ -145,7 +145,7 @@
                 if (titleEl) {
                     var base =
                         'Contratos (painel' +
-                        (mode === 'performance' ? ' ? Performance' : ' ? Dashboard') +
+                        (mode === 'performance' ? ' ‚Üî Performance' : ' ‚Üî Dashboard') +
                         '): ';
                     if (data.limited && n > lim) {
                         titleEl.textContent =
@@ -185,7 +185,7 @@
                 if (this.value === 'pessoa' && termoEl) {
                     termoEl.placeholder = 'Nome ou CPF/CNPJ do devedor ou avalista...';
                 } else if (this.value === 'bem' && termoEl) {
-                    termoEl.placeholder = 'Descriùùo do bem...';
+                    termoEl.placeholder = 'Descri√ß√£o do bem...';
                 } else if (termoEl) {
                     termoEl.placeholder = 'Grupo/cota (ex: 001234/0012)...';
                 }

@@ -140,17 +140,17 @@
                 var gDesc = $('gPvDescricao');
                 var gArq = $('gPvArquivo');
                 if (gGrupo && !gGrupo.value.trim()) {
-                    showMsg(msgEl, 'Grupo e obrigatorio.', false);
+                    showMsg(msgEl, 'Grupo é obrigatório.', false);
                     return;
                 }
                 if (gCota && !gCota.value.trim()) {
-                    showMsg(msgEl, 'Cota e obrigatoria.', false);
+                    showMsg(msgEl, 'Cota é obrigatória.', false);
                     return;
                 }
                 if (gGrupo) fd.append('grupo', gGrupo.value.trim());
                 if (gCota) fd.append('cota', gCota.value.trim());
                 if (!gDesc || !gDesc.value.trim()) {
-                    showMsg(msgEl, 'Descricao e obrigatoria.', false);
+                    showMsg(msgEl, 'Descrição é obrigatória.', false);
                     return;
                 }
                 fd.append('descricao', gDesc.value.trim());
@@ -162,7 +162,7 @@
                         if (!res.ok || res.d.error) {
                             var msg = res.d.error || 'Erro ao inserir.';
                             if (res.d.missing && res.d.missing.length) {
-                                msg += ' Campos obrigatorios: ' + res.d.missing.join(', ');
+                                msg += ' Campos obrigatórios: ' + res.d.missing.join(', ');
                             }
                             showMsg(msgEl, msg, false);
                             return;

@@ -1,0 +1,13 @@
+# https://editorconfig.org — evita salvar fontes em charset errado (mojibake em PT-BR).
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+
+[*.{js,jsx,ts,tsx,mjs,cjs,vue,css,scss,html,htm,jinja2,j2,json,yml,yaml}]
+charset = utf-8
+
+[*.py]
+charset = utf-8
