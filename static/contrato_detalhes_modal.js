@@ -336,7 +336,9 @@
         html += dataItem('Prazo (meses)', c.prazo_meses);
         html += dataItem('Data de Adesão', formatDate(c.data_adesao));
         html += dataItem('Encerramento Grupo', formatDate(c.encerramento_grupo));
-        html += dataItem('Taxa Administração', c.taxa_administracao);
+        html += dataItem('Taxa Administração', typeof formatTaxaAdministracaoPercent === 'function'
+            ? formatTaxaAdministracaoPercent(c.taxa_administracao)
+            : c.taxa_administracao);
         html += dataItem('Fundo Reserva', c.fundo_reserva);
         html += dataItem('Percentual Lance', c.percentual_lance);
         html += '</div>';

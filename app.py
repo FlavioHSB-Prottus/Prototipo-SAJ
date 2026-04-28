@@ -389,7 +389,23 @@ def importacao():
 
 @app.route('/cobranca')
 def cobranca():
-    return render_template('cobranca.html')
+    # Perfil Cobrança: painel já abre filtrando pelo operador logado.
+    # Gestor / Administrador: mantém "Todos os Operadores" (valor vazio).
+    n = _nivel_normalizado(session.get('funcionario_nivel_acesso'))
+    cobranca_page_config = {}
+    if n == 'cobranca':
+        fid = session.get('funcionario_id')
+        try:
+            fid = int(fid) if fid is not None else None
+        except (TypeError, ValueError):
+            fid = None
+        if fid is not None:
+            nome = (session.get('funcionario_nome') or '').strip() or ('#' + str(fid))
+            cobranca_page_config = {
+                'defaultOperadorId': fid,
+                'defaultOperadorNome': nome,
+            }
+    return render_template('cobranca.html', cobranca_page_config=cobranca_page_config)
 
 
 @app.route('/negativacao')

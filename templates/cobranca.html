@@ -188,6 +188,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script type="application/json" id="cobranca-page-config">{{ cobranca_page_config | tojson }}</script>
 <script src="{{ url_for('static', filename='cobranca_automacoes.js') }}"></script>
 <script src="{{ url_for('static', filename='cobranca.js') }}"></script>
 {% endblock %}
