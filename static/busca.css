@@ -313,6 +313,85 @@ select.form-control {
     background: #f1f5f9;
 }
 
+/* Wizard tramitação (ligação) */
+.tramit-wiz-block[hidden] {
+    display: none !important;
+}
+
+.tramit-wiz-kicker,
+.tramit-wiz-hint {
+    font-size: 0.88rem;
+    color: var(--text-muted, #64748b);
+    margin: 0 0 12px;
+    line-height: 1.45;
+}
+
+.tramit-wiz-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 14px;
+}
+
+.tramit-wiz-field label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-main, #1e293b);
+}
+
+.tramit-wiz-field .req {
+    color: #b91c1c;
+}
+
+.tramit-wiz-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.tramit-chip {
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font: inherit;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.tramit-chip:hover {
+    border-color: var(--color-accent, #1e3a5f);
+    background: #f8fafc;
+}
+
+.tramit-chip.is-selected {
+    border-color: var(--color-accent, #1e3a5f);
+    background: #1e3a5f;
+    color: #fff;
+}
+
+.tramit-wiz-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-top: 8px;
+}
+
+.tramit-wiz-nav .secondary {
+    background: #fff !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #334155 !important;
+}
+
+.tramitacao-wizard-panel select,
+.tramitacao-wizard-panel input[type="text"],
+.tramitacao-wizard-panel input[type="datetime-local"],
+.tramitacao-wizard-panel input[type="number"],
+.tramitacao-wizard-panel textarea {
+    max-width: 100%;
+}
+
 /* Timeline / Logs Stylings */
 .timeline {
     display: flex;
