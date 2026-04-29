@@ -245,8 +245,7 @@
         html += '<div class="tramit-wiz-field"><label>Carteira (total devendo)</label>';
         html += '<input type="text" class="tramit-wiz-carteira" readonly /></div>';
         html += '<div class="tramit-wiz-field"><label>Discado — número ligado <span class="req">*</span></label>';
-        html += '<select class="tramit-wiz-discado-sel"><option value="">Selecione ou digite abaixo</option></select>';
-        html += '<input type="text" class="tramit-wiz-discado-out" placeholder="Ou informe o número manualmente" /></div>';
+        html += '<select class="tramit-wiz-discado-sel"><option value="">Selecione o número</option></select></div>';
         html += '<button type="button" class="action-btn tramit-wiz-next-base">Continuar</button>';
         html += '</div>';
 
@@ -256,14 +255,14 @@
         html += '<button type="button" class="tramit-chip" data-atendido="sim">Sim</button>';
         html += '<button type="button" class="tramit-chip" data-atendido="nao">Não</button>';
         html += '</div></div>';
-        html += '<div class="tramit-wiz-field tramit-wiz-motivo-wrap" hidden>';
+        html += '<div class="tramit-wiz-field tramit-wiz-motivo-wrap tramit-wiz--hide">';
         html += '<label>Motivo (ligação não atendida)</label><select class="tramit-wiz-motivo">';
         html += '<option value="">Selecione…</option>';
         MOTIVOS_NA.forEach(function (m) {
             html += '<option value="' + m.v + '">' + m.t + '</option>';
         });
         html += '</select></div>';
-        html += '<div class="tramit-wiz-field tramit-wiz-indef-wrap" hidden>';
+        html += '<div class="tramit-wiz-field tramit-wiz-indef-wrap tramit-wiz--hide">';
         html += '<p class="tramit-wiz-hint">Atendeu e desligou sem registrar o restante?</p>';
         html += '<button type="button" class="action-btn tramit-wiz-indef secondary">Registrar como indefinido</button>';
         html += '</div>';
@@ -277,14 +276,11 @@
         html += '<button type="button" class="tramit-chip" data-cpcok="sim">Sim</button>';
         html += '<button type="button" class="tramit-chip" data-cpcok="nao">Não</button>';
         html += '</div></div>';
-        html += '<div class="tramit-wiz-field tramit-wiz-cpc-quem-wrap" hidden>';
+        html += '<div class="tramit-wiz-field tramit-wiz-cpc-quem-wrap tramit-wiz--hide">';
         html += '<label>Quem atendeu?</label><select class="tramit-wiz-cpc-quem">';
         html += '<option value="">Selecione…</option>';
         CPC_QUEM.forEach(function (m) { html += '<option value="' + m.v + '">' + m.t + '</option>'; });
-        html += '</select>';
-        html += '<label style="margin-top:10px">Descrição (opcional)</label>';
-        html += '<textarea class="tramit-wiz-cpc-etapa-desc" rows="2" placeholder="Detalhe o que ocorreu nesta etapa"></textarea>';
-        html += '</div>';
+        html += '</select></div>';
         html += '<div class="tramit-wiz-nav"><button type="button" class="action-btn tramit-wiz-back secondary">Voltar</button>';
         html += '<button type="button" class="action-btn tramit-wiz-next-cpc1">Continuar</button></div>';
         html += '</div>';
@@ -420,23 +416,42 @@
             };
 
             function syncDiscado() {
-                var out = wizardRoot.querySelector('.tramit-wiz-discado-out');
-                var v = (selDisc && selDisc.value) ? selDisc.value : '';
-                if (!v && out) v = out.value.trim();
+                var v = (selDisc && selDisc.value) ? String(selDisc.value).trim() : '';
                 state.numero_discado = v;
+            }
+
+            function setMotivoWrapVisible(on) {
+                var mw = wizardRoot.querySelector('.tramit-wiz-motivo-wrap');
+                if (mw) mw.classList.toggle('tramit-wiz--hide', !on);
+            }
+
+            function setIndefWrapVisible(on) {
+                var iw = wizardRoot.querySelector('.tramit-wiz-indef-wrap');
+                if (iw) iw.classList.toggle('tramit-wiz--hide', !on);
+            }
+
+            function setCpcQuemWrapVisible(on) {
+                var qw = wizardRoot.querySelector('.tramit-wiz-cpc-quem-wrap');
+                var sel = wizardRoot.querySelector('.tramit-wiz-cpc-quem');
+                if (qw) qw.classList.toggle('tramit-wiz--hide', !on);
+                if (!on && sel) sel.selectedIndex = 0;
             }
 
             wizardRoot.querySelector('.tramit-wiz-next-base').addEventListener('click', function () {
                 showWizardErr('');
                 syncDiscado();
                 if (!state.numero_discado) {
-                    showWizardErr('Informe o número discado.');
+                    showWizardErr('Selecione o número discado.');
                     return;
                 }
                 state.carteira_devendo = carteiraVal;
+                state.atendido = null;
+                wizardRoot.querySelectorAll('[data-atendido]').forEach(function (b) {
+                    b.classList.remove('is-selected');
+                });
+                setMotivoWrapVisible(false);
+                setIndefWrapVisible(false);
                 showOnly(wizardRoot, 'atendido');
-                wizardRoot.querySelector('.tramit-wiz-motivo-wrap').hidden = true;
-                wizardRoot.querySelector('.tramit-wiz-indef-wrap').hidden = true;
             });
 
             wizardRoot.querySelectorAll('[data-atendido]').forEach(function (btn) {
@@ -445,14 +460,12 @@
                     wizardRoot.querySelectorAll('[data-atendido]').forEach(function (b) {
                         b.classList.toggle('is-selected', b === btn);
                     });
-                    var mw = wizardRoot.querySelector('.tramit-wiz-motivo-wrap');
-                    var iw = wizardRoot.querySelector('.tramit-wiz-indef-wrap');
                     if (state.atendido === 'nao') {
-                        if (mw) mw.hidden = false;
-                        if (iw) iw.hidden = true;
+                        setMotivoWrapVisible(true);
+                        setIndefWrapVisible(false);
                     } else {
-                        if (mw) mw.hidden = true;
-                        if (iw) iw.hidden = false;
+                        setMotivoWrapVisible(false);
+                        setIndefWrapVisible(true);
                     }
                 });
             });
@@ -475,6 +488,11 @@
                     return;
                 }
                 state.modo_indefinido = false;
+                state.cpc_correto = null;
+                wizardRoot.querySelectorAll('[data-cpcok]').forEach(function (b) {
+                    b.classList.remove('is-selected');
+                });
+                setCpcQuemWrapVisible(false);
                 showOnly(wizardRoot, 'cpc1');
             });
 
@@ -489,8 +507,7 @@
                     wizardRoot.querySelectorAll('[data-cpcok]').forEach(function (b) {
                         b.classList.toggle('is-selected', b === btn);
                     });
-                    var qw = wizardRoot.querySelector('.tramit-wiz-cpc-quem-wrap');
-                    if (qw) qw.hidden = state.cpc_correto !== 'nao';
+                    setCpcQuemWrapVisible(state.cpc_correto === 'nao');
                 });
             });
 
@@ -503,8 +520,7 @@
                 if (state.cpc_correto === 'nao') {
                     var sq = wizardRoot.querySelector('.tramit-wiz-cpc-quem');
                     state.cpc_quem = sq ? sq.value : '';
-                    var td = wizardRoot.querySelector('.tramit-wiz-cpc-etapa-desc');
-                    state.cpc_etapa_descricao = td ? td.value.trim() : '';
+                    state.cpc_etapa_descricao = '';
                     if (!state.cpc_quem) {
                         showWizardErr('Selecione quem atendeu.');
                         return;
@@ -512,6 +528,7 @@
                     showOnly(wizardRoot, 'status');
                     return;
                 }
+                state.cpc_etapa_descricao = '';
                 showOnly(wizardRoot, 'cpc2');
             });
 
@@ -637,13 +654,26 @@
                     var w = vis ? vis.getAttribute('data-wiz') : '';
                     if (w === 'atendido') showOnly(wizardRoot, 'base');
                     else if (w === 'cpc1') showOnly(wizardRoot, 'atendido');
-                    else if (w === 'cpc2') showOnly(wizardRoot, 'cpc1');
+                    else if (w === 'cpc2') {
+                        showOnly(wizardRoot, 'cpc1');
+                        setCpcQuemWrapVisible(state.cpc_correto === 'nao');
+                    }
                     else if (w === 'status') {
                         if (state.cpc_correto === 'sim') showOnly(wizardRoot, 'cpc2');
-                        else showOnly(wizardRoot, 'cpc1');
+                        else {
+                            showOnly(wizardRoot, 'cpc1');
+                            setCpcQuemWrapVisible(state.cpc_correto === 'nao');
+                        }
                     } else if (w === 'final') {
                         if (state.atendido === 'nao' || state.modo_indefinido) {
                             showOnly(wizardRoot, 'atendido');
+                            if (state.atendido === 'nao') {
+                                setMotivoWrapVisible(true);
+                                setIndefWrapVisible(false);
+                            } else if (state.modo_indefinido) {
+                                setMotivoWrapVisible(false);
+                                setIndefWrapVisible(true);
+                            }
                         } else {
                             showOnly(wizardRoot, 'status');
                         }

@@ -1,7 +1,7 @@
 /**
  * Formatacao compartilhada de campos do contrato nos modais de detalhe.
- * taxa_administracao no GM vem em centesimos de percentual (ex.: 1700 -> 17,00%).
- * Valores ja na escala 0-100 sao tratados como percentual direto.
+ * taxa_administracao e percentual_lance no GM costumam vir em centesimos de percentual
+ * (ex.: 1100 -> 11,00%; 4500 -> 45,00%). Valores ja na escala 0-100 sao percentual direto.
  */
 (function (global) {
     'use strict';

@@ -318,6 +318,11 @@ select.form-control {
     display: none !important;
 }
 
+/* Sub-blocos dentro do passo (ex.: motivo só após "Não" em Atendido) */
+.tramit-wiz--hide {
+    display: none !important;
+}
+
 .tramit-wiz-kicker,
 .tramit-wiz-hint {
     font-size: 0.88rem;

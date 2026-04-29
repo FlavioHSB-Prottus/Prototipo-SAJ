@@ -2733,6 +2733,55 @@ def _ensure_tramitacao_fluxo_columns(cursor):
         app.logger.warning('_ensure_tramitacao_fluxo_columns: %s', exc)
 
 
+def _tramitacao_column_names(cursor):
+    """Retorna lista com nomes das colunas em `tramitacao` (ordem SHOW COLUMNS)."""
+    cursor.execute('SHOW COLUMNS FROM tramitacao')
+    rows = cursor.fetchall()
+    names = []
+    for r in rows:
+        if isinstance(r, dict):
+            fn = r.get('Field') or r.get('field')
+        else:
+            fn = r[0] if r else None
+        if fn:
+            names.append(fn)
+    return names
+
+
+def _tramitacao_insert_parts(cursor, *, id_pessoa, id_contrato, canal, cpc, ts, descricao, fid,
+                             fluxo_json=None, status_tramitacao=None):
+    """Monta INSERT alinhado ao schema GM: `forma`=canal (ligacao/...), `tipo`='ativo'.
+
+    O valor antigo 'ligacao' na coluna `tipo` gerava MySQL 1265 quando `tipo` é enum(ativo,passivo).
+    """
+    tcols = {c.lower(): c for c in _tramitacao_column_names(cursor)}
+    cols_sql = []
+    vals = []
+
+    def add(lower, val):
+        if lower not in tcols:
+            return
+        cn = str(tcols[lower]).replace('`', '')
+        cols_sql.append('`' + cn + '`')
+        vals.append(val)
+
+    add('id_pessoa', id_pessoa)
+    add('id_contrato', id_contrato)
+    if 'forma' in tcols:
+        add('forma', canal if canal in TRAMITACAO_TIPOS else 'ligacao')
+    if 'tipo' in tcols:
+        add('tipo', 'ativo')
+    add('cpc', cpc)
+    add('data', ts)
+    add('descricao', descricao)
+    add('id_funcionario', fid)
+    if fluxo_json is not None:
+        add('fluxo_json', fluxo_json)
+    if status_tramitacao is not None:
+        add('status_tramitacao', status_tramitacao)
+    return cols_sql, vals
+
+
 def _fluxo_map_legacy_cpc(payload):
     """Compatibilidade com coluna cpc da tramitacao legada."""
     if payload.get('atendido') == 'nao':
@@ -2996,10 +3045,24 @@ def api_tramitacao_criar(contrato_id):
         id_pessoa = c_row.get('id_pessoa')
         if not id_pessoa:
             return jsonify({'error': 'Contrato sem pessoa (devedor) vinculada.'}), 400
+        cols_sql, insert_vals = _tramitacao_insert_parts(
+            cursor,
+            id_pessoa=id_pessoa,
+            id_contrato=contrato_id,
+            canal=tipo,
+            cpc=cpc,
+            ts=ts,
+            descricao=descricao or None,
+            fid=int(fid),
+            fluxo_json=None,
+            status_tramitacao=None,
+        )
+        if not cols_sql:
+            return jsonify({'error': 'Tabela tramitacao sem colunas esperadas.'}), 500
+        placeholders = ', '.join(['%s'] * len(insert_vals))
         cursor.execute(
-            "INSERT INTO tramitacao (id_pessoa, id_contrato, tipo, cpc, data, descricao, id_funcionario) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-            (id_pessoa, contrato_id, tipo, cpc, ts, descricao or None, int(fid)),
+            f'INSERT INTO tramitacao ({", ".join(cols_sql)}) VALUES ({placeholders})',
+            tuple(insert_vals),
         )
         conn.commit()
         new_id = cursor.lastrowid
@@ -3055,9 +3118,21 @@ def api_tramitacao_item(tramitacao_id):
         ts = _parse_tramitacao_timestamp(data.get('data'))
         if not ts:
             return jsonify({'error': 'Data invalida.'}), 400
+        canal = tipo
+        tcols = {c.lower(): c for c in _tramitacao_column_names(cursor)}
+        sets = []
+        vals = []
+        if 'forma' in tcols:
+            sets.append('forma = %s')
+            vals.append(canal if canal in TRAMITACAO_TIPOS else 'ligacao')
+        if 'tipo' in tcols:
+            sets.append('tipo = %s')
+            vals.append('ativo')
+        sets.extend(['cpc = %s', 'data = %s', 'descricao = %s'])
+        vals.extend([cpc, ts, descricao or None, tramitacao_id])
         cursor.execute(
-            "UPDATE tramitacao SET tipo = %s, cpc = %s, data = %s, descricao = %s WHERE id = %s",
-            (tipo, cpc, ts, descricao or None, tramitacao_id),
+            f"UPDATE tramitacao SET {', '.join(sets)} WHERE id = %s",
+            vals,
         )
         conn.commit()
         row = _tramitacao_row_by_id(cursor, tramitacao_id)
@@ -3115,22 +3190,24 @@ def api_tramitacao_fluxo_criar(contrato_id):
         ts = datetime.datetime.now()
         fluxo_str = json.dumps(payload, ensure_ascii=False)
 
-        tipo_canal = 'ligacao'
+        cols_sql, insert_vals = _tramitacao_insert_parts(
+            cursor,
+            id_pessoa=id_pessoa,
+            id_contrato=contrato_id,
+            canal='ligacao',
+            cpc=legacy_cpc,
+            ts=ts,
+            descricao=descricao_txt,
+            fid=int(fid),
+            fluxo_json=fluxo_str,
+            status_tramitacao=status_lab[:96],
+        )
+        if not cols_sql:
+            return jsonify({'error': 'Tabela tramitacao sem colunas esperadas.'}), 500
+        placeholders = ', '.join(['%s'] * len(insert_vals))
         cursor.execute(
-            "INSERT INTO tramitacao (id_pessoa, id_contrato, tipo, cpc, data, descricao, id_funcionario, "
-            "fluxo_json, status_tramitacao) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (
-                id_pessoa,
-                contrato_id,
-                tipo_canal,
-                legacy_cpc,
-                ts,
-                descricao_txt,
-                int(fid),
-                fluxo_str,
-                status_lab[:96],
-            ),
+            f'INSERT INTO tramitacao ({", ".join(cols_sql)}) VALUES ({placeholders})',
+            tuple(insert_vals),
         )
         new_id = cursor.lastrowid
 
