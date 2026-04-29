@@ -15,4 +15,21 @@
     }
 
     global.formatTaxaAdministracaoPercent = formatTaxaAdministracaoPercent;
+
+    /**
+     * Rótulo para coluna `fonte` em telefone/email (importação TXT GM, enriquecimento, etc.).
+     */
+    function formatContatoFonteLabel(fonte) {
+        if (fonte === null || fonte === undefined || fonte === '') return '';
+        var k = String(fonte).trim().toLowerCase();
+        var map = {
+            gmac: 'Importação GM (TXT)',
+            enriquecimento: 'Enriquecimento / pós-índice',
+            terceiro: 'Terceiro',
+            manual: 'Cadastro manual'
+        };
+        return map[k] || String(fonte);
+    }
+
+    global.formatContatoFonteLabel = formatContatoFonteLabel;
 })(typeof window !== 'undefined' ? window : this);

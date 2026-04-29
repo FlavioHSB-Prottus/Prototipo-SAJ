@@ -588,6 +588,27 @@ select.form-control {
     text-align: center;
 }
 
+.contact-list .contact-meta {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.contact-list .contact-fonte {
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: #475569;
+    background-color: #e8eef5;
+    padding: 2px 8px;
+    border-radius: 4px;
+    max-width: 220px;
+    text-align: right;
+    line-height: 1.25;
+}
+
 .contact-list .contact-tipo {
     font-size: 0.75rem;
     font-weight: 600;
@@ -596,7 +617,6 @@ select.form-control {
     background-color: #f1f5f9;
     padding: 2px 8px;
     border-radius: 4px;
-    margin-left: auto;
 }
 
 .btn-ligar, .btn-mensagem {

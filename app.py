@@ -2240,6 +2240,33 @@ _TELEFONE_TIPOS = (
 _EMAIL_TIPOS = ('principal', 'secundario', 'comercial', 'outro')
 
 
+def _mysql_table_columns_lower(cursor, table):
+    """Nomes de colunas em minúsculas para montar INSERT compatível com o schema."""
+    cursor.execute(f'SHOW COLUMNS FROM `{table}`')
+    rows = cursor.fetchall() or []
+    names = []
+    for r in rows:
+        if isinstance(r, dict):
+            fn = r.get('Field') or r.get('field')
+        else:
+            fn = r[0] if r else None
+        if fn:
+            names.append(str(fn).lower())
+    return frozenset(names)
+
+
+def _ensure_contato_fonte_enum_manual(cursor):
+    """Inclui `manual` no ENUM `fonte` em telefone/email (bases antigas)."""
+    for tbl in ('telefone', 'email'):
+        try:
+            cursor.execute(
+                f"ALTER TABLE `{tbl}` MODIFY COLUMN `fonte` "
+                "ENUM('GMAC','enriquecimento','terceiro','manual') DEFAULT 'GMAC'"
+            )
+        except Exception as exc:
+            app.logger.debug('_ensure_contato_fonte_enum_manual %s: %s', tbl, exc)
+
+
 @app.route('/api/pessoa/<int:pessoa_id>/telefone', methods=['POST'])
 def api_pessoa_add_telefone(pessoa_id):
     """Adiciona um registro de telefone (UK id_pessoa+tipo+numero: evita duplicata exata)."""
@@ -2259,10 +2286,19 @@ def api_pessoa_add_telefone(pessoa_id):
         cursor.execute("SELECT 1 FROM pessoa WHERE id = %s", (pessoa_id,))
         if not cursor.fetchone():
             return jsonify({'error': 'Pessoa nao encontrada.'}), 404
-        cursor.execute(
-            "INSERT INTO telefone (id_pessoa, tipo, numero, ramal) VALUES (%s, %s, %s, %s)",
-            (pessoa_id, tipo, numero, ramal),
-        )
+        cols = _mysql_table_columns_lower(cursor, 'telefone')
+        _ensure_contato_fonte_enum_manual(cursor)
+        if 'fonte' in cols:
+            cursor.execute(
+                "INSERT INTO telefone (id_pessoa, tipo, numero, ramal, fonte) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                (pessoa_id, tipo, numero, ramal, 'manual'),
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO telefone (id_pessoa, tipo, numero, ramal) VALUES (%s, %s, %s, %s)",
+                (pessoa_id, tipo, numero, ramal),
+            )
         new_id = cursor.lastrowid
         conn.commit()
         cursor.execute("SELECT * FROM telefone WHERE id = %s", (new_id,))
@@ -2319,10 +2355,18 @@ def api_pessoa_add_email(pessoa_id):
         cursor.execute("SELECT 1 FROM pessoa WHERE id = %s", (pessoa_id,))
         if not cursor.fetchone():
             return jsonify({'error': 'Pessoa nao encontrada.'}), 404
-        cursor.execute(
-            "INSERT INTO email (id_pessoa, tipo, email) VALUES (%s, %s, %s)",
-            (pessoa_id, tipo, endereco),
-        )
+        cols = _mysql_table_columns_lower(cursor, 'email')
+        _ensure_contato_fonte_enum_manual(cursor)
+        if 'fonte' in cols:
+            cursor.execute(
+                "INSERT INTO email (id_pessoa, tipo, email, fonte) VALUES (%s, %s, %s, %s)",
+                (pessoa_id, tipo, endereco, 'manual'),
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO email (id_pessoa, tipo, email) VALUES (%s, %s, %s)",
+                (pessoa_id, tipo, endereco),
+            )
         new_id = cursor.lastrowid
         conn.commit()
         cursor.execute("SELECT * FROM email WHERE id = %s", (new_id,))

@@ -353,7 +353,10 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (t.ramal) html += ' (ramal ' + esc(t.ramal) + ')';
                     html += '<button type="button" class="btn-ligar" title="Ligar" data-numero="' + esc(t.numero || '') + '"><i class="fa-solid fa-phone-volume"></i></button>';
                     html += '<button class="btn-mensagem" title="Enviar Mensagem"><i class="fa-solid fa-comment-dots"></i></button>';
-                    html += '<span class="contact-tipo">' + esc(t.tipo) + '</span></li>';
+                    html += '<span class="contact-meta">';
+                    var _fonteTelP = (typeof window.formatContatoFonteLabel === 'function') ? window.formatContatoFonteLabel(t.fonte) : '';
+                    if (_fonteTelP) html += '<span class="contact-fonte" title="Origem do cadastro">' + esc(_fonteTelP) + '</span>';
+                    html += '<span class="contact-tipo">' + esc(t.tipo) + '</span></span></li>';
                 });
                 html += '</ul>';
             } else {
@@ -368,7 +371,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 data.emails.forEach(function (em) {
                     html += '<li><i class="fa-solid fa-envelope"></i> ' + esc(em.email || '-');
                     html += '<button class="btn-mensagem" title="Enviar Mensagem"><i class="fa-solid fa-comment-dots"></i></button>';
-                    html += '<span class="contact-tipo">' + esc(em.tipo) + '</span></li>';
+                    html += '<span class="contact-meta">';
+                    var _fonteEmP = (typeof window.formatContatoFonteLabel === 'function') ? window.formatContatoFonteLabel(em.fonte) : '';
+                    if (_fonteEmP) html += '<span class="contact-fonte" title="Origem do cadastro">' + esc(_fonteEmP) + '</span>';
+                    html += '<span class="contact-tipo">' + esc(em.tipo) + '</span></span></li>';
                 });
                 html += '</ul>';
             } else {
@@ -612,7 +618,10 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (t.ramal) html += ' (ramal ' + esc(t.ramal) + ')';
                     html += '<button type="button" class="btn-ligar" title="Ligar" data-numero="' + esc(t.numero || '') + '"><i class="fa-solid fa-phone-volume"></i></button>';
                     html += '<button class="btn-mensagem" title="Enviar Mensagem"><i class="fa-solid fa-comment-dots"></i></button>';
-                    html += '<span class="contact-tipo">' + esc(t.tipo) + '</span></li>';
+                    html += '<span class="contact-meta">';
+                    var _fonteTel = (typeof window.formatContatoFonteLabel === 'function') ? window.formatContatoFonteLabel(t.fonte) : '';
+                    if (_fonteTel) html += '<span class="contact-fonte" title="Origem do cadastro">' + esc(_fonteTel) + '</span>';
+                    html += '<span class="contact-tipo">' + esc(t.tipo) + '</span></span></li>';
                 });
                 html += '</ul>';
             } else {
@@ -625,7 +634,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 emails.forEach(function (em) {
                     html += '<li><i class="fa-solid fa-envelope"></i> ' + esc(em.email || '-');
                     html += '<button class="btn-mensagem" title="Enviar Mensagem"><i class="fa-solid fa-comment-dots"></i></button>';
-                    html += '<span class="contact-tipo">' + esc(em.tipo) + '</span></li>';
+                    html += '<span class="contact-meta">';
+                    var _fonteEm = (typeof window.formatContatoFonteLabel === 'function') ? window.formatContatoFonteLabel(em.fonte) : '';
+                    if (_fonteEm) html += '<span class="contact-fonte" title="Origem do cadastro">' + esc(_fonteEm) + '</span>';
+                    html += '<span class="contact-tipo">' + esc(em.tipo) + '</span></span></li>';
                 });
                 html += '</ul>';
             } else {
