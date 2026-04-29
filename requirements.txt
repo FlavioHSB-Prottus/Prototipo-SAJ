@@ -1,5 +1,6 @@
 flask
 pymysql
+requests
 openpyxl
 fpdf2
 python-dotenv
