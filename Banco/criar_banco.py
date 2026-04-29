@@ -102,7 +102,7 @@ CREATE TABLE `email` (
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_email_pessoa_tipo` (`id_pessoa`,`tipo`),
+  UNIQUE KEY `uk_email_pessoa_tipo_email` (`id_pessoa`,`tipo`,`email`),
   KEY `idx_email_pessoa` (`id_pessoa`),
   CONSTRAINT `fk_email_pessoa` FOREIGN KEY (`id_pessoa`) REFERENCES `pessoa` (`id`) ON DELETE CASCADE
 );
@@ -444,7 +444,6 @@ CREATE TABLE `telefone` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_pessoa` bigint(20) NOT NULL,
   `tipo` varchar(40) NOT NULL COMMENT 'fixo, celular, comercial, comercial_devedor, comercial_conjuge, recados, outro, ...',
-  `ddd` varchar(5) DEFAULT NULL,
   `numero` varchar(30) NOT NULL,
   `ramal` varchar(10) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
@@ -452,7 +451,7 @@ CREATE TABLE `telefone` (
   `cpc` enum('sim','não','amigo','parente') DEFAULT NULL,
   `status` enum('bom','medio','ruim') DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_telefone_pessoa_tipo` (`id_pessoa`,`tipo`),
+  UNIQUE KEY `uk_telefone_pessoa_tipo_numero` (`id_pessoa`,`tipo`,`numero`),
   KEY `idx_telefone_pessoa` (`id_pessoa`),
   CONSTRAINT `fk_telefone_pessoa` FOREIGN KEY (`id_pessoa`) REFERENCES `pessoa` (`id`) ON DELETE CASCADE
 );

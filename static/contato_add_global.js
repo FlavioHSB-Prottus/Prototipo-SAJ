@@ -148,11 +148,10 @@
         var url = '/api/pessoa/' + encodeURIComponent(id) + '/' + (rec === 'email' ? 'email' : 'telefone');
         var payload;
         if (rec === 'telefone') {
-            var ddd = ($('caDdd') && $('caDdd').value) ? String($('caDdd').value).trim() : '';
             var num = ($('caNumero') && $('caNumero').value) ? String($('caNumero').value).trim() : '';
             var ram = ($('caRamal') && $('caRamal').value) ? String($('caRamal').value).trim() : '';
             var ttipo = $('caTipoTel') ? String($('caTipoTel').value) : 'fixo';
-            payload = { tipo: ttipo, ddd: ddd || null, numero: num, ramal: ram || null };
+            payload = { tipo: ttipo, numero: num, ramal: ram || null };
         } else {
             var em = ($('caEmail') && $('caEmail').value) ? String($('caEmail').value).trim() : '';
             var etipo = $('caTipoEmail') ? String($('caTipoEmail').value) : 'principal';
@@ -170,7 +169,13 @@
             })
             .then(function (res) {
                 if (res.d.error) {
-                    showMsg(res.d.error, true);
+                    var msg = res.d.error;
+                    if (res.d.telefone_existente && res.d.telefone_existente.numero) {
+                        msg += ' (Atual: ' + String(res.d.telefone_existente.numero) + ')';
+                    } else if (res.d.email_existente && res.d.email_existente.email) {
+                        msg += ' (Atual: ' + String(res.d.email_existente.email) + ')';
+                    }
+                    showMsg(msg, true);
                     return;
                 }
                 if (!res.ok) {
