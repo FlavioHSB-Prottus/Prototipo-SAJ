@@ -97,10 +97,13 @@ document.addEventListener('DOMContentLoaded', function() {
     const departamentoAtual = document.getElementById('departamentoAtual');
 
     if (departamentoSelector && departamentoDropdown) {
-        const savedDep = localStorage.getItem('departamento_atual') || 'GM';
-        if (departamentoAtual) departamentoAtual.textContent = savedDep;
+        var apiSessaoEmpresa = document.body && document.body.dataset ? document.body.dataset.apiSessaoEmpresa : '';
+        var serverEmp = (document.body && document.body.dataset && document.body.dataset.empresaAtiva) || 'GM';
+        serverEmp = String(serverEmp).trim() || 'GM';
+        if (departamentoAtual) departamentoAtual.textContent = serverEmp;
         departamentoDropdown.querySelectorAll('.dep-item').forEach(function (el) {
-            el.classList.toggle('active', el.getAttribute('data-dep') === savedDep);
+            var dep = el.getAttribute('data-dep');
+            el.classList.toggle('active', dep === serverEmp);
         });
 
         departamentoSelector.addEventListener('click', function (e) {
@@ -119,20 +122,45 @@ document.addEventListener('DOMContentLoaded', function() {
             el.addEventListener('click', function (e) {
                 e.stopPropagation();
                 if (el.classList.contains('disabled')) return;
-                const dep = el.getAttribute('data-dep');
+                var dep = el.getAttribute('data-dep');
                 if (!dep) return;
-
-                localStorage.setItem('departamento_atual', dep);
-                if (departamentoAtual) departamentoAtual.textContent = dep;
-
-                departamentoDropdown.querySelectorAll('.dep-item').forEach(function (i) {
-                    i.classList.toggle('active', i.getAttribute('data-dep') === dep);
-                });
-
-                departamentoSelector.classList.remove('active');
-                departamentoDropdown.classList.remove('show');
-
-                document.dispatchEvent(new CustomEvent('departamentoChange', { detail: { departamento: dep } }));
+                if (dep === serverEmp) {
+                    departamentoSelector.classList.remove('active');
+                    departamentoDropdown.classList.remove('show');
+                    return;
+                }
+                if (!apiSessaoEmpresa) {
+                    localStorage.setItem('departamento_atual', dep);
+                    if (departamentoAtual) departamentoAtual.textContent = dep;
+                    departamentoDropdown.querySelectorAll('.dep-item').forEach(function (i) {
+                        i.classList.toggle('active', i.getAttribute('data-dep') === dep);
+                    });
+                    departamentoSelector.classList.remove('active');
+                    departamentoDropdown.classList.remove('show');
+                    document.dispatchEvent(new CustomEvent('departamentoChange', { detail: { departamento: dep } }));
+                    return;
+                }
+                fetch(apiSessaoEmpresa, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ empresa: dep }),
+                })
+                    .then(function (r) {
+                        if (!r.ok) {
+                            return r.json().then(function (j) {
+                                throw new Error((j && j.error) || 'Erro ao alterar empresa');
+                            });
+                        }
+                        return r.json();
+                    })
+                    .then(function () {
+                        document.dispatchEvent(new CustomEvent('departamentoChange', { detail: { departamento: dep } }));
+                        window.location.reload();
+                    })
+                    .catch(function () {
+                        alert('Não foi possível alterar a empresa.');
+                    });
             });
         });
 

@@ -13,7 +13,7 @@ import tempfile
 
 import pymysql
 import requests
-from pymysql.err import IntegrityError
+from pymysql.err import IntegrityError, OperationalError
 from flask import Flask, Response, render_template, request, redirect, url_for, jsonify, send_file, session, flash, abort
 from werkzeug.utils import secure_filename
 
@@ -177,6 +177,82 @@ def _enforce_nivel_acesso_modulos():
     return None
 
 
+@app.before_request
+def _enforce_empresa_escopo_bradesco_gm():
+    """Bradesco + contexto GM ativo: apenas Busca e Consorciados/Avalistas (+ APIs auxiliares)."""
+    if request.endpoint is None:
+        return None
+    if request.endpoint in ('login', 'static', 'recuperar_senha', 'logout'):
+        return None
+    if not session.get('funcionario_id'):
+        return None
+    path = request.path
+    if path.startswith('/static'):
+        return None
+    # Troca de empresa no servidor
+    if path.startswith('/api/sessao/empresa'):
+        return None
+    if not _bradesco_contexto_gm_restrito():
+        return None
+    if _path_ok_bradesco_em_gm(path):
+        return None
+    if path.startswith('/api/'):
+        return jsonify({'error': 'Acesso negado neste contexto de empresa (GM).'}), 403
+    flash('No contexto GM você só acessa Busca e Consorciados e Avalistas.', 'error')
+    return redirect(url_for('home'))
+
+
+def _session_funcionario_empresa():
+    return (session.get('funcionario_empresa') or 'GM').strip()
+
+
+def _session_empresa_ativa():
+    return (session.get('empresa_ativa') or 'GM').strip()
+
+
+def _empresas_dropdown_sessao():
+    """Duplas (id, titulo) para o seletor do header."""
+    fe = _session_funcionario_empresa().lower()
+    if fe == 'todas':
+        return [('GM', 'Consórcio GM'), ('Bradesco', 'Bradesco')]
+    if fe == 'bradesco':
+        return [('Bradesco', 'Bradesco'), ('GM', 'GM')]
+    return [('GM', 'Consórcio GM')]
+
+
+def _bradesco_contexto_gm_restrito():
+    """Usuario vinculado a Bradesco com empresa ativa GM: só Busca + Cadastro."""
+    return (
+        _session_funcionario_empresa().lower() == 'bradesco'
+        and _session_empresa_ativa().upper() == 'GM'
+    )
+
+
+def _path_ok_bradesco_em_gm(path):
+    """Rotas permitidas quando Bradesco seleciona contexto GM."""
+    if path in ('/', '/home'):
+        return True
+    if path.startswith('/static') or path.startswith('/minha-foto'):
+        return True
+    if path.startswith('/busca') or path.startswith('/cadastro'):
+        return True
+    if not path.startswith('/api/'):
+        return False
+    prefixos = (
+        '/api/busca',
+        '/api/consorciados',
+        '/api/avalistas',
+        '/api/contrato/',
+        '/api/pessoa/',
+        '/api/discar',
+        '/api/tramitacao',
+        '/api/funcionario/perfil',
+        '/api/avisos',
+        '/api/upload',
+    )
+    return any(path.startswith(p) for p in prefixos)
+
+
 @app.context_processor
 def inject_perfil_ui():
     na = session.get('funcionario_nivel_acesso')
@@ -184,7 +260,8 @@ def inject_perfil_ui():
     labels = {'gestor': 'Gestor', 'administrador': 'Administrador', 'cobranca': 'Cobrança'}
     label = labels.get(n, (na or '').strip() or 'Usuário')
     pode_op = n in ('gestor', 'administrador')
-    return {
+    br_gm = bool(session.get('funcionario_id')) and _bradesco_contexto_gm_restrito()
+    ctx = {
         'perfil_header_label': label,
         'is_admin': pode_op,
         'nav_importacao': n in ('gestor', 'administrador'),
@@ -192,7 +269,17 @@ def inject_perfil_ui():
         'nav_performance': n == 'gestor',
         'nav_cadastro': n in ('gestor', 'administrador'),
         'nav_operadores': pode_op,
+        'nav_restrict_bradesco_gm': br_gm,
+        'empresa_ativa_header': _session_empresa_ativa(),
+        'empresas_dropdown': _empresas_dropdown_sessao(),
     }
+    if br_gm:
+        ctx['nav_importacao'] = False
+        ctx['nav_dashboard'] = False
+        ctx['nav_performance'] = False
+        ctx['nav_operadores'] = False
+        ctx['nav_cadastro'] = True
+    return ctx
 
 
 FOTO_MAX_BYTES = 5 * 1024 * 1024
@@ -240,14 +327,32 @@ def login():
             flash('Informe o login.', 'error')
             return render_template('login.html')
         conn = None
+        row = None
         try:
             conn = _get_db()
             with conn.cursor() as cursor:
-                cursor.execute(
-                    'SELECT id, nome, senha, ativo, nivel_acesso FROM funcionario WHERE login = %s LIMIT 1',
-                    (login_val,),
-                )
-                row = cursor.fetchone()
+                try:
+                    cursor.execute(
+                        'SELECT id, nome, senha, ativo, nivel_acesso, empresa '
+                        'FROM funcionario WHERE login = %s LIMIT 1',
+                        (login_val,),
+                    )
+                    row = cursor.fetchone()
+                except OperationalError as op_err:
+                    # 1054 = coluna inexistente (banco ainda sem migration da coluna `empresa`)
+                    if op_err.args and op_err.args[0] == 1054:
+                        app.logger.warning(
+                            "login: coluna 'empresa' ausente em funcionario; "
+                            "rodar ALTER/seed ou criar_banco. Consultando sem 'empresa'."
+                        )
+                        cursor.execute(
+                            'SELECT id, nome, senha, ativo, nivel_acesso '
+                            'FROM funcionario WHERE login = %s LIMIT 1',
+                            (login_val,),
+                        )
+                        row = cursor.fetchone()
+                    else:
+                        raise
         except Exception:
             app.logger.exception('login: falha ao consultar funcionario')
             flash('Não foi possível validar o login. Tente novamente.', 'error')
@@ -273,6 +378,18 @@ def login():
         session['funcionario_id'] = int(row['id'])
         session['funcionario_nome'] = row.get('nome') or ''
         session['funcionario_nivel_acesso'] = row.get('nivel_acesso') or ''
+        fe = (row.get('empresa') or 'GM')
+        if not isinstance(fe, str):
+            fe = 'GM'
+        fe = fe.strip() or 'GM'
+        session['funcionario_empresa'] = fe
+        fl = fe.lower()
+        if fl == 'todas':
+            session['empresa_ativa'] = 'GM'
+        elif fl == 'bradesco':
+            session['empresa_ativa'] = 'Bradesco'
+        else:
+            session['empresa_ativa'] = fe
         return redirect(url_for('home'))
 
     if session.get('funcionario_id'):
@@ -284,6 +401,28 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for('login'))
+
+
+@app.route('/api/sessao/empresa', methods=['GET', 'POST'])
+def api_sessao_empresa():
+    """Define empresa ativa no contexto (GM / Bradesco / ...)."""
+    if not session.get('funcionario_id'):
+        return jsonify({'error': 'Não autenticado.'}), 401
+    if request.method == 'GET':
+        opcoes = _empresas_dropdown_sessao()
+        return jsonify({
+            'funcionario_empresa': _session_funcionario_empresa(),
+            'empresa_ativa': _session_empresa_ativa(),
+            'opcoes': [{'id': o[0], 'titulo': o[1]} for o in opcoes],
+        })
+    data = request.get_json(silent=True) or {}
+    nova = (data.get('empresa') or '').strip()
+    permitidas = [x[0] for x in _empresas_dropdown_sessao()]
+    if nova not in permitidas:
+        return jsonify({'error': 'Empresa não permitida para este usuário.'}), 400
+    session['empresa_ativa'] = nova
+    session.modified = True
+    return jsonify({'ok': True, 'empresa_ativa': nova})
 
 
 @app.route('/minha-foto', methods=['GET', 'POST'])

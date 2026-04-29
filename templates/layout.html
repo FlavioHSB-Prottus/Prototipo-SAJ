@@ -29,7 +29,8 @@
     {% block head %}{% endblock %}
 </head>
 
-<body>
+<body data-empresa-ativa="{{ empresa_ativa_header | default('GM', true) }}"
+      data-api-sessao-empresa="{{ url_for('api_sessao_empresa') }}">
     <div class="layout-wrapper">
         <!-- Barra Lateral (Sidebar) -->
         <aside class="sidebar" id="sidebarArea">
@@ -37,6 +38,17 @@
                 <img src="{{ url_for('static', filename='imagens/logo_horizontal.png') }}" alt="Logo João Barbosa"
                     class="sidebar-logo">
             </div>
+            {% if nav_restrict_bradesco_gm %}
+            <nav class="sidebar-nav">
+                <ul>
+                    <li><a href="/home"><i class="fa-solid fa-house"></i> <span class="nav-text">Home</span></a></li>
+                    <li><a href="/busca"><i class="fa-solid fa-magnifying-glass"></i> <span class="nav-text">Busca por
+                                Contratos</span></a></li>
+                    <li><a href="/cadastro"><i class="fa-solid fa-users-gear"></i> <span class="nav-text">Consorciados e
+                                Avalistas</span></a></li>
+                </ul>
+            </nav>
+            {% else %}
             <nav class="sidebar-nav">
                 <ul>
                     <li><a href="/home"><i class="fa-solid fa-house"></i> <span class="nav-text">Home</span></a></li>
@@ -76,6 +88,7 @@
                     <li><a href="/mensagem"><i class="fa-solid fa-envelope"></i> <span class="nav-text">Mensagem</span></a></li>
                 </ul>
             </nav>
+            {% endif %}
         </aside>
 
         <!-- Conteúdo Principal -->
@@ -95,7 +108,7 @@
                         <i class="fa-solid fa-building"></i>
                         <div class="dep-info">
                             <span class="dep-label">Empresa</span>
-                            <span class="dep-current" id="departamentoAtual">GM</span>
+                            <span class="dep-current" id="departamentoAtual">{{ empresa_ativa_header | default('GM', true) }}</span>
                         </div>
                         <i class="fa-solid fa-chevron-down dep-chevron"></i>
 
@@ -104,20 +117,16 @@
                                 <h4>Selecione a Empresa</h4>
                             </div>
                             <ul class="dep-list">
-                                <li class="dep-item active" data-dep="GM">
+                                {% set ea = empresa_ativa_header | default('GM', true) %}
+                                {% for dep_id, dep_titulo in empresas_dropdown %}
+                                <li class="dep-item{% if dep_id == ea %} active{% endif %}" data-dep="{{ dep_id }}">
                                     <i class="fa-solid fa-circle-check dep-check"></i>
                                     <div>
-                                        <strong>GM</strong>
-                                        <span>Consórcio GM</span>
+                                        <strong>{{ dep_id }}</strong>
+                                        <span>{{ dep_titulo }}</span>
                                     </div>
                                 </li>
-                                <li class="dep-item disabled" data-dep="">
-                                    <i class="fa-solid fa-lock"></i>
-                                    <div>
-                                        <strong>Outros</strong>
-                                        <span>Em breve</span>
-                                    </div>
-                                </li>
+                                {% endfor %}
                             </ul>
                         </div>
                     </div>
