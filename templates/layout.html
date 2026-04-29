@@ -22,6 +22,9 @@
         .layout-flash-error { background:#fef2f2; color:#991b1b; border:1px solid #fecaca; }
         .layout-flash-success { background:#ecfdf5; color:#047857; border:1px solid #a7f3d0; }
         .layout-flash-message { background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe; }
+        #contatoAddModal .modal-container { max-width: 480px; width: 96vw; }
+        #contatoAddModal .modal-body { max-height: 80vh; overflow-y: auto; }
+        .contato-add-form { display: flex; flex-direction: column; gap: 12px; }
     </style>
     {% block head %}{% endblock %}
 </head>
@@ -252,6 +255,52 @@
         </div>
     </div>
 
+    <div id="contatoAddModal" class="modal-overlay">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h2 id="contatoAddTitle">Novo contato</h2>
+                <button type="button" class="close-modal-btn" id="caClose" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="contatoAddForm" class="contato-add-form">
+                    <div id="contatoAddTelBlock">
+                        <div class="form-group">
+                            <label for="caTipoTel">Tipo</label>
+                            <select id="caTipoTel" class="form-control" name="tipo_tel"></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="caDdd">DDD</label>
+                            <input type="text" id="caDdd" class="form-control" maxlength="5" placeholder="Ex: 11" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label for="caNumero">Numero</label>
+                            <input type="text" id="caNumero" class="form-control" placeholder="Ex: 999999999" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label for="caRamal">Ramal (opcional)</label>
+                            <input type="text" id="caRamal" class="form-control" maxlength="10" autocomplete="off">
+                        </div>
+                    </div>
+                    <div id="contatoAddEmailBlock" style="display:none">
+                        <div class="form-group">
+                            <label for="caTipoEmail">Tipo</label>
+                            <select id="caTipoEmail" class="form-control" name="tipo_email"></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="caEmail">E-mail</label>
+                            <input type="email" id="caEmail" class="form-control" placeholder="exemplo@dominio.com" autocomplete="off">
+                        </div>
+                    </div>
+                    <div id="contatoAddMsg" style="margin:4px 0 8px;color:#ef4444;display:none"></div>
+                    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+                        <button type="button" class="btn-secondary" id="caCancel">Cancelar</button>
+                        <button type="submit" class="btn-search" id="caSave" style="max-width:160px"><i class="fa-solid fa-check"></i> Salvar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- Script para lógica de UI global -->
     <script src="{{ url_for('static', filename='home.js') }}"></script>
     <script src="{{ url_for('static', filename='avisos.js') }}"></script>
@@ -259,6 +308,7 @@
     <script src="{{ url_for('static', filename='contrato_campos.js') }}"></script>
     <script src="{{ url_for('static', filename='contrato_detalhes_modal.js') }}"></script>
     <script src="{{ url_for('static', filename='pasta_virtual_insert_global.js') }}"></script>
+    <script src="{{ url_for('static', filename='contato_add_global.js') }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 
