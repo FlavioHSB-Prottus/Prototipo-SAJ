@@ -71,8 +71,8 @@ def upsert_telefone(cursor, pessoa_id: int, tipo: str, numero_completo, ramal=No
         return
     cursor.execute(
         """
-        INSERT INTO telefone (id_pessoa, tipo, ddd, numero, ramal)
-        VALUES (%s, %s, NULL, %s, %s)
+        INSERT INTO telefone (id_pessoa, tipo, numero, ramal)
+        VALUES (%s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
             numero = VALUES(numero),
             ramal = VALUES(ramal),
