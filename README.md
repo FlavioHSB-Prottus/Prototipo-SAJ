@@ -2,6 +2,19 @@
 
 Sistema centralizado para gestão e cobrança de consórcios: importação de arquivos GM, carteira, negativação, relatórios e cadastros. Use o menu lateral para navegar entre os módulos.
 
+## Metodologia e padrões
+
+- Documento original: `Metodologia - Joao Barbosa.odt` (raiz).
+- **Versão adaptada** ao stack Python/Flask/MySQL deste repo: [`docs/METODOLOGIA-JOAO-BARBOSA.md`](docs/METODOLOGIA-JOAO-BARBOSA.md).
+- Regras para o agente no Cursor: `.cursor/rules/metodologia-joao-barbosa.mdc`.
+
+## Configuração e segredos
+
+1. Copie `.env.example` para `.env` e defina valores (não versionar `.env` — está no `.gitignore`).
+2. Variáveis **`DB_*`** alinham o Flask aos scripts em `Python/` (`DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`; opcional `DB_PORT`).
+3. **`FLASK_SECRET_KEY`** para sessão em produção.
+4. Sem arquivo `.env`, o aplicativo usa os **mesmos padrões de desenvolvimento** de antes (`localhost`, usuário `root`, etc.).
+
 ## Layout do repositório
 
 | Caminho | Função |
@@ -11,15 +24,17 @@ Sistema centralizado para gestão e cobrança de consórcios: importação de ar
 | `static/` | CSS e JS por módulo (`cobranca.js`, `busca.js`, …) + assets compartilhados (`contrato_detalhes_modal.js`, `tramitacoes_detail.js`). |
 | `Python/` | Scripts chamados por subprocess a partir do app: tracker GM, importação, distribuição de cobrança. Depende de `Python/layout.json` e `pessoa_satellite.py`. |
 | `Banco/` | Scripts auxiliares de criação/seed do MySQL (uso manual ou deploy). |
+| `docs/` | Documentação do projeto (metodologia, etc.). |
 | `docs/conversa-agentes/` | Exportações antigas de conversas com agentes (não usadas em runtime). |
 
 Renomear ou mover `templates/` ou `static/` exige ajustar `url_for`, `render_template` e tags `<script>`/`href` em todo o projeto.
 
 ## Revisão de código (manutenção)
 
-- Imports em `app.py` estão em uso; a única constante órfã removida foi `SCRIPTS_DIR` (apontava para uma pasta `scripts/` que não existe).
-- Há **duplicação** de `renderContratoModal` em vários JS (`cobranca.js`, `busca.js`, `agenda.js`, …) por histórico de telas; unificar num único módulo reduziria linhas, mas é refatoração arriscada para regressões de UI — avaliar com testes manuais por módulo.
+- Há **duplicação** de `renderContratoModal` em vários JS (`cobranca.js`, `busca.js`, `agenda.js`, …); unificar reduziria linhas, mas é refatoração arriscada — avaliar com testes manuais por módulo.
 
 ## Execução
 
-Requisitos: Python 3 com dependências de `requirements.txt`, MySQL conforme `DB_CONFIG` em `app.py`.
+Requisitos: Python 3 com dependências de `requirements.txt`, MySQL acessível com as credenciais configuradas (env ou padrão local).
+
+Com `python-dotenv` instalado (está em `requirements.txt`), o `app.py` carrega o arquivo `.env` da raiz, se existir, antes de montar `DB_CONFIG`. Sem o pacote ou sem `.env`, o comportamento segue os padrões locais documentados em `.env.example`.

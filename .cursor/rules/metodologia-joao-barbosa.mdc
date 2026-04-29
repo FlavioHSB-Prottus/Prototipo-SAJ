@@ -1,0 +1,13 @@
+---
+description: Metodologia João Barbosa (segurança, simplicidade, docs, Python/Flask/MySQL)
+alwaysApply: true
+---
+
+# Prototipo-SAJ — metodologia do projeto
+
+- **Segurança:** não commitar segredos; usar `DB_*`, `MYSQL_*`, `FLASK_SECRET_KEY` via ambiente (ver `.env.example`). Não sugerir senhas em código.
+- **Simplicidade:** mudanças mínimas e legíveis; evitar refactors amplos sem pedido explícito.
+- **Python:** PEP 8; rotas e helpers novos com docstring quando não forem óbvios.
+- **Compatibilidade:** `app.py` e scripts em `Python/` compartilham nomes `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` (e opcionalmente `MYSQL_*` no Flask).
+- **Erros:** não silenciar falhas; mensagens ao usuário claras; logs sem dados sensíveis.
+- **Documentação:** atualizar `README.md` / `docs/` quando mudar setup ou convenções.

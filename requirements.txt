@@ -2,3 +2,4 @@ flask
 pymysql
 openpyxl
 fpdf2
+python-dotenv

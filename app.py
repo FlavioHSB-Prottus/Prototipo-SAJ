@@ -19,6 +19,11 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev-consorcio-gm-altere-em-producao')
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(PROJECT_DIR, '.env'))
+except ImportError:
+    pass
 PYTHON_DIR = os.path.join(PROJECT_DIR, 'Python')
 PYTHON_EXE = sys.executable
 
@@ -27,12 +32,23 @@ _POPEN_EXTRA = {}
 if sys.platform == 'win32':
     _POPEN_EXTRA['creationflags'] = subprocess.CREATE_NO_WINDOW
 
+def _db_port():
+    """Porta MySQL a partir de DB_PORT ou MYSQL_PORT (compatível com scripts em Python/)."""
+    raw = os.environ.get('DB_PORT', os.environ.get('MYSQL_PORT', '3306'))
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 3306
+
+
+# Preferir variáveis de ambiente (mesmos nomes dos scripts Python/: DB_*).
+# MYSQL_* é alias opcional. Sem env, mantém o comportamento anterior (localhost/root).
 DB_CONFIG = {
-    'host': 'localhost',
-    'port': 3306,
-    'user': 'root',
-    'password': 'root',
-    'database': 'consorcio_gm',
+    'host': os.environ.get('DB_HOST', os.environ.get('MYSQL_HOST', 'localhost')),
+    'port': _db_port(),
+    'user': os.environ.get('DB_USER', os.environ.get('MYSQL_USER', 'root')),
+    'password': os.environ.get('DB_PASSWORD', os.environ.get('MYSQL_PASSWORD', 'root')),
+    'database': os.environ.get('DB_NAME', os.environ.get('MYSQL_DATABASE', 'consorcio_gm')),
 }
 
 def _funcionario_esta_ativo(val):
@@ -1669,11 +1685,12 @@ def api_distribuicao_aprovar():
 # ---------------------------------------------------------------------------
 
 def _get_db():
+    """Abre conexão MySQL com PyMySQL usando ``DB_CONFIG`` (variáveis ``DB_*`` / ``MYSQL_*``)."""
     return pymysql.connect(**DB_CONFIG, cursorclass=pymysql.cursors.DictCursor)
 
 
 def _schema_pronto_para_importacao():
-    """Garante que o schema basico foi aplicado (scripts/criar_banco.py).
+    """Garante que o schema basico foi aplicado (`Banco/criar_banco.py`).
 
     Retorna (True, None) ou (False, mensagem para o operador).
     """
@@ -1696,9 +1713,9 @@ def _schema_pronto_para_importacao():
                     False,
                     (
                         f"Schema ausente: a tabela '{nome}' nao existe no banco '{dbn}'. "
-                        "Aplique o script de criacao:  python3 scripts/criar_banco.py  "
-                        "(em seguida, se desejar: scripts/seed_funcionarios.py e "
-                        "scripts/seed_tramitacao.py). Depois repita a importacao."
+                        "Aplique o script de criacao:  python3 Banco/criar_banco.py  "
+                        "(em seguida, se desejar: Banco/seed_funcionarios.py e "
+                        "Banco/seed_tramitacao.py). Depois repita a importacao."
                     ),
                 )
         cur.close()
@@ -1708,7 +1725,7 @@ def _schema_pronto_para_importacao():
         return (
             False,
             "Nao foi possivel acessar o MariaDB. Verifique se o servico esta no ar, "
-            "usuario/senha em app.py (DB_CONFIG) e se o banco existe. "
+            "credenciais (variaveis DB_* / MYSQL_* ou padrao local) e se o banco existe. "
             f"Detalhe: {e}",
         )
 
