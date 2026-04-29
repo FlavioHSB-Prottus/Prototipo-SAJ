@@ -282,6 +282,7 @@ document.addEventListener('DOMContentLoaded', () => {
         modalTitle.textContent = 'Carregando...';
         detalhesModal.classList.add('active');
         document.body.style.overflow = 'hidden';
+        window.__refreshContatoSrc = function () { return window.openContratoModal(cid); };
 
         try {
             const resp = await fetch('/api/contrato/' + cid);
@@ -454,10 +455,14 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        if ((telefones && telefones.length) || (emails && emails.length)) {
+        if (pessoa && pessoa.id) {
+            var _pEncA = encodeURIComponent(pessoa.nome_completo || '');
+            var _pIdA = String(pessoa.id);
             html += '<div class="contact-grid" style="margin-top:12px">';
+            html += '<div><div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px"><h4 style="font-size:0.85rem;color:var(--text-muted);margin:0">Telefones</h4>';
+            html += '<div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="action-btn btn-add-telefone-pessoa" data-pessoa-id="' + _pIdA + '" data-pessoa-nome="' + _pEncA + '" data-recurso="telefone"><i class="fa-solid fa-plus"></i> Telefone</button></div></div>';
             if (telefones && telefones.length) {
-                html += '<div><ul class="contact-list">';
+                html += '<ul class="contact-list">';
                 telefones.forEach(function (t) {
                     html += '<li><i class="fa-solid fa-phone"></i> ' + escapeHtml(t.numero || '-');
                     if (t.ramal) html += ' (ramal ' + escapeHtml(t.ramal) + ')';
@@ -465,18 +470,24 @@ document.addEventListener('DOMContentLoaded', () => {
                     html += '<button class="btn-mensagem" title="Enviar Mensagem"><i class="fa-solid fa-comment-dots"></i></button>';
                     html += '<span class="contact-tipo">' + escapeHtml(t.tipo) + '</span></li>';
                 });
-                html += '</ul></div>';
+                html += '</ul>';
+            } else {
+                html += '<p style="color:var(--text-muted);font-size:0.85rem;margin:0">Nenhum telefone cadastrado.</p>';
             }
+            html += '</div><div><div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px"><h4 style="font-size:0.85rem;color:var(--text-muted);margin:0">E-mails</h4>';
+            html += '<div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="action-btn btn-add-email-pessoa" data-pessoa-id="' + _pIdA + '" data-pessoa-nome="' + _pEncA + '" data-recurso="email"><i class="fa-solid fa-plus"></i> Email</button></div></div>';
             if (emails && emails.length) {
-                html += '<div><ul class="contact-list">';
+                html += '<ul class="contact-list">';
                 emails.forEach(function (em) {
                     html += '<li><i class="fa-solid fa-envelope"></i> ' + escapeHtml(em.email || '-');
                     html += '<button class="btn-mensagem" title="Enviar Mensagem"><i class="fa-solid fa-comment-dots"></i></button>';
                     html += '<span class="contact-tipo">' + escapeHtml(em.tipo) + '</span></li>';
                 });
-                html += '</ul></div>';
+                html += '</ul>';
+            } else {
+                html += '<p style="color:var(--text-muted);font-size:0.85rem;margin:0">Nenhum e-mail cadastrado.</p>';
             }
-            html += '</div>';
+            html += '</div></div>';
         }
 
         html += '</div>';
