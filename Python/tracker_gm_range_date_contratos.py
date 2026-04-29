@@ -6,6 +6,9 @@ Requer layout.json e pessoa_satellite.py no mesmo diretorio (pasta Python/).
 
 Uso (na raiz do projeto):
     python Python/tracker_gm_range_date_contratos.py
+
+Documentação do projeto (metodologia, segurança, convenções):
+    docs/METODOLOGIA-JOAO-BARBOSA.md na raiz do repositório.
 """
 import datetime
 import json
@@ -495,6 +498,123 @@ def insert_ocorrencia(cursor, id_contrato, arquivo_gm_id, status, descricao):
     return cursor.lastrowid
 
 
+def _data_referencia_arquivo_gm(cursor, arquivo_gm_id):
+    """Data do arquivo GM (dia do fato); fallback hoje."""
+    if not arquivo_gm_id:
+        return datetime.date.today()
+    try:
+        cursor.execute(
+            "SELECT data_arquivo FROM arquivos_gm WHERE id_arquivo_gm = %s LIMIT 1",
+            (arquivo_gm_id,),
+        )
+        r = cursor.fetchone()
+        if r and r.get("data_arquivo") is not None:
+            d = r["data_arquivo"]
+            if isinstance(d, datetime.datetime):
+                return d.date()
+            if isinstance(d, datetime.date):
+                return d
+    except Exception:
+        pass
+    return datetime.date.today()
+
+
+def _detalhe_positivacao_pagamento(cursor, id_contrato, arquivo_gm_id, numero_parcela_quitada):
+    """Texto do histórico: parcela positivada + próxima parcela-alvo para negativação (regra 31–89 dias)."""
+    data_ref = _data_referencia_arquivo_gm(cursor, arquivo_gm_id)
+    np_q = numero_parcela_quitada
+    try:
+        np_txt = str(int(np_q)) if np_q is not None else ""
+    except (TypeError, ValueError):
+        np_txt = str(np_q) if np_q is not None else ""
+    if not np_txt:
+        np_txt = "(parcela)"
+
+    partes = [
+        f"Positivação por pagamento: a parcela nº {np_txt} foi quitada e a negativação "
+        "foi retirada para essa parcela neste cadastro."
+    ]
+
+    try:
+        cursor.execute(
+            """
+            SELECT p.numero_parcela, DATEDIFF(%s, p.vencimento) AS dias_atraso
+            FROM parcela p
+            WHERE p.id_contrato = %s AND p.status = 'aberto'
+            ORDER BY p.vencimento ASC, p.id ASC
+            LIMIT 1
+            """,
+            (data_ref, id_contrato),
+        )
+        alvo = cursor.fetchone()
+    except Exception:
+        alvo = None
+
+    if alvo and alvo.get("numero_parcela") is not None:
+        try:
+            na = int(alvo["numero_parcela"])
+        except (TypeError, ValueError):
+            na = alvo["numero_parcela"]
+        try:
+            dias = int(alvo.get("dias_atraso") or 0)
+        except (TypeError, ValueError):
+            dias = 0
+        if 30 < dias < 90:
+            partes.append(
+                f"Parcela que poderá ser negativada em seguida (em aberto mais antiga por vencimento): "
+                f"nº {na}, com {dias} dias de atraso na data de referência — dentro da janela 31–89 dias."
+            )
+        else:
+            partes.append(
+                f"Próxima parcela em aberto mais antiga por vencimento: nº {na}, com {dias} dias de "
+                "atraso na data de referência. A negativação automática só considera atraso entre 31 e 89 dias."
+            )
+    else:
+        partes.append(
+            "Não há outra parcela em aberto neste contrato para nova negativação neste momento."
+        )
+
+    return " ".join(partes)
+
+
+def _descricao_ocorrencia_parcela_paga_positivacao(cursor, id_contrato, arquivo_gm_id, numero_parcela_quitada):
+    """Resumo na linha de ocorrências (parcela paga), alinhado ao histórico de negativação."""
+    data_ref = _data_referencia_arquivo_gm(cursor, arquivo_gm_id)
+    try:
+        np_txt = str(int(numero_parcela_quitada)) if numero_parcela_quitada is not None else ""
+    except (TypeError, ValueError):
+        np_txt = str(numero_parcela_quitada) if numero_parcela_quitada is not None else ""
+
+    try:
+        cursor.execute(
+            """
+            SELECT p.numero_parcela, DATEDIFF(%s, p.vencimento) AS dias_atraso
+            FROM parcela p
+            WHERE p.id_contrato = %s AND p.status = 'aberto'
+            ORDER BY p.vencimento ASC, p.id ASC
+            LIMIT 1
+            """,
+            (data_ref, id_contrato),
+        )
+        alvo = cursor.fetchone()
+    except Exception:
+        alvo = None
+
+    if alvo and alvo.get("numero_parcela") is not None:
+        try:
+            na = int(alvo["numero_parcela"])
+        except (TypeError, ValueError):
+            na = alvo["numero_parcela"]
+        return (
+            f"Parcela nº {np_txt} paga (antes negativada). "
+            f"Próxima parcela em aberto mais antiga: nº {na} — poderá ser negativada se elegível (31–89 dias de atraso)."
+        )
+    return (
+        f"Parcela nº {np_txt} paga (antes negativada). "
+        "Não há outra parcela em aberto para negativação neste momento."
+    )
+
+
 def _liberar_negativacao_parcela_paga(cursor, conn, id_parcela, id_contrato, arquivo_gm_id):
     """Se existia `negativacao` para a parcela paga, apaga 1 registro.
     Grava ocorrencia com status *aberto*, liberando a cobranca visual
@@ -512,6 +632,12 @@ def _liberar_negativacao_parcela_paga(cursor, conn, id_parcela, id_contrato, arq
     if not row:
         return
     try:
+        detalhe_hist = _detalhe_positivacao_pagamento(
+            cursor,
+            int(row["id_contrato"]),
+            arquivo_gm_id,
+            row.get("numero_parcela"),
+        )
         cursor.execute(
             """
             INSERT INTO negativacao_historico (
@@ -527,8 +653,7 @@ def _liberar_negativacao_parcela_paga(cursor, conn, id_parcela, id_contrato, arq
                 datetime.datetime.now(),
                 row.get("dias_atraso"),
                 row.get("status"),
-                "Parcela quitada; negativação retirada para esta parcela (positivação). "
-                "Outra parcela poderá ser negativada se elegível.",
+                detalhe_hist,
             ),
         )
     except Exception:
@@ -545,7 +670,9 @@ def _liberar_negativacao_parcela_paga(cursor, conn, id_parcela, id_contrato, arq
             id_contrato,
             arquivo_gm_id,
             OCORRENCIA_ABERTO,
-            "Parcela paga (antes negativada; outra parcela poderá ser negativada se elegível).",
+            _descricao_ocorrencia_parcela_paga_positivacao(
+                cursor, id_contrato, arquivo_gm_id, row.get("numero_parcela")
+            ),
         )
     except Exception:
         pass

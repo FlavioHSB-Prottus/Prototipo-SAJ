@@ -4,9 +4,16 @@ document.addEventListener('DOMContentLoaded', function () {
     var page = 1;
     var perPage = 40;
 
+    var sortAtivos = { col: 'data', dir: 'desc' };
+    var sortHist = { col: 'data', dir: 'desc' };
+
     var negSearchForm = document.getElementById('negSearchForm');
     var negTipoBusca = document.getElementById('neg_tipo_busca');
     var negTermo = document.getElementById('neg_termo');
+    var negEvento = document.getElementById('neg_evento');
+    var negStatusAtivo = document.getElementById('neg_status_ativo');
+    var negDataInicio = document.getElementById('neg_data_inicio');
+    var negDataFim = document.getElementById('neg_data_fim');
     var negBtnLimpar = document.getElementById('negBtnLimpar');
     var negResultsSection = document.getElementById('negResultsSection');
     var negNoResults = document.getElementById('negNoResults');
@@ -40,6 +47,29 @@ document.addEventListener('DOMContentLoaded', function () {
         return m[t] || (t || '-');
     }
 
+    function statusAtivoLabel(s) {
+        var m = {
+            registrado_tracker: 'Negativado (tracker)',
+            enviado: 'Negativado (envio)',
+            falhou: 'Falha envio'
+        };
+        return m[s] || (s || '-');
+    }
+
+    function eventoLabel(ev) {
+        var m = {
+            todos: 'Todos',
+            negativado: 'Negativados (qualquer)',
+            positivado: 'Positivados (qualquer)',
+            observacao: 'Observacao',
+            negativado_manual: 'Negativado manual',
+            negativado_tracker: 'Negativado (tracker)',
+            removido_pagamento: 'Positivacao (pagamento)',
+            removido_manual: 'Positivacao (manual)'
+        };
+        return m[ev] || ev;
+    }
+
     function applyPlaceholder() {
         if (!negTipoBusca || !negTermo) return;
         if (negTipoBusca.value === 'texto') {
@@ -47,6 +77,38 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
             negTermo.placeholder = 'Grupo, cota ou numero do contrato (ex.: 027004/0040)';
         }
+    }
+
+    function buildFilterDesc(q) {
+        var parts = [];
+        if (q) parts.push('texto: "' + q + '"');
+        if (negEvento && negEvento.value && negEvento.value !== 'todos') {
+            parts.push('ocorrencia: ' + eventoLabel(negEvento.value));
+        }
+        if (negStatusAtivo && negStatusAtivo.value) {
+            parts.push('status ativo: ' + negStatusAtivo.value);
+        }
+        if (negDataInicio && negDataInicio.value) {
+            parts.push('de ' + negDataInicio.value);
+        }
+        if (negDataFim && negDataFim.value) {
+            parts.push('ate ' + negDataFim.value);
+        }
+        return parts.length ? parts.join(' | ') : 'sem filtro extra';
+    }
+
+    function updateSortIndicators() {
+        document.querySelectorAll('th.neg-sort').forEach(function (th) {
+            var tbl = th.getAttribute('data-neg-table');
+            var col = th.getAttribute('data-neg-sort');
+            var ind = th.querySelector('.sort-ind');
+            if (!ind) return;
+            var active = (tbl === 'ativos' && sortAtivos.col === col && sortAtivos.dir) ||
+                (tbl === 'hist' && sortHist.col === col && sortHist.dir);
+            ind.textContent = active ? (tbl === 'ativos'
+                ? (sortAtivos.dir === 'asc' ? '▲' : '▼')
+                : (sortHist.dir === 'asc' ? '▲' : '▼')) : '';
+        });
     }
 
     function renderAtivos(rows, filterDesc) {
@@ -57,6 +119,7 @@ document.addEventListener('DOMContentLoaded', function () {
         tb.innerHTML = '';
         if (!rows || !rows.length) {
             tb.innerHTML = '<tr><td colspan="7" style="color:#64748b">Sem registros.</td></tr>';
+            updateSortIndicators();
             return;
         }
         rows.forEach(function (r) {
@@ -68,7 +131,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 '<td>' + gc + '</td>' +
                 '<td>' + esc(r.numero_parcela != null ? r.numero_parcela : '-') + '</td>' +
                 '<td>' + esc(r.dias_atraso != null ? r.dias_atraso : '-') + '</td>' +
-                '<td><span class="status-badge status-danger">' + esc(r.status || '-') + '</span></td>' +
+                '<td><span class="status-badge status-danger">' + esc(statusAtivoLabel(r.status)) + '</span></td>' +
                 '<td>' + fmtDt(r.data_negativacao) + '</td>' +
                 '<td>' + esc(r.funcionario_nome || '-') + '</td>' +
                 '<td class="text-right">' +
@@ -79,6 +142,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
         bindRemover(tb);
         bindDetalhes(tb);
+        updateSortIndicators();
     }
 
     function renderHist(rows, filterDesc) {
@@ -89,17 +153,21 @@ document.addEventListener('DOMContentLoaded', function () {
         tb.innerHTML = '';
         if (!rows || !rows.length) {
             tb.innerHTML = '<tr><td colspan="7" style="color:#64748b">Sem registros.</td></tr>';
+            updateSortIndicators();
             return;
         }
         rows.forEach(function (r) {
             var tr = document.createElement('tr');
             var gc = esc(r.grupo) + '/' + esc(r.cota);
             var idc = r.id_contrato;
+            var tipo = r.tipo_evento || '';
+            var badgeClass = (tipo.indexOf('removido') === 0) ? 'status-success' : 'status-danger';
+            if (tipo === 'observacao') badgeClass = 'status-active';
             tr.innerHTML =
                 '<td>' + fmtDt(r.data_evento) + '</td>' +
                 '<td>' + gc + '</td>' +
                 '<td>' + esc(r.numero_parcela != null ? r.numero_parcela : '-') + '</td>' +
-                '<td><span class="status-badge status-active">' + esc(tipoLabel(r.tipo_evento)) + '</span></td>' +
+                '<td><span class="status-badge ' + badgeClass + '">' + esc(tipoLabel(r.tipo_evento)) + '</span></td>' +
                 '<td style="max-width:280px;white-space:normal">' + esc(r.detalhe || '-') + '</td>' +
                 '<td>' + esc(r.funcionario_nome || '-') + '</td>' +
                 '<td class="text-right">' +
@@ -108,6 +176,7 @@ document.addEventListener('DOMContentLoaded', function () {
             tb.appendChild(tr);
         });
         bindDetalhes(tb);
+        updateSortIndicators();
     }
 
     function bindDetalhes(container) {
@@ -151,10 +220,21 @@ document.addEventListener('DOMContentLoaded', function () {
             page: String(page),
             per_page: String(perPage),
             q: q,
-            tipo_busca: tipoBusca
+            tipo_busca: tipoBusca,
+            sort_hist: sortHist.col,
+            order_hist: sortHist.dir,
+            sort_ativos: sortAtivos.col,
+            order_ativos: sortAtivos.dir
         });
+        if (negEvento && negEvento.value) params.set('evento', negEvento.value);
+        if (negStatusAtivo && negStatusAtivo.value) params.set('status_ativo', negStatusAtivo.value);
+        if (negDataInicio && negDataInicio.value) params.set('data_inicio', negDataInicio.value);
+        if (negDataFim && negDataFim.value) params.set('data_fim', negDataFim.value);
+
         if (negHistMeta) negHistMeta.textContent = 'Carregando...';
         if (negAtivosMeta) negAtivosMeta.textContent = 'Carregando...';
+
+        var fd = buildFilterDesc(q);
 
         fetch('/api/negativacao/listagem?' + params.toString())
             .then(function (r) { return r.json(); })
@@ -168,7 +248,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 var ativos = data.ativos || [];
                 var hist = data.historico || [];
-                var fd = q ? ('filtro: "' + q + '"') : 'sem filtro de texto';
 
                 renderAtivos(ativos, fd);
                 renderHist(hist, fd);
@@ -190,6 +269,38 @@ document.addEventListener('DOMContentLoaded', function () {
             });
     }
 
+    function onSortClick(th) {
+        var tbl = th.getAttribute('data-neg-table');
+        var col = th.getAttribute('data-neg-sort');
+        if (!tbl || !col) return;
+        if (tbl === 'ativos') {
+            if (sortAtivos.col === col) {
+                sortAtivos.dir = sortAtivos.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortAtivos.col = col;
+                sortAtivos.dir = 'desc';
+            }
+        } else if (tbl === 'hist') {
+            if (sortHist.col === col) {
+                sortHist.dir = sortHist.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortHist.col = col;
+                sortHist.dir = 'desc';
+            }
+            page = 1;
+        }
+        load();
+    }
+
+    document.querySelectorAll('#negTableAtivos thead, #negTableHist thead').forEach(function (thead) {
+        thead.addEventListener('click', function (e) {
+            var th = e.target.closest('th.neg-sort');
+            if (!th || !thead.contains(th)) return;
+            e.preventDefault();
+            onSortClick(th);
+        });
+    });
+
     if (negTipoBusca && negTermo) {
         negTipoBusca.addEventListener('change', applyPlaceholder);
         applyPlaceholder();
@@ -207,13 +318,20 @@ document.addEventListener('DOMContentLoaded', function () {
     if (negBtnLimpar) {
         negBtnLimpar.addEventListener('click', function () {
             if (negTermo) negTermo.value = '';
+            if (negEvento) negEvento.value = 'todos';
+            if (negStatusAtivo) negStatusAtivo.value = '';
+            if (negDataInicio) negDataInicio.value = '';
+            if (negDataFim) negDataFim.value = '';
             page = 1;
+            sortAtivos = { col: 'data', dir: 'desc' };
+            sortHist = { col: 'data', dir: 'desc' };
             if (negResultsSection) negResultsSection.classList.add('d-none');
             var tbA = document.getElementById('negTbodyAtivos');
             var tbH = document.getElementById('negTbodyHist');
             if (tbA) tbA.innerHTML = '';
             if (tbH) tbH.innerHTML = '';
             if (negNoResults) negNoResults.classList.add('d-none');
+            updateSortIndicators();
         });
     }
 
@@ -264,4 +382,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 });
         });
     }
+
+    updateSortIndicators();
 });

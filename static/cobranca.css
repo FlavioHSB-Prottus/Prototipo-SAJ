@@ -123,6 +123,15 @@
     gap: 16px;
 }
 
+/* Analítico/Kanban + Parcelas desordenadas + KPI na mesma linha */
+.toolbar-right-tools {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
 .toolbar-left {
     display: flex;
     align-items: center;
@@ -229,6 +238,7 @@
     opacity: 0.9;
 }
 
+/* Legado: mantido vazio se algo referenciar .toolbar-right */
 .toolbar-right {
     display: flex;
     align-items: center;
@@ -640,9 +650,9 @@
         align-items: flex-start;
     }
 
-    .toolbar-right {
+    .toolbar-right-tools {
         width: 100%;
-        justify-content: flex-end;
+        justify-content: flex-start;
     }
 
     .expand-grid {

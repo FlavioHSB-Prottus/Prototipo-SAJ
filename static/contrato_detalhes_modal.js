@@ -155,37 +155,129 @@
         });
     }
 
+    function negativacaoEhTipoNegativado(tipo) {
+        var t = String(tipo || '');
+        return t === 'negativado_manual' || t === 'negativado_tracker';
+    }
+
+    /** True se existe positivação (removido_*) para a parcela depois deste evento na linha do tempo. */
+    function negativacaoHaRemocaoDepois(sortedHist, ev) {
+        if (!ev || ev.numero_parcela == null || ev.numero_parcela === '') return false;
+        var parc = String(ev.numero_parcela);
+        var idx = -1;
+        for (var i = 0; i < sortedHist.length; i++) {
+            if (String(sortedHist[i].id) === String(ev.id)) {
+                idx = i;
+                break;
+            }
+        }
+        if (idx < 0) return false;
+        for (var j = idx + 1; j < sortedHist.length; j++) {
+            var h = sortedHist[j];
+            if (String(h.numero_parcela) !== parc) continue;
+            var t = String(h.tipo_evento || '');
+            if (t.indexOf('removido') === 0) return true;
+        }
+        return false;
+    }
+
+    function negativacaoHistoricoTemNegativadoParaParcela(hist, parcela) {
+        var p = String(parcela);
+        for (var i = 0; i < hist.length; i++) {
+            var h = hist[i];
+            if (String(h.numero_parcela) !== p) continue;
+            if (negativacaoEhTipoNegativado(h.tipo_evento)) return true;
+        }
+        return false;
+    }
+
+    function statusAtivaLegivel(status) {
+        var s = String(status || '').toLowerCase();
+        if (s === 'registrado_tracker') return 'registro via tracker';
+        if (s === 'enviado') return 'enviado à birô';
+        if (s === 'falhou') return 'falha no envio';
+        return status || 'cadastro interno';
+    }
+
+    /**
+     * Uma única linha do tempo: histórico ordenado + linhas sintéticas só quando
+     * há negativação ativa sem evento de negativação correspondente no histórico.
+     * Eventos de negativação cuja parcela ainda está ativa recebem nota "Em vigor".
+     */
     function buildNegativacaoSectionHtml(data) {
         var ativas = data.negativacao_ativas || [];
         var historico = data.negativacao_historico || [];
-        var nHist = historico.length;
-        var nAt = ativas.length;
-        var html = '';
-        html += '<div class="detail-section"><h3><i class="fa-solid fa-ban"></i> Negativação e positivação (' + nHist + ' evento' + (nHist === 1 ? '' : 's') + ')</h3>';
+        var sorted = sortNegativacaoHistoricoForTimeline(historico);
+        var parcelasAtivas = {};
+        ativas.forEach(function (a) {
+            if (a.numero_parcela != null && a.numero_parcela !== '') {
+                parcelasAtivas[String(a.numero_parcela)] = true;
+            }
+        });
 
-        if (nAt > 0) {
-            html += '<p style="margin:0 0 10px;font-size:0.9rem;color:#64748b">Parcelas com registro de negativação ainda <strong>ativo</strong> no cadastro interno (' + nAt + '):</p>';
-            html += '<ul style="margin:0 0 16px 18px;line-height:1.5;">';
-            ativas.forEach(function (n) {
-                var op = n.funcionario_nome ? (' — operador: ' + n.funcionario_nome) : '';
-                html += '<li>Parcela ' + esc(n.numero_parcela != null ? n.numero_parcela : '—') +
-                    ', ' + esc(n.status || '') + op + ' · ' + formatDateTime(n.data_negativacao) + '</li>';
+        var timelineRows = [];
+
+        sorted.forEach(function (ev) {
+            var parc = ev.numero_parcela != null && ev.numero_parcela !== '' ? String(ev.numero_parcela) : '';
+            var emVigor = false;
+            if (parc && negativacaoEhTipoNegativado(ev.tipo_evento) && parcelasAtivas[parc] &&
+                    !negativacaoHaRemocaoDepois(sorted, ev)) {
+                emVigor = true;
+            }
+            timelineRows.push({
+                sortMs: parseDataArquivoMs(ev.data_evento),
+                kind: 'hist',
+                ev: ev,
+                emVigor: emVigor
             });
-            html += '</ul>';
-        }
+        });
 
-        if (!nHist) {
-            html += '<p style="color:#64748b;margin:0">Nenhum evento de negativação/positivação registrado ainda no histórico. ' +
-                (nAt ? 'O contrato possui negativação ativa; novos eventos aparecerão aqui após alterações.' : '') + '</p>';
+        ativas.forEach(function (a) {
+            if (negativacaoHistoricoTemNegativadoParaParcela(historico, a.numero_parcela)) return;
+            timelineRows.push({
+                sortMs: parseDataArquivoMs(a.data_negativacao),
+                kind: 'ativa',
+                ativa: a
+            });
+        });
+
+        timelineRows.sort(function (x, y) {
+            var dx = (x.sortMs || 0) - (y.sortMs || 0);
+            if (dx !== 0) return dx;
+            if (x.kind !== y.kind) return x.kind === 'hist' ? -1 : 1;
+            return 0;
+        });
+
+        var tituloCount = timelineRows.length;
+
+        var html = '';
+        html += '<div class="detail-section"><h3><i class="fa-solid fa-ban"></i> Negativação e positivação (' +
+            tituloCount + ' ' + (tituloCount === 1 ? 'registro' : 'registros') + ')</h3>';
+
+        if (timelineRows.length === 0 && ativas.length === 0) {
+            html += '<p style="color:#64748b;margin:0">Nenhum evento de negativação ou positivação registrado para este contrato.</p>';
             html += '</div>';
             return html;
         }
 
-        var sorted = sortNegativacaoHistoricoForTimeline(historico);
+        html += '<p style="margin:0 0 12px;font-size:0.88rem;color:#64748b">Ordem cronológica (mais antigo primeiro). ' +
+            (ativas.length ? ('<strong>' + ativas.length + '</strong> parcela(s) com negativação ainda ativa no cadastro.') : '') +
+            '</p>';
+
         html += '<div class="timeline timeline-ocorrencias">';
         var lastYm = null;
-        sorted.forEach(function (ev) {
-            var datePart = calendarDayKey(ev.data_evento);
+
+        timelineRows.forEach(function (row) {
+            var whenRaw;
+            var datePart;
+            if (row.kind === 'hist') {
+                whenRaw = row.ev.data_evento;
+                datePart = calendarDayKey(row.ev.data_evento);
+            } else {
+                whenRaw = row.ativa.data_negativacao;
+                datePart = calendarDayKey(row.ativa.data_negativacao);
+            }
+
             var parts = datePart.split('-');
             if (parts.length >= 2) {
                 var y = parseInt(parts[0], 10);
@@ -198,16 +290,41 @@
                     }
                 }
             }
+
             html += '<div class="timeline-item">';
-            html += '<div class="timeline-date">' + formatDateTime(ev.data_evento) + '</div>';
-            var rot = negativacaoTipoLabel(ev.tipo_evento);
-            var extra = '';
-            if (ev.funcionario_nome) extra += ' · Operador: ' + esc(ev.funcionario_nome);
-            if (ev.numero_parcela != null && ev.numero_parcela !== '') extra += ' · Parcela nº ' + esc(ev.numero_parcela);
-            html += '<div class="timeline-event"><strong><span class="status-badge ' + negativacaoTipoClass(ev.tipo_evento) + '">' + esc(rot) + '</span></strong> ';
-            html += esc(ev.detalhe || '') + (extra ? '<span style="color:#64748b;font-size:0.92em">' + extra + '</span>' : '');
-            html += '</div></div>';
+
+            if (row.kind === 'hist') {
+                var ev = row.ev;
+                html += '<div class="timeline-date">' + formatDateTime(whenRaw) + '</div>';
+                var rot = negativacaoTipoLabel(ev.tipo_evento);
+                var extra = '';
+                if (ev.funcionario_nome) extra += ' · Operador: ' + esc(ev.funcionario_nome);
+                // removido_pagamento: detalhe ja traz parcela quitada e proxima alvo (texto do tracker).
+                if (ev.numero_parcela != null && ev.numero_parcela !== '' &&
+                        String(ev.tipo_evento || '') !== 'removido_pagamento') {
+                    extra += ' · Parcela nº ' + esc(ev.numero_parcela);
+                }
+                if (row.emVigor) {
+                    extra += ' · <span class="status-badge status-warning" style="font-size:0.78em">Em vigor no cadastro</span>';
+                }
+                html += '<div class="timeline-event"><strong><span class="status-badge ' + negativacaoTipoClass(ev.tipo_evento) + '">' + esc(rot) + '</span></strong> ';
+                html += esc(ev.detalhe || '') + (extra ? '<span style="color:#64748b;font-size:0.92em">' + extra + '</span>' : '');
+                html += '</div>';
+            } else {
+                var n = row.ativa;
+                html += '<div class="timeline-date">' + formatDateTime(whenRaw) + '</div>';
+                var op = n.funcionario_nome ? ('Operador: ' + esc(n.funcionario_nome) + ' · ') : '';
+                var det = 'Negativação ativa registrada apenas no cadastro interno (' + esc(statusAtivaLegivel(n.status)) +
+                    '). ' + op + 'Parcela nº ' + esc(n.numero_parcela != null ? n.numero_parcela : '—') + '.';
+                html += '<div class="timeline-event"><strong><span class="status-badge status-danger">Negativação em vigor</span></strong> ';
+                html += '<span style="color:#334155">' + det + '</span>';
+                html += ' <span class="status-badge status-warning" style="font-size:0.78em">Sem evento no histórico</span>';
+                html += '</div>';
+            }
+
+            html += '</div>';
         });
+
         html += '</div></div>';
         return html;
     }
@@ -446,6 +563,7 @@
         open: open,
         close: closeModal,
         buildOcorrenciasTimelineHtml: buildOcorrenciasTimelineHtml,
+        buildNegativacaoSectionHtml: buildNegativacaoSectionHtml,
     };
 
     document.addEventListener('DOMContentLoaded', bindModalUiOnce);

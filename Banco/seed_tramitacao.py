@@ -13,13 +13,16 @@ Estrategia (mesmo padrao do seed_funcionarios.py):
        duplica.
 
 Uso:
-    python scripts/seed_tramitacao.py              # todos os contratos
-    python scripts/seed_tramitacao.py --abertos    # so os status=aberto
-    python scripts/seed_tramitacao.py --limit 50   # no maximo 50 contratos
-    python scripts/seed_tramitacao.py --remove     # remove os seeds
+    python Banco/seed_tramitacao.py              # todos os contratos
+    python Banco/seed_tramitacao.py --abertos    # so os status=aberto
+    python Banco/seed_tramitacao.py --limit 50   # no maximo 50 contratos
+    python Banco/seed_tramitacao.py --remove     # remove os seeds
 
 Ambiente (opcional):
     DB_HOST, DB_USER, DB_PASSWORD, DB_NAME
+
+Documentação do projeto (metodologia, segurança, convenções):
+    docs/METODOLOGIA-JOAO-BARBOSA.md na raiz do repositório.
 """
 import argparse
 import datetime

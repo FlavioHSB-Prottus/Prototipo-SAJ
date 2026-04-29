@@ -40,6 +40,9 @@ Uso (na raiz do projeto):
 Ambiente (opcional):
     DB_HOST, DB_USER, DB_PASSWORD, DB_NAME
     ESTABILIDADE_TOLERANCIA   (default 0.15)
+
+Documentação do projeto (metodologia, segurança, convenções):
+    docs/METODOLOGIA-JOAO-BARBOSA.md na raiz do repositório.
 """
 import os
 import sys
