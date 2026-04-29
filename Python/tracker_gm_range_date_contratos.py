@@ -6,6 +6,9 @@ Requer layout.json e pessoa_satellite.py no mesmo diretorio (pasta Python/).
 
 Uso (na raiz do projeto):
     python Python/tracker_gm_range_date_contratos.py
+
+Documentação do projeto (metodologia, segurança, convenções):
+    docs/METODOLOGIA-JOAO-BARBOSA.md na raiz do repositório.
 """
 import datetime
 import json

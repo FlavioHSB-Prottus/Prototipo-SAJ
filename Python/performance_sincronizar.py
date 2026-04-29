@@ -23,6 +23,9 @@ nao entram, por ex., ocorrencias de parcela vencida sem ser novo/voltou.
 Janela opcional (reimportacao, debug - mesmo criterio da referencia, so que
 cortado por data_arquivo):
     python3 performance_sincronizar.py 2026-01-10 2026-01-12
+
+Documentação do projeto (metodologia, segurança, convenções):
+    docs/METODOLOGIA-JOAO-BARBOSA.md na raiz do repositório.
 """
 import datetime
 import os
