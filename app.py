@@ -12,6 +12,7 @@ import sys
 import tempfile
 
 import pymysql
+from pymysql.err import IntegrityError
 from flask import Flask, Response, render_template, request, redirect, url_for, jsonify, send_file, session, flash, abort
 from werkzeug.utils import secure_filename
 
@@ -2000,7 +2001,124 @@ def api_busca():
     return jsonify({'results': results, 'tipo': tipo})
 
 
-@app.route('/api/pessoa/<int:pessoa_id>')
+# Tipos validos para INSERT em `telefone` e `email` (UNIQUE id_pessoa + tipo).
+_TELEFONE_TIPOS = (
+    'fixo', 'celular', 'comercial', 'comercial_devedor', 'recados', 'outro',
+)
+_EMAIL_TIPOS = ('principal', 'secundario', 'comercial', 'outro')
+
+
+@app.route('/api/pessoa/<int:pessoa_id>/telefone', methods=['POST'])
+def api_pessoa_add_telefone(pessoa_id):
+    """Adiciona um registro de telefone para a pessoa (respeitando UK id_pessoa+tipo)."""
+    if not session.get('funcionario_id'):
+        return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
+    data = request.get_json(silent=True) or {}
+    tipo = (data.get('tipo') or '').strip()
+    ddd = (data.get('ddd') or '').strip() or None
+    ramal = (data.get('ramal') or '').strip() or None
+    numero = (data.get('numero') or '').strip()
+    if not tipo or tipo not in _TELEFONE_TIPOS:
+        return jsonify({'error': f'Tipo invalido. Valores: {", ".join(_TELEFONE_TIPOS)}.'}), 400
+    if not numero:
+        return jsonify({'error': 'Numero e obrigatorio.'}), 400
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT 1 FROM pessoa WHERE id = %s", (pessoa_id,))
+        if not cursor.fetchone():
+            return jsonify({'error': 'Pessoa nao encontrada.'}), 404
+        cursor.execute(
+            "INSERT INTO telefone (id_pessoa, tipo, ddd, numero, ramal) VALUES (%s, %s, %s, %s, %s)",
+            (pessoa_id, tipo, ddd, numero, ramal),
+        )
+        new_id = cursor.lastrowid
+        conn.commit()
+        cursor.execute("SELECT * FROM telefone WHERE id = %s", (new_id,))
+        row = _clean_row(cursor.fetchone())
+        return jsonify({'ok': True, 'telefone': row})
+    except IntegrityError:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        return jsonify({
+            'error': 'Ja existe telefone deste tipo para esta pessoa.',
+        }), 409
+    except Exception as exc:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        return jsonify({'error': f'Erro ao inserir telefone: {exc}'}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+@app.route('/api/pessoa/<int:pessoa_id>/email', methods=['POST'])
+def api_pessoa_add_email(pessoa_id):
+    """Adiciona um registro de e-mail para a pessoa (respeitando UK id_pessoa+tipo)."""
+    if not session.get('funcionario_id'):
+        return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
+    data = request.get_json(silent=True) or {}
+    tipo = (data.get('tipo') or '').strip()
+    endereco = (data.get('email') or '').strip()
+    if not tipo or tipo not in _EMAIL_TIPOS:
+        return jsonify({'error': f'Tipo invalido. Valores: {", ".join(_EMAIL_TIPOS)}.'}), 400
+    if not endereco:
+        return jsonify({'error': 'Email e obrigatorio.'}), 400
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT 1 FROM pessoa WHERE id = %s", (pessoa_id,))
+        if not cursor.fetchone():
+            return jsonify({'error': 'Pessoa nao encontrada.'}), 404
+        cursor.execute(
+            "INSERT INTO email (id_pessoa, tipo, email) VALUES (%s, %s, %s)",
+            (pessoa_id, tipo, endereco),
+        )
+        new_id = cursor.lastrowid
+        conn.commit()
+        cursor.execute("SELECT * FROM email WHERE id = %s", (new_id,))
+        row = _clean_row(cursor.fetchone())
+        return jsonify({'ok': True, 'email': row})
+    except IntegrityError:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        return jsonify({
+            'error': 'Ja existe e-mail deste tipo para esta pessoa.',
+        }), 409
+    except Exception as exc:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        return jsonify({'error': f'Erro ao inserir e-mail: {exc}'}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+@app.route('/api/pessoa/<int:pessoa_id>', methods=['GET'])
 def api_pessoa_detalhe(pessoa_id):
     conn = _get_db()
     cursor = conn.cursor()

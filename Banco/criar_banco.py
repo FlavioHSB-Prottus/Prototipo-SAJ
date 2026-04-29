@@ -443,7 +443,7 @@ CREATE TABLE `registro_6` (
 CREATE TABLE `telefone` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_pessoa` bigint(20) NOT NULL,
-  `tipo` varchar(40) NOT NULL COMMENT 'fixo, celular, comercial_devedor, comercial_conjuge, avalista_fixo, avalista_celular, ...',
+  `tipo` varchar(40) NOT NULL COMMENT 'fixo, celular, comercial, comercial_devedor, comercial_conjuge, recados, outro, ...',
   `ddd` varchar(5) DEFAULT NULL,
   `numero` varchar(30) NOT NULL,
   `ramal` varchar(10) DEFAULT NULL,

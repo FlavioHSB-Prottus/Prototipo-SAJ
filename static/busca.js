@@ -295,6 +295,9 @@ document.addEventListener('DOMContentLoaded', function () {
             } else {
                 renderContratoModal(data);
             }
+            window.__refreshContatoSrc = function () {
+                return openDetails(id, tipo);
+            };
         } catch (err) {
             modalContent.innerHTML = '<p style="padding:24px;color:#ef4444">Erro: ' + esc(err.message) + '</p>';
         }
@@ -334,13 +337,17 @@ document.addEventListener('DOMContentLoaded', function () {
             html += '</div>';
         }
 
-        // Telefones e Emails
-        if ((data.telefones && data.telefones.length) || (data.emails && data.emails.length)) {
+        // Telefones e E-mails
+        if (p && p.id) {
+            var pnomEnc = encodeURIComponent(p.nome_completo || '');
+            var pessoaIdStr = String(p.id);
             html += '<div class="detail-section"><h3><i class="fa-solid fa-address-book"></i> Contatos</h3>';
             html += '<div class="contact-grid">';
 
+            html += '<div><div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px"><h4 style="font-size:0.85rem;color:var(--text-muted);margin:0">Telefones</h4>';
+            html += '<div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="action-btn btn-add-telefone-pessoa" data-pessoa-id="' + pessoaIdStr + '" data-pessoa-nome="' + pnomEnc + '" data-recurso="telefone"><i class="fa-solid fa-plus"></i> Telefone</button></div></div>';
             if (data.telefones && data.telefones.length) {
-                html += '<div><h4 style="font-size:0.85rem;color:var(--text-muted);margin-bottom:8px">Telefones</h4><ul class="contact-list">';
+                html += '<ul class="contact-list">';
                 data.telefones.forEach(function (t) {
                     html += '<li><i class="fa-solid fa-phone"></i> ' + esc(t.numero || '-');
                     if (t.ramal) html += ' (ramal ' + esc(t.ramal) + ')';
@@ -348,18 +355,26 @@ document.addEventListener('DOMContentLoaded', function () {
                     html += '<button class="btn-mensagem" title="Enviar Mensagem"><i class="fa-solid fa-comment-dots"></i></button>';
                     html += '<span class="contact-tipo">' + esc(t.tipo) + '</span></li>';
                 });
-                html += '</ul></div>';
+                html += '</ul>';
+            } else {
+                html += '<p style="color:var(--text-muted);font-size:0.85rem;margin:0">Nenhum telefone cadastrado.</p>';
             }
+            html += '</div>';
 
+            html += '<div><div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px"><h4 style="font-size:0.85rem;color:var(--text-muted);margin:0">E-mails</h4>';
+            html += '<div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="action-btn btn-add-email-pessoa" data-pessoa-id="' + pessoaIdStr + '" data-pessoa-nome="' + pnomEnc + '" data-recurso="email"><i class="fa-solid fa-plus"></i> Email</button></div></div>';
             if (data.emails && data.emails.length) {
-                html += '<div><h4 style="font-size:0.85rem;color:var(--text-muted);margin-bottom:8px">E-mails</h4><ul class="contact-list">';
+                html += '<ul class="contact-list">';
                 data.emails.forEach(function (em) {
                     html += '<li><i class="fa-solid fa-envelope"></i> ' + esc(em.email || '-');
                     html += '<button class="btn-mensagem" title="Enviar Mensagem"><i class="fa-solid fa-comment-dots"></i></button>';
                     html += '<span class="contact-tipo">' + esc(em.tipo) + '</span></li>';
                 });
-                html += '</ul></div>';
+                html += '</ul>';
+            } else {
+                html += '<p style="color:var(--text-muted);font-size:0.85rem;margin:0">Nenhum e-mail cadastrado.</p>';
             }
+            html += '</div>';
 
             html += '</div></div>';
         }
@@ -506,6 +521,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 onReload: function () { return openDetails(c.id, 'contrato'); }
             });
         }
+        window.__refreshContatoSrc = function () { return openDetails(c.id, 'contrato'); };
     }
 
     function renderBemSection(bens) {
@@ -581,10 +597,14 @@ document.addEventListener('DOMContentLoaded', function () {
             });
         }
 
-        if ((telefones && telefones.length) || (emails && emails.length)) {
+        if (pessoa && pessoa.id) {
+            var _pEnc = encodeURIComponent(pessoa.nome_completo || '');
+            var _pId = String(pessoa.id);
             html += '<div class="contact-grid" style="margin-top:12px">';
+            html += '<div><div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px"><h4 style="font-size:0.85rem;color:var(--text-muted);margin:0">Telefones</h4>';
+            html += '<div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="action-btn btn-add-telefone-pessoa" data-pessoa-id="' + _pId + '" data-pessoa-nome="' + _pEnc + '" data-recurso="telefone"><i class="fa-solid fa-plus"></i> Telefone</button></div></div>';
             if (telefones && telefones.length) {
-                html += '<div><ul class="contact-list">';
+                html += '<ul class="contact-list">';
                 telefones.forEach(function (t) {
                     html += '<li><i class="fa-solid fa-phone"></i> ' + esc(t.numero || '-');
                     if (t.ramal) html += ' (ramal ' + esc(t.ramal) + ')';
@@ -592,18 +612,24 @@ document.addEventListener('DOMContentLoaded', function () {
                     html += '<button class="btn-mensagem" title="Enviar Mensagem"><i class="fa-solid fa-comment-dots"></i></button>';
                     html += '<span class="contact-tipo">' + esc(t.tipo) + '</span></li>';
                 });
-                html += '</ul></div>';
+                html += '</ul>';
+            } else {
+                html += '<p style="color:var(--text-muted);font-size:0.85rem;margin:0">Nenhum telefone cadastrado.</p>';
             }
+            html += '</div><div><div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px"><h4 style="font-size:0.85rem;color:var(--text-muted);margin:0">E-mails</h4>';
+            html += '<div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="action-btn btn-add-email-pessoa" data-pessoa-id="' + _pId + '" data-pessoa-nome="' + _pEnc + '" data-recurso="email"><i class="fa-solid fa-plus"></i> Email</button></div></div>';
             if (emails && emails.length) {
-                html += '<div><ul class="contact-list">';
+                html += '<ul class="contact-list">';
                 emails.forEach(function (em) {
                     html += '<li><i class="fa-solid fa-envelope"></i> ' + esc(em.email || '-');
                     html += '<button class="btn-mensagem" title="Enviar Mensagem"><i class="fa-solid fa-comment-dots"></i></button>';
                     html += '<span class="contact-tipo">' + esc(em.tipo) + '</span></li>';
                 });
-                html += '</ul></div>';
+                html += '</ul>';
+            } else {
+                html += '<p style="color:var(--text-muted);font-size:0.85rem;margin:0">Nenhum e-mail cadastrado.</p>';
             }
-            html += '</div>';
+            html += '</div></div>';
         }
 
         html += '</div>';

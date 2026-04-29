@@ -165,12 +165,12 @@ def upsert_avalista_contatos(cursor, pessoa_id: int, row: dict) -> None:
     )
 
     tel_f = f"{_s(row.get('ddd_aval'))}{_s(row.get('telefone_aval'))}".strip()
-    upsert_telefone(cursor, pessoa_id, "avalista_fixo", tel_f, None)
+    upsert_telefone(cursor, pessoa_id, "fixo", tel_f, None)
 
     tel_c = f"{_s(row.get('ddd_celular_aval'))}{_s(row.get('celular_aval'))}".strip()
-    upsert_telefone(cursor, pessoa_id, "avalista_celular", tel_c, None)
+    upsert_telefone(cursor, pessoa_id, "celular", tel_c, None)
 
     tel_c2 = f"{_s(row.get('ddd2_coml_aval'))}{_s(row.get('telefone2_aval'))}".strip()
-    upsert_telefone(cursor, pessoa_id, "avalista_comercial", tel_c2, row.get("ramal_coml_aval"))
+    upsert_telefone(cursor, pessoa_id, "comercial", tel_c2, row.get("ramal_coml_aval"))
 
-    upsert_email_row(cursor, pessoa_id, "avalista", row.get("email_aval"))
+    upsert_email_row(cursor, pessoa_id, "principal", row.get("email_aval"))
