@@ -18,7 +18,7 @@ aplicado se nao quebrar os anteriores):
 
     0. RELACAO SAJ ANTIGO (`relacao_contrato_operador`): se o contrato
        (grupo+cota normalizado) constar na tabela (preenchida antes pela
-       aplicacao `Python/popular_relacao_operadores_saj.py`, lendo o Excel)
+       aplicacao `Banco/popular_relacao_operadores_saj.py`, lendo o Excel)
        e o operador mapear para um funcionario com perfil Cobrança (login),
        grava-se esse vinculo antes da distribuicao automatica. Operador
        DAVID (legado = administrador) nao recebe cobrança — segue para os
@@ -51,7 +51,7 @@ Ambiente (opcional):
     ESTABILIDADE_TOLERANCIA   (default 0.15)
 
 Popular `relacao_contrato_operador` (Excel SAJ) separadamente:
-    python Python/popular_relacao_operadores_saj.py
+    python3 Banco/popular_relacao_operadores_saj.py
 
 Documentação do projeto (metodologia, segurança, convenções):
     docs/METODOLOGIA-JOAO-BARBOSA.md na raiz do repositório.

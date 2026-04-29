@@ -675,6 +675,8 @@ CREATE TABLE `tramitacao` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `descricao` text DEFAULT NULL,
+  `fluxo_json` longtext DEFAULT NULL COMMENT 'Wizard tramitacao (JSON)',
+  `status_tramitacao` varchar(96) DEFAULT NULL COMMENT 'Rotulo do resultado (ex.: Ligação Não atendida)',
   `id_funcionario` int(11) NOT NULL,
   `tipo` enum('ativo','passivo') NOT NULL,
   PRIMARY KEY (`id`),

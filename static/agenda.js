@@ -322,7 +322,9 @@ document.addEventListener('DOMContentLoaded', () => {
             ? formatTaxaAdministracaoPercent(c.taxa_administracao)
             : c.taxa_administracao);
         html += dataItem('Fundo Reserva', c.fundo_reserva);
-        html += dataItem('Percentual Lance', c.percentual_lance);
+        html += dataItem('Percentual Lance', typeof formatTaxaAdministracaoPercent === 'function'
+            ? formatTaxaAdministracaoPercent(c.percentual_lance)
+            : c.percentual_lance);
         html += '</div>';
         html += '<div style="margin-top:14px"><button type="button" class="btn-search btn-pv-insert-from-contrato" style="max-width:380px" data-grupo="' + encodeURIComponent(String(c.grupo != null ? c.grupo : '')) + '" data-cota="' + encodeURIComponent(String(c.cota != null ? c.cota : '')) + '"><i class="fa-solid fa-folder-plus"></i> Registrar na Pasta Virtual</button></div>';
         html += '</div>';
@@ -468,7 +470,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (t.ramal) html += ' (ramal ' + escapeHtml(t.ramal) + ')';
                     html += '<button type="button" class="btn-ligar" title="Ligar" data-numero="' + escapeHtml(t.numero || '') + '"><i class="fa-solid fa-phone-volume"></i></button>';
                     html += '<button class="btn-mensagem" title="Enviar Mensagem"><i class="fa-solid fa-comment-dots"></i></button>';
-                    html += '<span class="contact-tipo">' + escapeHtml(t.tipo) + '</span></li>';
+                    html += '<span class="contact-meta">';
+                    var _fonteTel = (typeof window.formatContatoFonteLabel === 'function') ? window.formatContatoFonteLabel(t.fonte) : '';
+                    if (_fonteTel) html += '<span class="contact-fonte" title="Origem do cadastro">' + escapeHtml(_fonteTel) + '</span>';
+                    html += '<span class="contact-tipo">' + escapeHtml(t.tipo) + '</span></span></li>';
                 });
                 html += '</ul>';
             } else {
@@ -481,7 +486,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 emails.forEach(function (em) {
                     html += '<li><i class="fa-solid fa-envelope"></i> ' + escapeHtml(em.email || '-');
                     html += '<button class="btn-mensagem" title="Enviar Mensagem"><i class="fa-solid fa-comment-dots"></i></button>';
-                    html += '<span class="contact-tipo">' + escapeHtml(em.tipo) + '</span></li>';
+                    html += '<span class="contact-meta">';
+                    var _fonteEm = (typeof window.formatContatoFonteLabel === 'function') ? window.formatContatoFonteLabel(em.fonte) : '';
+                    if (_fonteEm) html += '<span class="contact-fonte" title="Origem do cadastro">' + escapeHtml(_fonteEm) + '</span>';
+                    html += '<span class="contact-tipo">' + escapeHtml(em.tipo) + '</span></span></li>';
                 });
                 html += '</ul>';
             } else {

@@ -1947,8 +1947,8 @@ def _schema_pronto_para_importacao():
                     (
                         f"Schema ausente: a tabela '{nome}' nao existe no banco '{dbn}'. "
                         "Aplique o script de criacao:  python3 Banco/criar_banco.py  "
-                        "(em seguida, se desejar: Banco/seed_funcionarios.py e "
-                        "Banco/seed_tramitacao.py). Depois repita a importacao."
+                        "(em seguida, se desejar: Banco/seed_funcionarios.py). "
+                        "Depois repita a importacao."
                     ),
                 )
         cur.close()
@@ -2240,6 +2240,39 @@ _TELEFONE_TIPOS = (
 _EMAIL_TIPOS = ('principal', 'secundario', 'comercial', 'outro')
 
 
+def _mysql_table_columns_lower(cursor, table):
+    """Nomes de colunas em minúsculas para montar INSERT compatível com o schema."""
+    cursor.execute(f'SHOW COLUMNS FROM `{table}`')
+    rows = cursor.fetchall() or []
+    names = []
+    for r in rows:
+        if isinstance(r, dict):
+            fn = r.get('Field') or r.get('field')
+        else:
+            fn = r[0] if r else None
+        if fn:
+            names.append(str(fn).lower())
+    return frozenset(names)
+
+
+def _migrate_contato_fonte_manual_para_terceiro(cursor):
+    """Bases que chegaram a ter ENUM com `manual`: converte dados e volta ao schema de 3 valores."""
+    for tbl in ('telefone', 'email'):
+        try:
+            cursor.execute(
+                f"UPDATE `{tbl}` SET `fonte` = 'terceiro' WHERE `fonte` = 'manual'"
+            )
+        except Exception as exc:
+            app.logger.debug('_migrate_contato_fonte_manual_para_terceiro update %s: %s', tbl, exc)
+        try:
+            cursor.execute(
+                f"ALTER TABLE `{tbl}` MODIFY COLUMN `fonte` "
+                "ENUM('GMAC','enriquecimento','terceiro') DEFAULT 'GMAC'"
+            )
+        except Exception as exc:
+            app.logger.debug('_migrate_contato_fonte_manual_para_terceiro alter %s: %s', tbl, exc)
+
+
 @app.route('/api/pessoa/<int:pessoa_id>/telefone', methods=['POST'])
 def api_pessoa_add_telefone(pessoa_id):
     """Adiciona um registro de telefone (UK id_pessoa+tipo+numero: evita duplicata exata)."""
@@ -2259,10 +2292,19 @@ def api_pessoa_add_telefone(pessoa_id):
         cursor.execute("SELECT 1 FROM pessoa WHERE id = %s", (pessoa_id,))
         if not cursor.fetchone():
             return jsonify({'error': 'Pessoa nao encontrada.'}), 404
-        cursor.execute(
-            "INSERT INTO telefone (id_pessoa, tipo, numero, ramal) VALUES (%s, %s, %s, %s)",
-            (pessoa_id, tipo, numero, ramal),
-        )
+        cols = _mysql_table_columns_lower(cursor, 'telefone')
+        if 'fonte' in cols:
+            _migrate_contato_fonte_manual_para_terceiro(cursor)
+            cursor.execute(
+                "INSERT INTO telefone (id_pessoa, tipo, numero, ramal, fonte) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                (pessoa_id, tipo, numero, ramal, 'terceiro'),
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO telefone (id_pessoa, tipo, numero, ramal) VALUES (%s, %s, %s, %s)",
+                (pessoa_id, tipo, numero, ramal),
+            )
         new_id = cursor.lastrowid
         conn.commit()
         cursor.execute("SELECT * FROM telefone WHERE id = %s", (new_id,))
@@ -2319,10 +2361,18 @@ def api_pessoa_add_email(pessoa_id):
         cursor.execute("SELECT 1 FROM pessoa WHERE id = %s", (pessoa_id,))
         if not cursor.fetchone():
             return jsonify({'error': 'Pessoa nao encontrada.'}), 404
-        cursor.execute(
-            "INSERT INTO email (id_pessoa, tipo, email) VALUES (%s, %s, %s)",
-            (pessoa_id, tipo, endereco),
-        )
+        cols = _mysql_table_columns_lower(cursor, 'email')
+        if 'fonte' in cols:
+            _migrate_contato_fonte_manual_para_terceiro(cursor)
+            cursor.execute(
+                "INSERT INTO email (id_pessoa, tipo, email, fonte) VALUES (%s, %s, %s, %s)",
+                (pessoa_id, tipo, endereco, 'terceiro'),
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO email (id_pessoa, tipo, email) VALUES (%s, %s, %s)",
+                (pessoa_id, tipo, endereco),
+            )
         new_id = cursor.lastrowid
         conn.commit()
         cursor.execute("SELECT * FROM email WHERE id = %s", (new_id,))
@@ -2657,6 +2707,337 @@ def api_contrato_detalhe(contrato_id):
 TRAMITACAO_TIPOS = ('ligacao', 'whatsapp', 'email')
 TRAMITACAO_CPCS = ('sim', 'nao', 'parente', 'amigo', 'avalista')
 
+_TRAMIT_ENSURE_FLUXO_DONE = False
+
+FLUXO_MOTIVOS_NA = (
+    'caixa_postal',
+    'chama_nao_atende',
+    'chamada_incompleta',
+    'ligacao_caiu',
+    'numero_inexistente',
+)
+FLUXO_CPC_QUEM = ('nao_consorciado_conhece', 'nao_consorciado_nao_conhece')
+FLUXO_CPC_QUAL = ('consorciado', 'terceiro', 'avalista')
+FLUXO_STATUS_FINAL = (
+    'alega_pagamento',
+    'agendamento',
+    'acordo_firmado',
+    'sem_condicoes',
+    'sem_interesse',
+    'nao_confirma_dados',
+    'atende_desliga',
+    'ligacao_muda',
+)
+
+FLUXO_MOTIVO_LABEL = {
+    'caixa_postal': 'Caixa Postal',
+    'chama_nao_atende': 'Chama e Não atende',
+    'chamada_incompleta': 'Chamada Não Completada',
+    'ligacao_caiu': 'Ligação Caiu',
+    'numero_inexistente': 'Número não existe',
+}
+FLUXO_CPC_QUEM_LABEL = {
+    'nao_consorciado_conhece': 'Não é o consorciado, o conhece, mas não é o responsável',
+    'nao_consorciado_nao_conhece': 'Não é consorciado e não conhece',
+}
+FLUXO_STATUS_LABEL = {
+    'alega_pagamento': 'Alega pagamento',
+    'agendamento': 'Agendamento',
+    'acordo_firmado': 'Acordo Firmado',
+    'sem_condicoes': 'Sem condições financeiras',
+    'sem_interesse': 'Sem interesse no pagamento',
+    'nao_confirma_dados': 'Não confirma os dados',
+    'atende_desliga': 'Atende e desliga',
+    'ligacao_muda': 'Ligação ficou muda',
+}
+
+
+def _ensure_tramitacao_fluxo_columns(cursor):
+    """Adiciona fluxo_json e status_tramitacao em bases já existentes."""
+    global _TRAMIT_ENSURE_FLUXO_DONE
+    if _TRAMIT_ENSURE_FLUXO_DONE:
+        return
+    try:
+        cursor.execute("SHOW COLUMNS FROM tramitacao")
+        rows = cursor.fetchall()
+        existing = set()
+        for r in rows:
+            if isinstance(r, dict):
+                fn = r.get('Field') or r.get('field')
+                if fn:
+                    existing.add(str(fn).lower())
+            elif r:
+                existing.add(str(r[0]).lower())
+        if 'fluxo_json' not in existing:
+            cursor.execute(
+                "ALTER TABLE tramitacao ADD COLUMN fluxo_json LONGTEXT NULL "
+                "COMMENT 'Wizard tramitacao (JSON)'"
+            )
+        if 'status_tramitacao' not in existing:
+            cursor.execute(
+                "ALTER TABLE tramitacao ADD COLUMN status_tramitacao VARCHAR(96) NULL "
+                "COMMENT 'Rotulo do resultado'"
+            )
+        _TRAMIT_ENSURE_FLUXO_DONE = True
+    except Exception as exc:
+        app.logger.warning('_ensure_tramitacao_fluxo_columns: %s', exc)
+
+
+def _tramitacao_column_names(cursor):
+    """Retorna lista com nomes das colunas em `tramitacao` (ordem SHOW COLUMNS)."""
+    cursor.execute('SHOW COLUMNS FROM tramitacao')
+    rows = cursor.fetchall()
+    names = []
+    for r in rows:
+        if isinstance(r, dict):
+            fn = r.get('Field') or r.get('field')
+        else:
+            fn = r[0] if r else None
+        if fn:
+            names.append(fn)
+    return names
+
+
+def _tramitacao_insert_parts(cursor, *, id_pessoa, id_contrato, canal, cpc, ts, descricao, fid,
+                             fluxo_json=None, status_tramitacao=None):
+    """Monta INSERT alinhado ao schema GM: `forma`=canal (ligacao/...), `tipo`='ativo'.
+
+    O valor antigo 'ligacao' na coluna `tipo` gerava MySQL 1265 quando `tipo` é enum(ativo,passivo).
+    """
+    tcols = {c.lower(): c for c in _tramitacao_column_names(cursor)}
+    cols_sql = []
+    vals = []
+
+    def add(lower, val):
+        if lower not in tcols:
+            return
+        cn = str(tcols[lower]).replace('`', '')
+        cols_sql.append('`' + cn + '`')
+        vals.append(val)
+
+    add('id_pessoa', id_pessoa)
+    add('id_contrato', id_contrato)
+    if 'forma' in tcols:
+        add('forma', canal if canal in TRAMITACAO_TIPOS else 'ligacao')
+    if 'tipo' in tcols:
+        add('tipo', 'ativo')
+    add('cpc', cpc)
+    add('data', ts)
+    add('descricao', descricao)
+    add('id_funcionario', fid)
+    if fluxo_json is not None:
+        add('fluxo_json', fluxo_json)
+    if status_tramitacao is not None:
+        add('status_tramitacao', status_tramitacao)
+    return cols_sql, vals
+
+
+def _fluxo_map_legacy_cpc(payload):
+    """Compatibilidade com coluna cpc da tramitacao legada."""
+    if payload.get('atendido') == 'nao':
+        return 'nao'
+    if payload.get('modo_indefinido'):
+        return 'nao'
+    if payload.get('cpc_correto') == 'nao':
+        return 'nao'
+    if payload.get('cpc_correto') != 'sim':
+        return 'nao'
+    qual = payload.get('cpc_qual')
+    if qual == 'consorciado':
+        return 'sim'
+    if qual == 'avalista':
+        return 'avalista'
+    if qual == 'terceiro':
+        return 'parente'
+    return 'nao'
+
+
+def _fluxo_status_display(payload):
+    if payload.get('atendido') == 'nao':
+        return 'Ligação Não atendida'
+    if payload.get('modo_indefinido'):
+        return 'Indefinido'
+    sf = payload.get('status_final')
+    if sf:
+        return FLUXO_STATUS_LABEL.get(sf, sf)
+    return '—'
+
+
+def _fluxo_format_money(val):
+    if val is None:
+        return '0,00'
+    try:
+        d = decimal.Decimal(str(val))
+        return f'{d:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
+    except (decimal.InvalidOperation, ValueError, TypeError):
+        return str(val)
+
+
+def _fluxo_build_descricao_text(payload, grupo=None, cota=None):
+    """Texto legível gravado em tramitacao.descricao."""
+    lines = []
+    lines.append(f"Carteira (total em aberto): R$ {_fluxo_format_money(payload.get('carteira_devendo'))}")
+    lines.append(f"Discado: {payload.get('numero_discado') or '—'}")
+    if payload.get('atendido') == 'nao':
+        mk = payload.get('motivo_nao_atendido')
+        lines.append('Atendido: Não')
+        lines.append(f"Motivo: {FLUXO_MOTIVO_LABEL.get(mk, mk or '—')}")
+    elif payload.get('modo_indefinido'):
+        lines.append('Atendido: Sim — encerrado como indefinido (atendeu e desligou sem detalhes).')
+    else:
+        lines.append(f"Atendido: {'Sim' if payload.get('atendido') == 'sim' else '—'}")
+        if payload.get('cpc_correto') == 'nao':
+            lines.append('CPC (pessoa certa): Não')
+            qm = payload.get('cpc_quem')
+            lines.append(f"Quem atendeu: {FLUXO_CPC_QUEM_LABEL.get(qm, qm or '—')}")
+            if payload.get('cpc_etapa_descricao'):
+                lines.append(f"Descrição (etapa CPC): {payload['cpc_etapa_descricao']}")
+        elif payload.get('cpc_correto') == 'sim':
+            lines.append('CPC (pessoa certa): Sim')
+            cq = payload.get('cpc_qual')
+            cq_lab = {'consorciado': 'Consorciado', 'terceiro': 'Terceiro', 'avalista': 'Avalista'}.get(cq, cq)
+            lines.append(f"CPC atendido: {cq_lab or '—'}")
+        sf = payload.get('status_final')
+        if sf:
+            lines.append(f"Status: {FLUXO_STATUS_LABEL.get(sf, sf)}")
+        if sf == 'agendamento' and payload.get('agenda_retorno_data'):
+            lines.append(f"Agenda — retorno em: {payload.get('agenda_retorno_data')}")
+            if payload.get('agenda_retorno_atividade'):
+                lines.append(f"Atividade: {payload['agenda_retorno_atividade']}")
+        if sf == 'acordo_firmado':
+            if payload.get('acordo_data_pagamento'):
+                lines.append(f"Acordo — data prevista pagamento: {payload.get('acordo_data_pagamento')}")
+            if payload.get('acordo_qtd_parcelas') is not None:
+                lines.append(f"Quantidade de parcelas no acordo: {payload.get('acordo_qtd_parcelas')}")
+    if payload.get('descricao_final'):
+        lines.append('')
+        lines.append('Descrição adicional:')
+        lines.append(str(payload['descricao_final']))
+    lab = _fluxo_status_display(payload)
+    return f"[{lab}]\n" + '\n'.join(lines)
+
+
+def _parse_iso_datetime_agenda(s):
+    """Parse datetime-local / ISO para agenda.data."""
+    if not s:
+        return None
+    s = str(s).strip().replace('Z', '')
+    s = s.replace('T', ' ')
+    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d'):
+        try:
+            lim = 19 if fmt != '%Y-%m-%d' else 10
+            return datetime.datetime.strptime(s[:lim], fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _validate_tramitacao_fluxo_payload(data):
+    """Retorna (erro_msg ou None, dict normalizado)."""
+    if not isinstance(data, dict):
+        return 'JSON inválido.', None
+    out = {}
+    try:
+        cd = data.get('carteira_devendo')
+        if cd is not None and cd != '':
+            out['carteira_devendo'] = float(cd)
+        else:
+            out['carteira_devendo'] = None
+    except (TypeError, ValueError):
+        return 'Valor de carteira inválido.', None
+
+    nd = (data.get('numero_discado') or '').strip()
+    if not nd:
+        return 'Informe o número discado.', None
+    out['numero_discado'] = nd[:64]
+
+    at = (data.get('atendido') or '').strip().lower()
+    if at not in ('sim', 'nao'):
+        return 'Responda se foi atendido (sim ou não).', None
+    out['atendido'] = at
+
+    indef = bool(data.get('modo_indefinido'))
+    out['modo_indefinido'] = indef
+
+    if at == 'nao':
+        mk = (data.get('motivo_nao_atendido') or '').strip().lower()
+        if mk not in FLUXO_MOTIVOS_NA:
+            return 'Selecione o motivo (ligação não atendida).', None
+        out['motivo_nao_atendido'] = mk
+        df = (data.get('descricao_final') or '').strip()
+        out['descricao_final'] = df[:20000] if df else ''
+        return None, out
+
+    if indef:
+        if at != 'sim':
+            return 'Encerrar como indefinido só se a ligação foi atendida.', None
+        df = (data.get('descricao_final') or '').strip()
+        out['descricao_final'] = df[:20000] if df else ''
+        out['cpc_correto'] = None
+        out['cpc_quem'] = None
+        out['cpc_etapa_descricao'] = None
+        out['cpc_qual'] = None
+        out['status_final'] = None
+        return None, out
+
+    cc = (data.get('cpc_correto') or '').strip().lower()
+    if cc not in ('sim', 'nao'):
+        return 'Responda CPC — contato com a pessoa certa (sim ou não).', None
+    out['cpc_correto'] = cc
+
+    if cc == 'nao':
+        qm = (data.get('cpc_quem') or '').strip().lower()
+        if qm not in FLUXO_CPC_QUEM:
+            return 'Selecione quem atendeu.', None
+        out['cpc_quem'] = qm
+        ed = (data.get('cpc_etapa_descricao') or '').strip()
+        out['cpc_etapa_descricao'] = ed[:5000] if ed else ''
+        out['cpc_qual'] = None
+    else:
+        cq = (data.get('cpc_qual') or '').strip().lower()
+        if cq not in FLUXO_CPC_QUAL:
+            return 'Selecione qual CPC foi atendido.', None
+        out['cpc_qual'] = cq
+        out['cpc_quem'] = None
+        out['cpc_etapa_descricao'] = ''
+
+    sf = (data.get('status_final') or '').strip().lower()
+    if sf not in FLUXO_STATUS_FINAL:
+        return 'Selecione o status final.', None
+    out['status_final'] = sf
+
+    if sf == 'agendamento':
+        ag = _parse_iso_datetime_agenda(data.get('agenda_retorno_data'))
+        if not ag:
+            return 'Informe data e hora do retorno (agenda).', None
+        out['agenda_retorno_data'] = data.get('agenda_retorno_data')
+        out['agenda_retorno_atividade'] = (data.get('agenda_retorno_atividade') or '').strip()[:255] or (
+            'Retorno cobrança — retomar contato'
+        )
+    else:
+        out['agenda_retorno_data'] = None
+        out['agenda_retorno_atividade'] = ''
+
+    if sf == 'acordo_firmado':
+        dp = _parse_iso_datetime_agenda(data.get('acordo_data_pagamento'))
+        if not dp:
+            return 'Informe a data prevista do pagamento (acordo).', None
+        out['acordo_data_pagamento'] = data.get('acordo_data_pagamento')
+        try:
+            qp = int(data.get('acordo_qtd_parcelas'))
+            if qp < 1:
+                raise ValueError
+            out['acordo_qtd_parcelas'] = qp
+        except (TypeError, ValueError):
+            return 'Informe a quantidade de parcelas do acordo (número inteiro ≥ 1).', None
+    else:
+        out['acordo_data_pagamento'] = None
+        out['acordo_qtd_parcelas'] = None
+
+    df = (data.get('descricao_final') or '').strip()
+    out['descricao_final'] = df[:20000] if df else ''
+    return None, out
+
 
 def _parse_tramitacao_timestamp(s):
     """Aceita 'YYYY-MM-DDTHH:MM' (datetime-local) ou 'YYYY-MM-DD HH:MM:SS' etc."""
@@ -2714,10 +3095,24 @@ def api_tramitacao_criar(contrato_id):
         id_pessoa = c_row.get('id_pessoa')
         if not id_pessoa:
             return jsonify({'error': 'Contrato sem pessoa (devedor) vinculada.'}), 400
+        cols_sql, insert_vals = _tramitacao_insert_parts(
+            cursor,
+            id_pessoa=id_pessoa,
+            id_contrato=contrato_id,
+            canal=tipo,
+            cpc=cpc,
+            ts=ts,
+            descricao=descricao or None,
+            fid=int(fid),
+            fluxo_json=None,
+            status_tramitacao=None,
+        )
+        if not cols_sql:
+            return jsonify({'error': 'Tabela tramitacao sem colunas esperadas.'}), 500
+        placeholders = ', '.join(['%s'] * len(insert_vals))
         cursor.execute(
-            "INSERT INTO tramitacao (id_pessoa, id_contrato, tipo, cpc, data, descricao, id_funcionario) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-            (id_pessoa, contrato_id, tipo, cpc, ts, descricao or None, int(fid)),
+            f'INSERT INTO tramitacao ({", ".join(cols_sql)}) VALUES ({placeholders})',
+            tuple(insert_vals),
         )
         conn.commit()
         new_id = cursor.lastrowid
@@ -2773,9 +3168,21 @@ def api_tramitacao_item(tramitacao_id):
         ts = _parse_tramitacao_timestamp(data.get('data'))
         if not ts:
             return jsonify({'error': 'Data invalida.'}), 400
+        canal = tipo
+        tcols = {c.lower(): c for c in _tramitacao_column_names(cursor)}
+        sets = []
+        vals = []
+        if 'forma' in tcols:
+            sets.append('forma = %s')
+            vals.append(canal if canal in TRAMITACAO_TIPOS else 'ligacao')
+        if 'tipo' in tcols:
+            sets.append('tipo = %s')
+            vals.append('ativo')
+        sets.extend(['cpc = %s', 'data = %s', 'descricao = %s'])
+        vals.extend([cpc, ts, descricao or None, tramitacao_id])
         cursor.execute(
-            "UPDATE tramitacao SET tipo = %s, cpc = %s, data = %s, descricao = %s WHERE id = %s",
-            (tipo, cpc, ts, descricao or None, tramitacao_id),
+            f"UPDATE tramitacao SET {', '.join(sets)} WHERE id = %s",
+            vals,
         )
         conn.commit()
         row = _tramitacao_row_by_id(cursor, tramitacao_id)
@@ -2788,6 +3195,125 @@ def api_tramitacao_item(tramitacao_id):
                 pass
         app.logger.exception('api_tramitacao_item')
         return jsonify({'error': 'Erro ao processar: ' + str(exc)}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+@app.route('/api/contrato/<int:contrato_id>/tramitacao/fluxo', methods=['POST'])
+def api_tramitacao_fluxo_criar(contrato_id):
+    """Registra tramitação guiada (wizard), opcionalmente criando itens em `agenda`."""
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Sessao invalida. Faca login novamente.'}), 401
+    body = request.get_json(silent=True) or {}
+    err, payload = _validate_tramitacao_fluxo_payload(body)
+    if err:
+        return jsonify({'error': err}), 400
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        _ensure_tramitacao_fluxo_columns(cursor)
+        cursor.execute(
+            "SELECT id, id_pessoa, grupo, cota FROM contrato WHERE id = %s",
+            (contrato_id,),
+        )
+        c_row = cursor.fetchone()
+        if not c_row:
+            return jsonify({'error': 'Contrato nao encontrado.'}), 404
+        id_pessoa = c_row.get('id_pessoa')
+        if not id_pessoa:
+            return jsonify({'error': 'Contrato sem pessoa (devedor) vinculada.'}), 400
+        grupo = c_row.get('grupo')
+        cota = c_row.get('cota')
+
+        descricao_txt = _fluxo_build_descricao_text(payload, grupo, cota)
+        status_lab = _fluxo_status_display(payload)
+        legacy_cpc = _fluxo_map_legacy_cpc(payload)
+        ts = datetime.datetime.now()
+        fluxo_str = json.dumps(payload, ensure_ascii=False)
+
+        cols_sql, insert_vals = _tramitacao_insert_parts(
+            cursor,
+            id_pessoa=id_pessoa,
+            id_contrato=contrato_id,
+            canal='ligacao',
+            cpc=legacy_cpc,
+            ts=ts,
+            descricao=descricao_txt,
+            fid=int(fid),
+            fluxo_json=fluxo_str,
+            status_tramitacao=status_lab[:96],
+        )
+        if not cols_sql:
+            return jsonify({'error': 'Tabela tramitacao sem colunas esperadas.'}), 500
+        placeholders = ', '.join(['%s'] * len(insert_vals))
+        cursor.execute(
+            f'INSERT INTO tramitacao ({", ".join(cols_sql)}) VALUES ({placeholders})',
+            tuple(insert_vals),
+        )
+        new_id = cursor.lastrowid
+
+        if payload.get('status_final') == 'agendamento' and payload.get('agenda_retorno_data'):
+            ag_dt = _parse_iso_datetime_agenda(payload['agenda_retorno_data'])
+            if ag_dt:
+                cursor.execute(
+                    """
+                    INSERT INTO agenda (atividade, descricao, data, prioridade, id_contrato, id_funcionario)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        payload.get('agenda_retorno_atividade')
+                        or 'Retorno cobrança — retomar contato',
+                        (
+                            f"Contrato {grupo}/{cota}. Agendado pela tramitação."
+                        ),
+                        ag_dt,
+                        'media',
+                        contrato_id,
+                        int(fid),
+                    ),
+                )
+
+        if payload.get('status_final') == 'acordo_firmado':
+            ac_dt = _parse_iso_datetime_agenda(payload.get('acordo_data_pagamento'))
+            qtp = payload.get('acordo_qtd_parcelas')
+            if ac_dt and qtp:
+                cursor.execute(
+                    """
+                    INSERT INTO agenda (atividade, descricao, data, prioridade, id_contrato, id_funcionario)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        f"Verificar acordo — {qtp} parcela(s)",
+                        (
+                            f"Contrato {grupo}/{cota}. Pagamento previsto em {payload.get('acordo_data_pagamento')}."
+                        ),
+                        ac_dt,
+                        'alta',
+                        contrato_id,
+                        int(fid),
+                    ),
+                )
+
+        conn.commit()
+        row = _tramitacao_row_by_id(cursor, new_id)
+        return jsonify({'tramitacao': row})
+    except Exception as exc:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        app.logger.exception('api_tramitacao_fluxo_criar')
+        return jsonify({'error': 'Erro ao salvar: ' + str(exc)}), 500
     finally:
         try:
             cursor.close()
