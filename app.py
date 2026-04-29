@@ -2411,6 +2411,25 @@ def _build_relatorio_query(tipo, data_inicial, data_final, prioridade=None):
         where = "WHERE c.status = 'fechado' AND o.status = 'fechado'"
     elif tipo == 'indenizados':
         where = "WHERE c.status = 'indenizado' AND o.status = 'indenizado'"
+    elif tipo == 'pagos_parcialmente':
+        # Performado (mesma regra do Performance): parcela quitada com atraso 0–90 d na quitação.
+        sql = (
+            "SELECT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
+            "       pes.nome_completo AS nome_devedor, pes.cpf_cnpj, "
+            "       DATE(pq.mx_dt) AS data_arquivo "
+            "FROM ( "
+            "  SELECT id_contrato, MAX(data_pagamento) AS mx_dt "
+            "  FROM parcela "
+            "  WHERE status = 'fechado' "
+            "    AND data_pagamento >= %s AND data_pagamento <= %s "
+            "    AND DATEDIFF(data_pagamento, vencimento) BETWEEN 0 AND 90 "
+            "  GROUP BY id_contrato "
+            ") pq "
+            "JOIN contrato c ON c.id = pq.id_contrato "
+            "LEFT JOIN pessoa pes ON c.id_pessoa = pes.id "
+            "ORDER BY pq.mx_dt, c.grupo, c.cota"
+        )
+        return sql, [data_inicial, data_final]
     else:
         where = "WHERE 1=1"
 
@@ -2498,6 +2517,7 @@ _TIPO_LABELS = {
     'indenizados': 'Contratos Indenizados',
     'novos': 'Contratos Novos',
     'voltaram': 'Contratos que Voltaram',
+    'pagos_parcialmente': 'Contratos pagos parcialmente (performado 0–90 d)',
 }
 
 
@@ -2737,6 +2757,20 @@ def api_dashboard():
         "WHERE o.status = 'aberto' AND (o.descricao = 'contrato novo' OR o.descricao = 'contrato voltou')",
         [],
     )
+    # Mesma regra de "performado" no Performance: parcela quitada com atraso na quitação entre 0 e 90 dias.
+    cursor.execute(
+        "SELECT DATE_FORMAT(p.data_pagamento, '%%Y-%%m') AS mes, "
+        "       COUNT(DISTINCT p.id_contrato) AS total "
+        "FROM parcela p "
+        "WHERE p.status = 'fechado' "
+        "AND DATEDIFF(p.data_pagamento, p.vencimento) BETWEEN 0 AND 90 "
+        "AND DATE(p.data_pagamento) >= %s "
+        "GROUP BY mes ORDER BY mes",
+        (window_start,),
+    )
+    by_pp = {r['mes']: int(r['total']) for r in cursor.fetchall()}
+    serie_pagos_parcial = [by_pp.get(m, 0) for m in all_months]
+
     # Contratos (mes) com as duas naturezas (novo e voltou) no mesmo mes — destaque p/ dupla entrada
     ambos_mes_safra = _ambos_mes_safra()
 
@@ -2759,6 +2793,7 @@ def api_dashboard():
             'novos': serie_novos,
             'retomados': serie_retomados,
             'entradas_safra': serie_entradas_safra,
+            'pagos_parcial': serie_pagos_parcial,
         },
         'ambos_mes_safra': ambos_mes_safra,
         'snapshot': {
@@ -2776,12 +2811,9 @@ def api_dashboard_panel_contratos():
     raw = request.args.getlist('series')
     if not raw and request.args.get('series'):
         raw = [x.strip() for x in str(request.args.get('series', '')).split(',') if x.strip()]
-    series_keys = [s for s in (raw or []) if s in _PAINEL_DASH_SERIES_WHERE]
+    series_keys = [s for s in (raw or []) if s in _PAINEL_DASH_SERIES_KEYS_VALID]
     if not series_keys:
         series_keys = ['pagos', 'indenizados']
-    or_sql, or_p = _or_ocorrencia_filtro_series_sql(series_keys, _PAINEL_DASH_SERIES_WHERE)
-    if not or_sql:
-        return jsonify({'error': 'Nenhuma serie valida.'}), 400
     if not ps or not pe or len(ps) < 7 or len(pe) < 7:
         return jsonify({'error': 'Informe period_start e period_end (YYYY-MM).'}), 400
     try:
@@ -2792,30 +2824,30 @@ def api_dashboard_panel_contratos():
     except (TypeError, ValueError):
         return jsonify({'error': 'Periodo invalido.'}), 400
 
+    union_sql, union_p = _painel_dash_union_contrato_ids_sql(series_keys, d_ini, d_fim)
+    if not union_sql:
+        return jsonify({'error': 'Nenhuma serie valida.'}), 400
+
     join_x, and_busca, p_busca = _panel_dash_busca_filtro_sql(
         request.args.get('tipo', 'contrato'),
         request.args.get('termo', ''),
         request.args.get('status', ''),
     )
-    params = list(or_p) + [d_ini, d_fim] + p_busca
+    params = list(union_p) + p_busca
     count_sql = (
-        "SELECT COUNT(DISTINCT c.id) AS n FROM ocorrencia o "
-        "INNER JOIN contrato c ON c.id = o.id_contrato "
+        "SELECT COUNT(DISTINCT c.id) AS n FROM contrato c "
         "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
         + (join_x or '') +
-        f"WHERE ({or_sql}) "
-        "AND o.data_arquivo >= %s AND o.data_arquivo <= %s "
+        f"WHERE c.id IN {union_sql} "
         + and_busca
     )
     sql = (
         "SELECT DISTINCT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
         "       p.nome_completo AS devedor, p.cpf_cnpj AS devedor_cpf_cnpj "
-        "FROM ocorrencia o "
-        "INNER JOIN contrato c ON c.id = o.id_contrato "
+        "FROM contrato c "
         "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
         + (join_x or '') +
-        f"WHERE ({or_sql}) "
-        "AND o.data_arquivo >= %s AND o.data_arquivo <= %s "
+        f"WHERE c.id IN {union_sql} "
         + and_busca +
         f" ORDER BY c.grupo, c.cota LIMIT {int(_PAINEL_DASH_LIM)}"
     )
@@ -4779,6 +4811,7 @@ _DASH_SERIES_LABELS = {
     'indenizados': 'Contratos Indenizados',
     'novos':       'Ocorrencias Novo (aberto)',
     'retomados':   'Ocorrencias Voltou (aberto)',
+    'pagos_parcial': 'Contratos pagos parcialmente (0–90 d)',
 }
 _DASH_SERIES_WHERE = {
     'pagos':       ("o.status = 'fechado'", []),
@@ -4792,6 +4825,7 @@ _DASH_SERIES_COUNT_FUNC = {
     'indenizados': 'COUNT(DISTINCT o.id_contrato)',
     'novos': 'COUNT(*)',
     'retomados': 'COUNT(*)',
+    'pagos_parcial': 'COUNT(DISTINCT p.id_contrato)',
 }
 _DASH_PIE_LABELS = {
     'aberto':     'Em Cobranca',
@@ -4806,6 +4840,34 @@ _PAINEL_DASH_SERIES_WHERE['entradas_safra'] = (
     [],
 )
 _PAINEL_DASH_LIM = 500
+
+# Chaves aceitas no painel/export (inclui série baseada em parcela, não só ocorrência).
+_PAINEL_DASH_SERIES_KEYS_VALID = frozenset(list(_PAINEL_DASH_SERIES_WHERE.keys()) + ['pagos_parcial'])
+
+
+def _painel_dash_union_contrato_ids_sql(series_keys, d_ini, d_fim):
+    """UNION de id_contrato: ocorrências no período + parcelas quitadas com performado 0–90 d."""
+    parts = []
+    params = []
+    for k in series_keys:
+        if k == 'pagos_parcial':
+            parts.append(
+                "SELECT DISTINCT par.id_contrato FROM parcela par "
+                "WHERE par.status = 'fechado' "
+                "AND DATE(par.data_pagamento) >= %s AND DATE(par.data_pagamento) <= %s "
+                "AND DATEDIFF(par.data_pagamento, par.vencimento) BETWEEN 0 AND 90"
+            )
+            params.extend([d_ini, d_fim])
+        elif k in _PAINEL_DASH_SERIES_WHERE:
+            w, p = _PAINEL_DASH_SERIES_WHERE[k]
+            parts.append(
+                "SELECT DISTINCT o.id_contrato FROM ocorrencia o "
+                f"WHERE ({w}) AND DATE(o.data_arquivo) >= %s AND DATE(o.data_arquivo) <= %s"
+            )
+            params.extend(list(p) + [d_ini, d_fim])
+    if not parts:
+        return None, []
+    return '(' + ' UNION '.join(parts) + ')', params
 
 
 def _or_ocorrencia_filtro_series_sql(series_keys, painel_map: dict) -> tuple:
@@ -4945,18 +5007,31 @@ def _fetch_dash_export_dataset(cursor, ctx):
     series_by_month = {}  # key -> {mes: count}
 
     for key in ctx['series']:
-        where, params = _DASH_SERIES_WHERE[key]
-        count_expr = _DASH_SERIES_COUNT_FUNC.get(key, 'COUNT(DISTINCT o.id_contrato)')
-        cursor.execute(
-            "SELECT DATE_FORMAT(o.data_arquivo, '%%Y-%%m') AS mes, "
-            f"       {count_expr} AS total "
-            "FROM ocorrencia o "
-            f"WHERE {where} "
-            "AND o.data_arquivo >= %s AND o.data_arquivo <= %s "
-            "GROUP BY mes ORDER BY mes",
-            tuple(params) + (d_ini, d_fim),
-        )
-        by_m = {r['mes']: int(r['total']) for r in cursor.fetchall()}
+        if key == 'pagos_parcial':
+            cursor.execute(
+                "SELECT DATE_FORMAT(p.data_pagamento, '%%Y-%%m') AS mes, "
+                "       COUNT(DISTINCT p.id_contrato) AS total "
+                "FROM parcela p "
+                "WHERE p.status = 'fechado' "
+                "AND DATEDIFF(p.data_pagamento, p.vencimento) BETWEEN 0 AND 90 "
+                "AND DATE(p.data_pagamento) >= %s AND DATE(p.data_pagamento) <= %s "
+                "GROUP BY mes ORDER BY mes",
+                (d_ini, d_fim),
+            )
+            by_m = {r['mes']: int(r['total']) for r in cursor.fetchall()}
+        else:
+            where, params = _DASH_SERIES_WHERE[key]
+            count_expr = _DASH_SERIES_COUNT_FUNC.get(key, 'COUNT(DISTINCT o.id_contrato)')
+            cursor.execute(
+                "SELECT DATE_FORMAT(o.data_arquivo, '%%Y-%%m') AS mes, "
+                f"       {count_expr} AS total "
+                "FROM ocorrencia o "
+                f"WHERE {where} "
+                "AND o.data_arquivo >= %s AND o.data_arquivo <= %s "
+                "GROUP BY mes ORDER BY mes",
+                tuple(params) + (d_ini, d_fim),
+            )
+            by_m = {r['mes']: int(r['total']) for r in cursor.fetchall()}
         series_by_month[key] = by_m
         series_totals[key] = sum(by_m.values())
         for mes in meses:
@@ -4981,15 +5056,9 @@ def _fetch_dash_export_dataset(cursor, ctx):
     for k in ctx['series']:
         kpis[k] = series_totals.get(k, 0)
 
-    # --- Contratos envolvidos (ocorrencias no periodo x series selecionadas) ---
-    # Monta um WHERE que combine todos os filtros das series ativas com OR.
-    or_parts = []
-    or_params = []
-    for k in ctx['series']:
-        where, params = _DASH_SERIES_WHERE[k]
-        or_parts.append('(' + where + ')')
-        or_params += params
-    where_series = '(' + ' OR '.join(or_parts) + ')' if or_parts else '1=0'
+    # --- Contratos envolvidos: UNION por série (ocorrência + parcelas performadas 0–90 d) ---
+    union_sql, union_p = _painel_dash_union_contrato_ids_sql(ctx['series'], d_ini, d_fim)
+    where_series = f"c.id IN {union_sql}" if union_sql else '1=0'
 
     sql = (
         "SELECT DISTINCT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
@@ -5003,8 +5072,7 @@ def _fetch_dash_export_dataset(cursor, ctx):
         "         ELSE NULL "
         "       END AS valor_metrica_parcela, "
         "       p.nome_completo AS devedor, p.cpf_cnpj AS devedor_cpf_cnpj "
-        "FROM ocorrencia o "
-        "INNER JOIN contrato c ON c.id = o.id_contrato "
+        "FROM contrato c "
         "LEFT JOIN pessoa p ON p.id = c.id_pessoa "
         "LEFT JOIN ( "
         "  SELECT p1.id_contrato, p1.vencimento, p1.valor_total "
@@ -5028,10 +5096,9 @@ def _fetch_dash_export_dataset(cursor, ctx):
         "  ) t ON p1.id_contrato = t.id_contrato AND p1.vencimento = t.mv AND p1.status = 'indenizado' "
         ") dash_pi ON dash_pi.id_contrato = c.id "
         f"WHERE {where_series} "
-        "AND o.data_arquivo >= %s AND o.data_arquivo <= %s "
         "ORDER BY c.grupo, c.cota"
     )
-    cursor.execute(sql, tuple(or_params) + (d_ini, d_fim))
+    cursor.execute(sql, tuple(union_p))
     contratos = _clean_rows(cursor.fetchall())
 
     return {

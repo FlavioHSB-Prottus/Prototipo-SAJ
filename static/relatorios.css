@@ -1,4 +1,39 @@
 /* =============================================
+   MÓDULO DE RELATÓRIOS — Toolbar (filtros + ações)
+   ============================================= */
+.relatorio-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px 20px;
+}
+.relatorio-toolbar .relatorio-form {
+    flex: 1 1 min(100%, 720px);
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 14px 16px;
+    align-items: end;
+}
+.relatorio-toolbar .export-actions {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+    flex: 0 1 auto;
+    min-width: min(100%, 380px);
+    justify-content: flex-end;
+}
+@media (max-width: 720px) {
+    .relatorio-toolbar .export-actions {
+        min-width: 100%;
+        justify-content: stretch;
+    }
+    .relatorio-toolbar .export-actions .btn-search {
+        flex: 1 1 auto;
+    }
+}
+
+/* =============================================
    MÓDULO DE RELATÓRIOS — Estilos de Ordenação
    ============================================= */
 
