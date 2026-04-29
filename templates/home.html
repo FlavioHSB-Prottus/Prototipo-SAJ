@@ -1,6 +1,14 @@
 {% extends 'layout.html' %}
 
 {% block content %}
+{% if nav_bradesco_demonstracao %}
+<div class="layout-flash-wrap" style="padding:0 0 16px;">
+    <div class="layout-flash layout-flash-message" role="status">
+        Contexto <strong>Bradesco</strong>: demonstração sem módulos de negócio. Para Importação, Cobrança, Relatórios e demais telas,
+        selecione <strong>Consórcio GM</strong> no seletor de empresa acima.
+    </div>
+</div>
+{% endif %}
 <div class="cards-container">
     
     <!-- Card: Boas-vindas -->

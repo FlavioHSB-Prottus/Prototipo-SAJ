@@ -177,31 +177,6 @@ def _enforce_nivel_acesso_modulos():
     return None
 
 
-@app.before_request
-def _enforce_empresa_escopo_bradesco_gm():
-    """Bradesco + contexto GM ativo: apenas Busca e Consorciados/Avalistas (+ APIs auxiliares)."""
-    if request.endpoint is None:
-        return None
-    if request.endpoint in ('login', 'static', 'recuperar_senha', 'logout'):
-        return None
-    if not session.get('funcionario_id'):
-        return None
-    path = request.path
-    if path.startswith('/static'):
-        return None
-    # Troca de empresa no servidor
-    if path.startswith('/api/sessao/empresa'):
-        return None
-    if not _bradesco_contexto_gm_restrito():
-        return None
-    if _path_ok_bradesco_em_gm(path):
-        return None
-    if path.startswith('/api/'):
-        return jsonify({'error': 'Acesso negado neste contexto de empresa (GM).'}), 403
-    flash('No contexto GM você só acessa Busca e Consorciados e Avalistas.', 'error')
-    return redirect(url_for('home'))
-
-
 def _session_funcionario_empresa():
     return (session.get('funcionario_empresa') or 'GM').strip()
 
@@ -210,12 +185,32 @@ def _session_empresa_ativa():
     return (session.get('empresa_ativa') or 'GM').strip()
 
 
+def _session_funcionario_login():
+    return (session.get('funcionario_login') or '').strip().lower()
+
+
+def _pode_selecionar_empresa_bradesco():
+    """Apenas gestor.jb (multi-empresa) e bradesco.demo podem usar o contexto Bradesco."""
+    login = _session_funcionario_login()
+    return login in ('gestor.jb', 'bradesco.demo')
+
+
+def _contexto_empresa_bradesco_ativo():
+    return _session_empresa_ativa().strip().lower() == 'bradesco'
+
+
 def _empresas_dropdown_sessao():
     """Duplas (id, titulo) para o seletor do header."""
     fe = _session_funcionario_empresa().lower()
+    login = _session_funcionario_login()
     if fe == 'todas':
-        return [('GM', 'Consórcio GM'), ('Bradesco', 'Bradesco')]
+        out = [('GM', 'Consórcio GM')]
+        if login == 'gestor.jb':
+            out.append(('Bradesco', 'Bradesco'))
+        return out
     if fe == 'bradesco':
+        if not _pode_selecionar_empresa_bradesco():
+            return [('GM', 'Consórcio GM')]
         return [('Bradesco', 'Bradesco'), ('GM', 'GM')]
     return [('GM', 'Consórcio GM')]
 
@@ -253,6 +248,84 @@ def _path_ok_bradesco_em_gm(path):
     return any(path.startswith(p) for p in prefixos)
 
 
+@app.before_request
+def _corrige_sessao_bradesco_nao_permitida():
+    """Quem não é gestor.jb nem bradesco.demo não mantém empresa_ativa Bradesco (ex.: sessão antiga)."""
+    if request.endpoint is None:
+        return None
+    if request.endpoint in ('login', 'static', 'recuperar_senha', 'logout'):
+        return None
+    if not session.get('funcionario_id'):
+        return None
+    if _contexto_empresa_bradesco_ativo() and not _pode_selecionar_empresa_bradesco():
+        session['empresa_ativa'] = 'GM'
+        session.modified = True
+    return None
+
+
+@app.before_request
+def _enforce_empresa_escopo_bradesco_gm():
+    """Bradesco + contexto GM ativo: apenas Busca e Consorciados/Avalistas (+ APIs auxiliares)."""
+    if request.endpoint is None:
+        return None
+    if request.endpoint in ('login', 'static', 'recuperar_senha', 'logout'):
+        return None
+    if not session.get('funcionario_id'):
+        return None
+    path = request.path
+    if path.startswith('/static'):
+        return None
+    # Troca de empresa no servidor
+    if path.startswith('/api/sessao/empresa'):
+        return None
+    if not _bradesco_contexto_gm_restrito():
+        return None
+    if _path_ok_bradesco_em_gm(path):
+        return None
+    if path.startswith('/api/'):
+        return jsonify({'error': 'Acesso negado neste contexto de empresa (GM).'}), 403
+    flash('No contexto GM você só acessa Busca e Consorciados e Avalistas.', 'error')
+    return redirect(url_for('home'))
+
+
+@app.before_request
+def _enforce_bradesco_contexto_sem_modulos():
+    """Empresa ativa Bradesco: demonstração sem módulos de negócio (só Home + perfil + troca de empresa)."""
+    if request.endpoint is None:
+        return None
+    if request.endpoint in ('login', 'static', 'recuperar_senha', 'logout'):
+        return None
+    if not session.get('funcionario_id'):
+        return None
+    path = request.path
+    if path.startswith('/static'):
+        return None
+    if not _contexto_empresa_bradesco_ativo():
+        return None
+
+    if path.startswith('/api/sessao/empresa'):
+        return None
+    if path.startswith('/api/funcionario/perfil'):
+        return None
+    if path.startswith('/api/avisos'):
+        return None
+    if path.startswith('/minha-foto'):
+        return None
+
+    if path in ('/', '/home'):
+        return None
+
+    if path.startswith('/api/'):
+        return jsonify({'error': 'Módulos indisponíveis no contexto Bradesco (demonstração).'}), 403
+
+    flash(
+        'No contexto Bradesco não há módulos implementados. Selecione Consórcio GM no topo '
+        'para usar o sistema ou permaneça na Home.',
+        'error',
+    )
+    return redirect(url_for('home'))
+
+
 @app.context_processor
 def inject_perfil_ui():
     na = session.get('funcionario_nivel_acesso')
@@ -261,6 +334,7 @@ def inject_perfil_ui():
     label = labels.get(n, (na or '').strip() or 'Usuário')
     pode_op = n in ('gestor', 'administrador')
     br_gm = bool(session.get('funcionario_id')) and _bradesco_contexto_gm_restrito()
+    br_demo = bool(session.get('funcionario_id')) and _contexto_empresa_bradesco_ativo()
     ctx = {
         'perfil_header_label': label,
         'is_admin': pode_op,
@@ -270,6 +344,7 @@ def inject_perfil_ui():
         'nav_cadastro': n in ('gestor', 'administrador'),
         'nav_operadores': pode_op,
         'nav_restrict_bradesco_gm': br_gm,
+        'nav_bradesco_demonstracao': br_demo,
         'empresa_ativa_header': _session_empresa_ativa(),
         'empresas_dropdown': _empresas_dropdown_sessao(),
     }
@@ -376,6 +451,7 @@ def login():
 
         session.clear()
         session['funcionario_id'] = int(row['id'])
+        session['funcionario_login'] = login_val.strip().lower()
         session['funcionario_nome'] = row.get('nome') or ''
         session['funcionario_nivel_acesso'] = row.get('nivel_acesso') or ''
         fe = (row.get('empresa') or 'GM')
@@ -420,6 +496,8 @@ def api_sessao_empresa():
     permitidas = [x[0] for x in _empresas_dropdown_sessao()]
     if nova not in permitidas:
         return jsonify({'error': 'Empresa não permitida para este usuário.'}), 400
+    if nova.strip().lower() == 'bradesco' and not _pode_selecionar_empresa_bradesco():
+        return jsonify({'error': 'Empresa Bradesco não disponível para este usuário.'}), 403
     session['empresa_ativa'] = nova
     session.modified = True
     return jsonify({'ok': True, 'empresa_ativa': nova})
