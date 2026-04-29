@@ -12,6 +12,7 @@
     <!-- Filtros p/ Relatório -->
     <div class="filter-card">
         <h3><i class="fa-solid fa-file-invoice"></i> Relatórios de Contratos</h3>
+        <div class="relatorio-toolbar">
         <form id="relatorioForm" class="filter-form relatorio-form">
             
             <div class="form-group rel-tipo">
@@ -19,6 +20,7 @@
                 <select id="tipo_relatorio" name="tipo_relatorio" class="form-control">
                     <option value="abertos">Contratos Abertos</option>
                     <option value="pagos">Contratos Pagos/Fechados</option>
+                    <option value="pagos_parcialmente">Contratos pagos parcialmente</option>
                     <option value="indenizados">Contratos Indenizados</option>
                     <option value="novos">Contratos Novos</option>
                     <option value="voltaram">Contratos que Voltaram</option>
@@ -53,6 +55,7 @@
                 <button type="button" class="btn-export btn-export-excel" id="btnExcel"><i class="fa-solid fa-file-excel"></i> Exportar Excel</button>
                 <button type="button" class="btn-export btn-export-pdf" id="btnPdf"><i class="fa-solid fa-file-pdf"></i> Exportar PDF</button>
             </div>
+        </div>
         </div>
     </div>
 

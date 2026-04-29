@@ -10,7 +10,9 @@ document.addEventListener('DOMContentLoaded', async function () {
     var kpiIndenizados = document.getElementById('kpiIndenizados');
     var kpiNovos = document.getElementById('kpiNovos');
     var kpiRetomados = document.getElementById('kpiRetomados');
+    var kpiPagosParcial = document.getElementById('kpiPagosParcial');
     var kpiPagosPeriodo = document.getElementById('kpiPagosPeriodo');
+    var kpiPagosParcPeriodo = document.getElementById('kpiPagosParcPeriodo');
     var kpiIndenizadosPeriodo = document.getElementById('kpiIndenizadosPeriodo');
     var kpiNovosPeriodo = document.getElementById('kpiNovosPeriodo');
     var kpiRetomadosPeriodo = document.getElementById('kpiRetomadosPeriodo');
@@ -30,6 +32,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     var SERIES_META = {
         pagos:            { label: 'Contratos pagos',         color: '#10b981' },
         indenizados:      { label: 'Contratos indenizados',   color: '#f59e0b' },
+        pagos_parcial:    { label: 'Contratos pagos parcialmente', color: '#14b8a6' },
         novos:            { label: 'Novo (ocorr. abertas)',     color: '#3b82f6' },
         retomados:        { label: 'Voltou (ocorr. abertas)',   color: '#8b5cf6' },
         entradas_safra:  { label: 'Entradas (safra, distintos)', color: '#0d9488' },
@@ -60,7 +63,9 @@ document.addEventListener('DOMContentLoaded', async function () {
     kpiAbertos.textContent = formatNumber(snapshot.em_cobranca);
 
     // --- Estado dos controles (padrao: pagos+indenizados, ultimos 6 meses, todas as fatias) ---
-    var selectedSeries = { pagos: true, indenizados: true, novos: false, retomados: false, entradas_safra: false };
+    var selectedSeries = {
+        pagos: true, indenizados: true, pagos_parcial: false, novos: false, retomados: false, entradas_safra: false,
+    };
     var pieSelection = {};
     Object.keys(pieRaw).forEach(function (k) { pieSelection[k] = true; });
 
@@ -150,7 +155,9 @@ document.addEventListener('DOMContentLoaded', async function () {
     });
 
     btnResetControles.addEventListener('click', function () {
-        selectedSeries = { pagos: true, indenizados: true, novos: false, retomados: false, entradas_safra: false };
+        selectedSeries = {
+            pagos: true, indenizados: true, pagos_parcial: false, novos: false, retomados: false, entradas_safra: false,
+        };
         seriesSelector.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
             cb.checked = !!selectedSeries[cb.getAttribute('data-serie')];
         });
@@ -216,12 +223,14 @@ document.addEventListener('DOMContentLoaded', async function () {
             return s;
         }
         kpiPagos.textContent = formatNumber(sumSerie('pagos'));
+        if (kpiPagosParcial) kpiPagosParcial.textContent = formatNumber(sumSerie('pagos_parcial'));
         kpiIndenizados.textContent = formatNumber(sumSerie('indenizados'));
         kpiNovos.textContent = formatNumber(sumSerie('novos'));
         kpiRetomados.textContent = formatNumber(sumSerie('retomados'));
 
         var label = periodLabel();
         kpiPagosPeriodo.textContent = '(' + label + ')';
+        if (kpiPagosParcPeriodo) kpiPagosParcPeriodo.textContent = '(' + label + ')';
         kpiIndenizadosPeriodo.textContent = '(' + label + ')';
         kpiNovosPeriodo.textContent = '(' + label + ')';
         kpiRetomadosPeriodo.textContent = '(' + label + ')';

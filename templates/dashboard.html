@@ -28,6 +28,14 @@
             </div>
         </div>
 
+        <div class="kpi-card partial" data-kpi="pagos_parcial">
+            <div class="kpi-icon"><i class="fa-solid fa-coins"></i></div>
+            <div class="kpi-content">
+                <p class="kpi-title">Pagos parcial <span class="kpi-hint" id="kpiPagosParcPeriodo">(período)</span></p>
+                <h2 class="kpi-value" id="kpiPagosParcial">--</h2>
+            </div>
+        </div>
+
         <div class="kpi-card warning" data-kpi="indenizados">
             <div class="kpi-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
             <div class="kpi-content">
@@ -88,10 +96,10 @@
             </button>
         </div>
 
-        <div class="control-panel-grid">
+        <div class="control-panel-grid control-panel-grid--dashboard">
 
             <!-- 1. Series do grafico de linhas -->
-            <div class="control-card">
+            <div class="control-card dash-card-series">
                 <div class="control-card-title">
                     <i class="fa-solid fa-chart-line"></i>
                     <span>Séries comparadas</span>
@@ -107,6 +115,11 @@
                         <input type="checkbox" data-serie="indenizados" checked>
                         <span class="chip-dot" style="background:#f59e0b"></span>
                         <span>Contratos indenizados</span>
+                    </label>
+                    <label class="chip-option chip-pagos-parcial">
+                        <input type="checkbox" data-serie="pagos_parcial">
+                        <span class="chip-dot" style="background:#14b8a6"></span>
+                        <span>Contratos pagos parcialmente</span>
                     </label>
                     <label class="chip-option chip-novos">
                         <input type="checkbox" data-serie="novos">
@@ -125,6 +138,7 @@
                     </label>
                 </div>
                 <p class="control-card-hint" style="margin-top:10px;font-size:0.8rem;color:var(--text-muted)">
+                    <strong>Pagos parcialmente</strong>: ao menos uma parcela quitada com atraso na quitação entre 0 e 90 dias (performado).
                     Cada ponto de <strong>Novo</strong>/<strong>Voltou</strong> soma ocorrências com
                     <code>status=aberto</code> (como o módulo <strong>Relatórios</strong>). A soma
                     de tipos no tooltip pode exceder contratos; o mesmo ctt. pode contar no novo e
@@ -134,7 +148,7 @@
             </div>
 
             <!-- 2. Periodo -->
-            <div class="control-card">
+            <div class="control-card dash-card-period">
                 <div class="control-card-title">
                     <i class="fa-regular fa-calendar-days"></i>
                     <span>Período exibido</span>
@@ -158,7 +172,7 @@
             </div>
 
             <!-- 3. Distribuicao da carteira (pie) -->
-            <div class="control-card">
+            <div class="control-card dash-card-pie">
                 <div class="control-card-title">
                     <i class="fa-solid fa-chart-pie"></i>
                     <span>Distribuição da carteira</span>
@@ -170,7 +184,7 @@
             </div>
 
             <!-- 4. Exportacao -->
-            <div class="control-card control-card-export">
+            <div class="control-card control-card-export dash-card-export">
                 <div class="control-card-title">
                     <i class="fa-solid fa-file-export"></i>
                     <span>Exportar dados e gráficos</span>
