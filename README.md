@@ -13,7 +13,8 @@ Sistema centralizado para gestão e cobrança de consórcios: importação de ar
 1. Copie `.env.example` para `.env` e defina valores (não versionar `.env` — está no `.gitignore`).
 2. Variáveis **`DB_*`** alinham o Flask aos scripts em `Python/` (`DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`; opcional `DB_PORT`).
 3. **`FLASK_SECRET_KEY`** para sessão em produção.
-4. Sem arquivo `.env`, o aplicativo usa os **mesmos padrões de desenvolvimento** de antes (`localhost`, usuário `root`, etc.).
+4. Opcional: **`DISCADOR_URL`**, **`DISCADOR_USUARIO`**, **`DISCADOR_TOKEN`** — API de discagem (botão Ligar nos telefones; ver `.env.example`). O ramal de origem vem do cadastro do funcionário logado (`funcionario.ramal`).
+5. Sem arquivo `.env`, o aplicativo usa os **mesmos padrões de desenvolvimento** de antes (`localhost`, usuário `root`, etc.).
 
 ## Layout do repositório
 

@@ -466,7 +466,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 telefones.forEach(function (t) {
                     html += '<li><i class="fa-solid fa-phone"></i> ' + escapeHtml(t.numero || '-');
                     if (t.ramal) html += ' (ramal ' + escapeHtml(t.ramal) + ')';
-                    html += '<button class="btn-ligar" title="Ligar"><i class="fa-solid fa-phone-volume"></i></button>';
+                    html += '<button type="button" class="btn-ligar" title="Ligar" data-numero="' + escapeHtml(t.numero || '') + '"><i class="fa-solid fa-phone-volume"></i></button>';
                     html += '<button class="btn-mensagem" title="Enviar Mensagem"><i class="fa-solid fa-comment-dots"></i></button>';
                     html += '<span class="contact-tipo">' + escapeHtml(t.tipo) + '</span></li>';
                 });

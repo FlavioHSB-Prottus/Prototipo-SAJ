@@ -12,6 +12,7 @@ import sys
 import tempfile
 
 import pymysql
+import requests
 from pymysql.err import IntegrityError
 from flask import Flask, Response, render_template, request, redirect, url_for, jsonify, send_file, session, flash, abort
 from werkzeug.utils import secure_filename
@@ -2127,6 +2128,71 @@ def api_pessoa_add_email(pessoa_id):
             conn.close()
         except Exception:
             pass
+
+
+@app.route('/api/discar', methods=['POST'])
+def api_discar():
+    """Proxy seguro: chama a API de discador com ramal do funcionario (credenciais no .env)."""
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
+    payload = request.get_json(silent=True) or {}
+    raw = (payload.get('numero') or '').strip()
+    digits = ''.join(ch for ch in raw if ch.isdigit())
+    if not digits:
+        return jsonify({'error': 'Numero invalido.'}), 400
+    if not digits.startswith('55'):
+        digits = '55' + digits
+
+    url = (os.environ.get('DISCADOR_URL') or '').strip()
+    usuario = (os.environ.get('DISCADOR_USUARIO') or '').strip()
+    token = (os.environ.get('DISCADOR_TOKEN') or '').strip()
+    if not (url and usuario and token):
+        return jsonify({'error': 'Discador nao configurado (env DISCADOR_URL, DISCADOR_USUARIO, DISCADOR_TOKEN).'}), 500
+
+    conn = _get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT ramal FROM funcionario WHERE id = %s', (int(fid),))
+            row = cur.fetchone()
+    finally:
+        conn.close()
+
+    ramal = (row or {}).get('ramal') if row else None
+    if ramal is None or ramal == '':
+        return jsonify({'error': 'Seu usuario nao tem ramal cadastrado.'}), 400
+    try:
+        ramal_int = int(ramal)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Ramal invalido no cadastro do funcionario.'}), 400
+
+    body = {
+        'dados': {
+            'numero_ramal_origem': ramal_int,
+            'numero_destino': digits,
+            'variaveis': [{}],
+        },
+    }
+    try:
+        resp = requests.post(
+            url,
+            headers={'usuario': usuario, 'token': token, 'Content-Type': 'application/json'},
+            json=body,
+            timeout=15,
+        )
+    except requests.RequestException as exc:
+        return jsonify({'error': f'Erro de rede ao chamar discador: {exc}'}), 502
+    try:
+        data = resp.json()
+    except Exception:
+        data = {'raw': (resp.text or '')[:500]}
+    if not resp.ok:
+        return jsonify({
+            'error': 'Falha no discador.',
+            'status': resp.status_code,
+            'detalhe': data,
+        }), 502
+    return jsonify({'ok': True, 'discador': data})
 
 
 @app.route('/api/pessoa/<int:pessoa_id>', methods=['GET'])
