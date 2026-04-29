@@ -16,6 +16,15 @@ Esquema (pre-existente, NAO e criado por este script):
 Regras de balanceamento (em ORDEM de prioridade -- cada criterio so e
 aplicado se nao quebrar os anteriores):
 
+    0. RELACAO SAJ ANTIGO (`relacao_contrato_operador`): se o contrato
+       (grupo+cota normalizado) constar na tabela (preenchida antes pela
+       aplicacao `Python/popular_relacao_operadores_saj.py`, lendo o Excel)
+       e o operador mapear para um funcionario com perfil Cobrança (login),
+       grava-se esse vinculo antes da distribuicao automatica. Operador
+       DAVID (legado = administrador) nao recebe cobrança — segue para os
+       criterios abaixo. Contratos ja em `funcionario_cobranca` nao sao
+       alterados.
+
     1. Mesma media de VALOR TOTAL em cobranca por funcionario (por
        situacao critico / atencao / recente).
     2. Mesma media de QUANTIDADE de contratos em cobranca por
@@ -41,13 +50,20 @@ Ambiente (opcional):
     DB_HOST, DB_USER, DB_PASSWORD, DB_NAME
     ESTABILIDADE_TOLERANCIA   (default 0.15)
 
+Popular `relacao_contrato_operador` (Excel SAJ) separadamente:
+    python Python/popular_relacao_operadores_saj.py
+
 Documentação do projeto (metodologia, segurança, convenções):
     docs/METODOLOGIA-JOAO-BARBOSA.md na raiz do repositório.
 """
 import os
+import re
 import sys
 
 import pymysql
+
+# Operador legado no SAJ que corresponde ao administrador — nao recebe cobranca automatica.
+_OPERADOR_EXCLUIDO_COBRANCA = frozenset({"DAVID"})
 
 # Observacao sobre encoding:
 # Este arquivo e escrito em ASCII puro. A palavra "atencao" em portugues
@@ -125,6 +141,114 @@ def remover_atribuicoes_para_nao_cobranca(cursor):
     )
     n = cursor.rowcount
     return int(n) if n is not None else 0
+
+
+def normalizar_grupo_cota_int(grupo, cota):
+    """Grupo 6 digitos + cota 4 digitos (ex.: 19005 + 2 -> 0190050002)."""
+    try:
+        g = int(float(str(grupo).strip()))
+        ct = int(float(str(cota).strip()))
+    except (TypeError, ValueError):
+        return None, None, None
+    g_s = f"{g:06d}"
+    c_s = f"{ct:04d}"
+    return g_s, c_s, g_s + c_s
+
+
+def fetch_mapa_login_cobranca(cursor):
+    """login UPPER -> id_funcionario para perfil Cobrança."""
+    cursor.execute(
+        """
+        SELECT id, login FROM funcionario
+        WHERE COALESCE(TRIM(nivel_acesso), '') IN ('Cobrança', 'Cobranca')
+          AND login IS NOT NULL AND TRIM(login) <> ''
+        """
+    )
+    out = {}
+    for r in cursor.fetchall():
+        lg = (r.get("login") or "").strip()
+        if lg:
+            out[lg.upper()] = int(r["id"])
+    return out
+
+
+def fetch_relacao_grupo_cota_para_operador(cursor):
+    """grupo_cota -> nome_operador (ultimo vence se duplicado — nao deve haver)."""
+    cursor.execute("SELECT grupo_cota, nome_operador FROM relacao_contrato_operador")
+    return {
+        (r.get("grupo_cota") or "").strip(): (r.get("nome_operador") or "").strip()
+        for r in cursor.fetchall()
+        if r.get("grupo_cota")
+    }
+
+
+def resolver_operador_saj_para_funcionario(nome_operador, login_cobranca_por_upper):
+    """Mapeia texto do Excel para id do operador de Cobrança; DAVID -> None."""
+    raw = (nome_operador or "").strip()
+    if not raw:
+        return None
+    base = re.split(r"[\s/]", raw, maxsplit=1)[0].strip()
+    u = base.upper()
+    # Legado SAJ: DAVID = administrador (sem cobrança); login também pode vir como DAVID.X
+    if u in _OPERADOR_EXCLUIDO_COBRANCA or u.startswith("DAVID."):
+        return None
+    return login_cobranca_por_upper.get(u)
+
+
+def aplicar_prioridade_relacao_saj(cursor, contratos, existentes_ids):
+    """Insere em funcionario_cobranca conforme relacao_contrato_operador (prioridade 0).
+
+    So grava para contratos ainda sem linha em funcionario_cobranca.
+    Retorna quantidade de novos vinculos.
+    """
+    try:
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS n FROM information_schema.tables
+            WHERE table_schema = DATABASE() AND table_name = 'relacao_contrato_operador'
+            """
+        )
+        if int((cursor.fetchone() or {}).get("n") or 0) == 0:
+            return 0
+    except Exception:
+        return 0
+
+    login_map = fetch_mapa_login_cobranca(cursor)
+    if not login_map:
+        return 0
+
+    rel_op = fetch_relacao_grupo_cota_para_operador(cursor)
+    if not rel_op:
+        return 0
+
+    novos = []
+    for c in contratos:
+        cid = int(c["id_contrato"])
+        if cid in existentes_ids:
+            continue
+        key = normalizar_grupo_cota_int(c.get("grupo"), c.get("cota"))
+        if not key or key[2] is None:
+            continue
+        gc = key[2]
+        nome_op = rel_op.get(gc)
+        if not nome_op:
+            continue
+        fid = resolver_operador_saj_para_funcionario(nome_op, login_map)
+        if not fid:
+            continue
+        novos.append((fid, cid))
+
+    if not novos:
+        return 0
+
+    cursor.executemany(
+        """
+        INSERT INTO funcionario_cobranca (id_funcionario, id_contrato)
+        VALUES (%s, %s)
+        """,
+        novos,
+    )
+    return len(novos)
 
 
 def fetch_contratos_abertos(cursor, data_arquivo):
@@ -422,6 +546,17 @@ def main():
 
     existentes = fetch_existentes(cursor)
     print(f"Atribuicoes ja gravadas (preservadas): {len(existentes)}")
+
+    pri_saj = aplicar_prioridade_relacao_saj(cursor, contratos, set(existentes.keys()))
+    if pri_saj:
+        conn.commit()
+        existentes = fetch_existentes(cursor)
+        print(
+            f"Prioridade SAJ (relacao_contrato_operador): {pri_saj} vinculo(s) "
+            "gravado(s) em funcionario_cobranca."
+        )
+    else:
+        print("Prioridade SAJ: nenhum contrato novo elegivel (ou tabela/mapeamento vazio).")
 
     historico = fetch_historico_funcionarios(cursor, ids_func)
     print(f"Historico de cobranca encontrado: {len(historico)} contratos com funcionario previo")

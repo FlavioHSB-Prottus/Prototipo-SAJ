@@ -507,6 +507,20 @@ CREATE TABLE `contrato` (
   CONSTRAINT `contrato_ibfk_4` FOREIGN KEY (`id_seguradora`) REFERENCES `empresa` (`id`) ON DELETE SET NULL
 );
 
+CREATE TABLE `relacao_contrato_operador` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `numero_contrato_saj` varchar(80) DEFAULT NULL COMMENT 'Texto contrato no sistema SAJ antigo',
+  `grupo` varchar(6) NOT NULL COMMENT 'Grupo com 6 digitos',
+  `cota` varchar(4) NOT NULL COMMENT 'Cota com 4 digitos',
+  `grupo_cota` varchar(10) NOT NULL COMMENT 'Chave grupo mais cota para consultas',
+  `nome_operador` varchar(255) NOT NULL COMMENT 'Login operador no SAJ antigo MAISA.T ou DAVID etc',
+  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_relacao_grupo_cota` (`grupo_cota`),
+  KEY `idx_relacao_operador` (`nome_operador`(64))
+) COMMENT='Mapeamento SAJ antigo grupo cota operador import Excel';
+
 CREATE TABLE `funcionario_cobranca` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_funcionario` int(11) NOT NULL,

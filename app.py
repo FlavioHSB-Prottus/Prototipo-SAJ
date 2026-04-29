@@ -1241,14 +1241,22 @@ def _empty_func_stats():
     }
 
 
+# Filtro SQL reutilizado: apenas perfil operacional de cobranca (nao Gestor/Administrador).
+_WHERE_FUNCIONARIO_COBRANCA = (
+    "COALESCE(TRIM(nivel_acesso), '') IN ('Cobrança', 'Cobranca')"
+)
+
+
 @app.route('/api/importacao/distribuicao')
 def api_distribuicao():
     """Retorna a distribuicao atual gravada em funcionario_cobranca."""
     conn = _get_db()
     cursor = conn.cursor()
 
-    # Lista de funcionarios disponiveis (para popular o select de reatribuicao).
-    cursor.execute("SELECT id, nome FROM funcionario ORDER BY nome")
+    # Lista de funcionarios disponiveis (select / transferencia): somente Cobrança.
+    cursor.execute(
+        "SELECT id, nome FROM funcionario WHERE " + _WHERE_FUNCIONARIO_COBRANCA + " ORDER BY nome"
+    )
     funcionarios_disponiveis = _clean_rows(cursor.fetchall())
 
     # Contratos atribuidos, com valor/dias calculados via JOIN.
@@ -1346,12 +1354,15 @@ def api_distribuicao_reassign():
     conn = _get_db()
     cursor = conn.cursor()
 
-    # Garante que o novo funcionario existe (evita FK error silencioso).
-    cursor.execute("SELECT 1 FROM funcionario WHERE id = %s", (novo_fid,))
+    # Destino deve existir e ser perfil Cobrança (Gestor/Administrador nao recebem contratos aqui).
+    cursor.execute(
+        "SELECT 1 FROM funcionario WHERE id = %s AND " + _WHERE_FUNCIONARIO_COBRANCA,
+        (novo_fid,),
+    )
     if not cursor.fetchone():
         cursor.close()
         conn.close()
-        return jsonify({'error': 'Funcionario nao encontrado'}), 404
+        return jsonify({'error': 'Funcionario nao encontrado ou sem perfil Cobrança'}), 404
 
     cursor.execute(
         "UPDATE funcionario_cobranca SET id_funcionario = %s WHERE id = %s",
@@ -1414,11 +1425,13 @@ def api_distribuicao_transferir():
 
         if modo == 'especifico':
             cursor.execute(
-                "SELECT id, nome FROM funcionario WHERE id = %s", (id_destino,)
+                "SELECT id, nome FROM funcionario WHERE id = %s AND "
+                + _WHERE_FUNCIONARIO_COBRANCA,
+                (id_destino,),
             )
             destino = cursor.fetchone()
             if not destino:
-                return jsonify({'error': 'Funcionario de destino nao encontrado'}), 404
+                return jsonify({'error': 'Funcionario de destino nao encontrado ou sem perfil Cobrança'}), 404
 
             cursor.execute(
                 "UPDATE funcionario_cobranca SET id_funcionario = %s "
@@ -1436,10 +1449,11 @@ def api_distribuicao_transferir():
             })
 
         # modo == 'igualitaria' ---------------------------------------------
-        # 1) Busca os demais funcionarios (destinos possiveis).
+        # 1) Busca os demais funcionarios de cobrança (destinos possiveis).
         cursor.execute(
-            "SELECT id, nome FROM funcionario WHERE id <> %s "
-            "AND (ativo IS NULL OR ativo = 1) ORDER BY nome",
+            "SELECT id, nome FROM funcionario WHERE id <> %s AND "
+            + _WHERE_FUNCIONARIO_COBRANCA
+            + " AND (ativo IS NULL OR ativo = 1) ORDER BY nome",
             (id_origem,),
         )
         destinos = _clean_rows(cursor.fetchall())
@@ -3552,9 +3566,11 @@ def api_cobranca():
             recente.append(r)
         # dias <= 0 => parcela ainda nao venceu, nao entra nos blocos
 
-    # Lista de funcionarios (para popular o <select> do filtro no front).
+    # Lista de operadores do filtro: somente perfil Cobrança (mesma regra da importação).
     try:
-        cursor.execute("SELECT id, nome FROM funcionario ORDER BY nome")
+        cursor.execute(
+            "SELECT id, nome FROM funcionario WHERE " + _WHERE_FUNCIONARIO_COBRANCA + " ORDER BY nome"
+        )
         funcionarios = [
             {'id': int(r['id']), 'nome': r['nome']}
             for r in cursor.fetchall()
