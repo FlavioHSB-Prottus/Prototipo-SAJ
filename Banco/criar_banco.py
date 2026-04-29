@@ -64,6 +64,7 @@ CREATE TABLE `funcionario` (
   `estado` varchar(2) DEFAULT NULL,
   `departamento` varchar(25) DEFAULT NULL,
   `nivel_acesso` varchar(20) DEFAULT NULL,
+  `empresa` varchar(32) DEFAULT 'GM' COMMENT 'GM Bradesco etc ou todas para gestor multi-empresa',
   `sexo` varchar(1) DEFAULT NULL,
   `matricula` varchar(25) DEFAULT NULL,
   `foto` mediumblob DEFAULT NULL,

@@ -74,6 +74,7 @@ DADOS = [
         # -------- Conta Gestor (acesso total ao sistema) --------
         "login":            "gestor.jb",
         "senha":            SENHA_PADRAO,
+        "empresa":          "todas",
         "nivel_acesso":     "Gestor",
         "ativo":            1,
         "cpf_cnpj":         "10000000001",
@@ -97,6 +98,7 @@ DADOS = [
         # -------- Conta Administrador (sem módulo Performance JB) --------
         "login":            "admin.jb",
         "senha":            SENHA_PADRAO,
+        "empresa":          "GM",
         "nivel_acesso":     "Administrador",
         "ativo":            1,
         "cpf_cnpj":         "10000000002",
@@ -120,6 +122,7 @@ DADOS = [
         # -------- Imagem 1 --------
         "login":            "ARTHUR.JOSE.T",
         "senha":            SENHA_PADRAO,
+        "empresa":          "GM",
         "nivel_acesso":     "Cobrança",
         "ativo":            1,
         "cpf_cnpj":         "12553467443",
@@ -143,6 +146,7 @@ DADOS = [
         # -------- Imagem 2 --------
         "login":            "angela.m",
         "senha":            SENHA_PADRAO,
+        "empresa":          "GM",
         "nivel_acesso":     "Cobrança",
         "ativo":            1,
         "cpf_cnpj":         "91944244468",
@@ -166,6 +170,7 @@ DADOS = [
         # -------- Imagem 3 --------
         "login":            "MAISA.T",
         "senha":            SENHA_PADRAO,
+        "empresa":          "GM",
         "nivel_acesso":     "Cobrança",
         "ativo":            1,
         "cpf_cnpj":         "05809238432",
@@ -189,6 +194,7 @@ DADOS = [
         # -------- Imagem 4 --------
         "login":            "alzeni.m",
         "senha":            SENHA_PADRAO,
+        "empresa":          "GM",
         "nivel_acesso":     "Cobrança",
         "ativo":            1,
         "cpf_cnpj":         "09598628469",
@@ -205,6 +211,30 @@ DADOS = [
         "cep":              "52081180",
         "ddd":              "81",
         "numero":           "989095550",
+        "email":            None,
+        "acesso_externo":   0,
+    },
+    {
+        # -------- Exemplo multi-empresa: Bradesco (troca para GM = só Busca + Cadastro) --------
+        "login":            "bradesco.demo",
+        "senha":            "Bradesco@2026",
+        "empresa":          "Bradesco",
+        "nivel_acesso":     "Administrador",
+        "ativo":            1,
+        "cpf_cnpj":         "10000000099",
+        "matricula":        "BRAD-01",
+        "departamento":     "Cobranca",
+        "nome":             "Usuario Bradesco Demo",
+        "data_nascimento":  "1990-05-20",
+        "sexo":             "M",
+        "logradouro":       "Av. Bradesco Exemplo, 1",
+        "complemento":      None,
+        "estado":           "SP",
+        "cidade":           "Sao Paulo",
+        "bairro":           "Centro",
+        "cep":              "01000000",
+        "ddd":              "11",
+        "numero":           "988776655",
         "email":            None,
         "acesso_externo":   0,
     },
@@ -294,6 +324,18 @@ def main():
         conn.close()
         sys.exit(1)
 
+    if "empresa" not in cols_tabela:
+        try:
+            cursor.execute(
+                "ALTER TABLE funcionario ADD COLUMN empresa VARCHAR(32) DEFAULT 'GM' "
+                "COMMENT 'GM Bradesco etc ou todas para gestor multi-empresa' AFTER nivel_acesso"
+            )
+            conn.commit()
+            cols_tabela = colunas_da_tabela(cursor, schema, "funcionario")
+            print("Coluna 'empresa' adicionada em funcionario (ALTER TABLE).")
+        except Exception as exc:
+            print(f"AVISO: nao foi possivel adicionar coluna empresa: {exc}")
+
     print(f"Colunas detectadas em funcionario: {sorted(cols_tabela)}")
     print(f"Senha padrao usada nos registros: {SENHA_PADRAO!r}")
     print("")
@@ -336,7 +378,7 @@ def main():
     )
 
     cursor.execute(
-        "SELECT id, nome, login, cpf_cnpj, nivel_acesso, ativo "
+        "SELECT id, nome, login, cpf_cnpj, nivel_acesso, COALESCE(empresa,'') AS empresa, ativo "
         "FROM funcionario ORDER BY id"
     )
     print("")
@@ -344,10 +386,11 @@ def main():
     for r in cursor.fetchall():
         ativo_txt = "SIM" if r["ativo"] else "nao"
         nivel = r["nivel_acesso"] or "-"
+        emp = (r.get("empresa") or "-")[:12]
         print(
-            f"   [{r['id']:>3}] {r['nome']:<40}  "
-            f"login={r['login'] or '-':<18}  "
-            f"cpf={r['cpf_cnpj']:<14}  "
+            f"   [{r['id']:>3}] {r['nome']:<36}  "
+            f"login={r['login'] or '-':<16}  "
+            f"emp={emp:<12}  "
             f"nivel={nivel:<10}  ativo={ativo_txt}"
         )
 
