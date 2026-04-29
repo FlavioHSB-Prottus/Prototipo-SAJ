@@ -1947,8 +1947,8 @@ def _schema_pronto_para_importacao():
                     (
                         f"Schema ausente: a tabela '{nome}' nao existe no banco '{dbn}'. "
                         "Aplique o script de criacao:  python3 Banco/criar_banco.py  "
-                        "(em seguida, se desejar: Banco/seed_funcionarios.py e "
-                        "Banco/seed_tramitacao.py). Depois repita a importacao."
+                        "(em seguida, se desejar: Banco/seed_funcionarios.py). "
+                        "Depois repita a importacao."
                     ),
                 )
         cur.close()
@@ -2255,16 +2255,22 @@ def _mysql_table_columns_lower(cursor, table):
     return frozenset(names)
 
 
-def _ensure_contato_fonte_enum_manual(cursor):
-    """Inclui `manual` no ENUM `fonte` em telefone/email (bases antigas)."""
+def _migrate_contato_fonte_manual_para_terceiro(cursor):
+    """Bases que chegaram a ter ENUM com `manual`: converte dados e volta ao schema de 3 valores."""
     for tbl in ('telefone', 'email'):
         try:
             cursor.execute(
-                f"ALTER TABLE `{tbl}` MODIFY COLUMN `fonte` "
-                "ENUM('GMAC','enriquecimento','terceiro','manual') DEFAULT 'GMAC'"
+                f"UPDATE `{tbl}` SET `fonte` = 'terceiro' WHERE `fonte` = 'manual'"
             )
         except Exception as exc:
-            app.logger.debug('_ensure_contato_fonte_enum_manual %s: %s', tbl, exc)
+            app.logger.debug('_migrate_contato_fonte_manual_para_terceiro update %s: %s', tbl, exc)
+        try:
+            cursor.execute(
+                f"ALTER TABLE `{tbl}` MODIFY COLUMN `fonte` "
+                "ENUM('GMAC','enriquecimento','terceiro') DEFAULT 'GMAC'"
+            )
+        except Exception as exc:
+            app.logger.debug('_migrate_contato_fonte_manual_para_terceiro alter %s: %s', tbl, exc)
 
 
 @app.route('/api/pessoa/<int:pessoa_id>/telefone', methods=['POST'])
@@ -2287,12 +2293,12 @@ def api_pessoa_add_telefone(pessoa_id):
         if not cursor.fetchone():
             return jsonify({'error': 'Pessoa nao encontrada.'}), 404
         cols = _mysql_table_columns_lower(cursor, 'telefone')
-        _ensure_contato_fonte_enum_manual(cursor)
         if 'fonte' in cols:
+            _migrate_contato_fonte_manual_para_terceiro(cursor)
             cursor.execute(
                 "INSERT INTO telefone (id_pessoa, tipo, numero, ramal, fonte) "
                 "VALUES (%s, %s, %s, %s, %s)",
-                (pessoa_id, tipo, numero, ramal, 'manual'),
+                (pessoa_id, tipo, numero, ramal, 'terceiro'),
             )
         else:
             cursor.execute(
@@ -2356,11 +2362,11 @@ def api_pessoa_add_email(pessoa_id):
         if not cursor.fetchone():
             return jsonify({'error': 'Pessoa nao encontrada.'}), 404
         cols = _mysql_table_columns_lower(cursor, 'email')
-        _ensure_contato_fonte_enum_manual(cursor)
         if 'fonte' in cols:
+            _migrate_contato_fonte_manual_para_terceiro(cursor)
             cursor.execute(
                 "INSERT INTO email (id_pessoa, tipo, email, fonte) VALUES (%s, %s, %s, %s)",
-                (pessoa_id, tipo, endereco, 'manual'),
+                (pessoa_id, tipo, endereco, 'terceiro'),
             )
         else:
             cursor.execute(

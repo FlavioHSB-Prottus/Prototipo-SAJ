@@ -4,7 +4,7 @@ Popula a tabela `relacao_contrato_operador` a partir do Excel
 `Banco/Operadores Iniciais.xlsx` (base SAJ antiga).
 
 Execute este script **antes** da importacao TXT / antes de
-`distribuir_funcionarios_cobranca.py`. O script de distribuicao apenas
+`Python/distribuir_funcionarios_cobranca.py`. O script de distribuicao apenas
 **consulta** a tabela ja populada.
 
 Cabecalho esperado na planilha: GRUPO, COTA, OPERADOR; opcionalmente
@@ -16,7 +16,7 @@ Ambiente (opcional): DB_HOST, DB_USER, DB_PASSWORD, DB_NAME
                        OPERADORES_SAJ_XLSX (caminho absoluto ou relativo ao projeto)
 
 Uso (na raiz do repositorio):
-    python Python/popular_relacao_operadores_saj.py
+    python3 Banco/popular_relacao_operadores_saj.py
 """
 import os
 import sys

@@ -25,8 +25,7 @@
         var map = {
             gmac: 'Importação GM (TXT)',
             enriquecimento: 'Enriquecimento / pós-índice',
-            terceiro: 'Terceiro',
-            manual: 'Cadastro manual'
+            terceiro: 'Terceiro'
         };
         return map[k] || String(fonte);
     }
