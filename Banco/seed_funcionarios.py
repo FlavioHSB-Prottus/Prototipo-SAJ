@@ -68,6 +68,7 @@ SENHA_PADRAO = os.environ.get("SENHA_PADRAO", "Trocar@123")
 #     CEP                 -> cep
 #     Celular             -> ddd + numero  (ex.: 81 / 996640148)
 #     E-mail              -> email
+#     Ramal               -> ramal         (inteiro; UNIQUE na tabela quando informado)
 # -----------------------------------------------------------------------------
 DADOS = [
     {
@@ -127,7 +128,8 @@ DADOS = [
         "ativo":            1,
         "cpf_cnpj":         "12553467443",
         "matricula":        "matricula",
-        "departamento":     None,
+        "departamento":     "Administrativo",
+        "ramal":            6267,
         "nome":             "PAULO ARTHUR JOSE DE SANTANA",
         "data_nascimento":  "1996-01-19",
         "sexo":             "M",
@@ -152,6 +154,7 @@ DADOS = [
         "cpf_cnpj":         "91944244468",
         "matricula":        "matricula",
         "departamento":     "Administrativo",
+        "ramal":            6227,
         "nome":             "Angela Maria pereira",
         "data_nascimento":  "1973-10-10",
         "sexo":             "F",
@@ -176,6 +179,7 @@ DADOS = [
         "cpf_cnpj":         "05809238432",
         "matricula":        "matricula",
         "departamento":     "Administrativo",
+        "ramal":            6002,
         "nome":             "MAISA BERNARDO DE SENA",
         "data_nascimento":  "1984-01-26",
         "sexo":             "F",
@@ -200,6 +204,7 @@ DADOS = [
         "cpf_cnpj":         "09598628469",
         "matricula":        "matricula",
         "departamento":     "Administrativo",
+        "ramal":            6243,
         "nome":             "Alzeni Maria de Lira do Nascimento",
         "data_nascimento":  "1991-07-06",
         "sexo":             "F",
