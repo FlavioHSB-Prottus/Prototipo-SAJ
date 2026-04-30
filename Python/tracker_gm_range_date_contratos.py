@@ -1070,15 +1070,36 @@ def apply_delta(cursor, conn, arquivo_gm_id,
             desc = "contrato fechado"
             status_parc = "fechado"
 
+        # Quitação das parcelas do contrato que sai do arquivo (registro1).
+        # Para fechamento por pagamento: mesma semântica do ramo removed_parcels/paid_parcels —
+        # uma ocorrência "parcela X paga" por parcela e positivação na negativação quando aplicável.
+        # (Sem isso, só existia "contrato fechado" e a positivação não era disparada.)
         for _, _, num_p_raw in prev_parcelas:
             try:
-                num_p = int(float(num_p_raw or 0))
+                num = int(float(num_p_raw or 0))
             except (TypeError, ValueError):
-                num_p = 0
+                num = num_p_raw
+            cursor.execute(
+                """
+                SELECT id FROM parcela
+                WHERE id_contrato = %s AND numero_parcela = %s AND status = 'aberto'
+                LIMIT 1
+                """,
+                (cid, num_p_raw),
+            )
+            row_parc = cursor.fetchone()
             cursor.execute(
                 "UPDATE parcela SET status = %s, data_pagamento = %s, updated_at = NOW() WHERE id_contrato = %s AND numero_parcela = %s",
-                (status_parc, data_arquivo if status_parc == 'fechado' else None, cid, num_p),
+                (status_parc, data_arquivo if status_parc == 'fechado' else None, cid, num_p_raw),
             )
+            if status_parc == "fechado":
+                if row_parc and row_parc.get("id") is not None:
+                    _liberar_negativacao_parcela_paga(
+                        cursor, conn, int(row_parc["id"]), cid, arquivo_gm_id
+                    )
+                insert_ocorrencia(
+                    cursor, cid, arquivo_gm_id, OCORRENCIA_PARCELA_PAGA, f"parcela {num} paga"
+                )
 
         cursor.execute("UPDATE contrato SET status = %s WHERE id = %s", (status_o, cid))
         insert_ocorrencia(cursor, cid, arquivo_gm_id, status_o, desc)
