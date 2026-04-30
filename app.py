@@ -114,6 +114,7 @@ _COBRANCA_API_PREFIXES_OK = (
     '/api/avisos',
     '/api/automacao/',
     '/api/negativacao/',
+    '/api/enviar-sms',
 )
 
 
@@ -240,6 +241,7 @@ def _path_ok_bradesco_em_gm(path):
         '/api/contrato/',
         '/api/pessoa/',
         '/api/discar',
+        '/api/enviar-sms',
         '/api/tramitacao',
         '/api/funcionario/perfil',
         '/api/avisos',
@@ -2473,6 +2475,54 @@ def api_discar():
             'detalhe': data,
         }), 502
     return jsonify({'ok': True, 'discador': data})
+
+
+# MessageCenter SMS (integracao enviarsms) — credenciais fixas conforme integracao.
+SMS_MC_URL = 'https://sistema.messagecenter.com.br/api/Integracao/enviarsms'
+SMS_MC_HEADER_NAME = 'apikey'
+SMS_MC_HEADER_VALUE = (
+    'MC.cC719ae5-22B3-439b-9D63-4D544f79Fffc-788B1CE2-9af2-417F-85Ba-67d3E16a7243'
+)
+
+@app.route('/api/enviar-sms', methods=['POST'])
+def api_enviar_sms():
+    """Proxy: recebe POST JSON; chama MessageCenter com GET (query Phone, Msgtext)."""
+    if not session.get('funcionario_id'):
+        return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
+    payload = request.get_json(silent=True) or {}
+    raw = (payload.get('numero') or '').strip()
+    digits = ''.join(ch for ch in raw if ch.isdigit())
+    if not digits:
+        return jsonify({'error': 'Numero invalido.'}), 400
+
+    msg = (payload.get('mensagem') or payload.get('Msgtxt') or '').strip()
+    if not msg:
+        return jsonify({'error': 'Mensagem vazia.'}), 400
+    if len(msg) > 1600:
+        return jsonify({'error': 'Mensagem muito longa (max. 1600 caracteres).'}), 400
+
+    params = {'Phone': digits, 'Msgtext': msg}
+    headers = {SMS_MC_HEADER_NAME: SMS_MC_HEADER_VALUE}
+    try:
+        resp = requests.get(
+            url=SMS_MC_URL,
+            params=params,
+            headers=headers,
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        return jsonify({'error': f'Erro de rede ao enviar SMS: {exc}'}), 502
+    try:
+        data = resp.json()
+    except Exception:
+        data = {'raw': (resp.text or '')[:500]}
+    if not resp.ok:
+        return jsonify({
+            'error': 'Falha ao enviar SMS.',
+            'status': resp.status_code,
+            'detalhe': data,
+        }), 502
+    return jsonify({'ok': True, 'sms': data})
 
 
 @app.route('/api/pessoa/<int:pessoa_id>', methods=['GET'])
