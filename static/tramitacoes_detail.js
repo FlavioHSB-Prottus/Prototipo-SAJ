@@ -133,6 +133,90 @@
         }
     }
 
+    function fluxoLookupMotivo(v) {
+        var x = MOTIVOS_NA.find(function (m) { return m.v === v; });
+        return x ? x.t : (v || '—');
+    }
+    function fluxoLookupCpcQuem(v) {
+        var x = CPC_QUEM.find(function (m) { return m.v === v; });
+        return x ? x.t : (v || '—');
+    }
+    function fluxoLookupCpcQual(v) {
+        var x = CPC_QUAL.find(function (m) { return m.v === v; });
+        return x ? x.t : (v || '—');
+    }
+    function fluxoLookupStatus(v) {
+        var x = STATUS_FINAL.find(function (m) { return m.v === v; });
+        return x ? x.t : (v || '—');
+    }
+
+    /**
+     * Painel legível para tramitação salva pelo wizard (substitui bloco único de texto).
+     */
+    function buildFluxoDetalhesHtml(fluxo, esc, statusTramitacao) {
+        var rows = [];
+        function item(label, value) {
+            if (value === null || value === undefined || value === '') return;
+            rows.push(
+                '<div class="tramit-fluxo-item"><span class="tramit-fluxo-lab">' + esc(label) + '</span>' +
+                    '<span class="tramit-fluxo-val">' + esc(value) + '</span></div>'
+            );
+        }
+        item('Carteira (em aberto)', formatBRL(fluxo.carteira_devendo));
+        item('Discado', fluxo.numero_discado || '—');
+
+        if (fluxo.atendido === 'nao') {
+            item('Atendido', 'Não');
+            item('Motivo', fluxoLookupMotivo(fluxo.motivo_nao_atendido));
+        } else if (fluxo.modo_indefinido) {
+            item('Atendido', 'Sim');
+            item('Situação', 'Encerrado como indefinido');
+        } else {
+            item('Atendido', 'Sim');
+            if (fluxo.cpc_correto === 'nao') {
+                item('CPC — pessoa certa?', 'Não');
+                item('Quem atendeu?', fluxoLookupCpcQuem(fluxo.cpc_quem));
+                if (fluxo.cpc_etapa_descricao) item('Obs. CPC', String(fluxo.cpc_etapa_descricao));
+            } else if (fluxo.cpc_correto === 'sim') {
+                item('CPC — pessoa certa?', 'Sim');
+                item('CPC atendido', fluxoLookupCpcQual(fluxo.cpc_qual));
+            }
+            var sf = fluxo.status_final;
+            if (sf) item('Status', fluxoLookupStatus(sf));
+            if (sf === 'agendamento') {
+                item('Retorno (data/hora)', fluxo.agenda_retorno_data || '—');
+                if (fluxo.agenda_retorno_atividade) item('Título na agenda', fluxo.agenda_retorno_atividade);
+            }
+            if (sf === 'acordo_firmado') {
+                item('Pagamento previsto', fluxo.acordo_data_pagamento || '—');
+                if (fluxo.acordo_qtd_parcelas != null && fluxo.acordo_qtd_parcelas !== '') {
+                    item('Parcelas no acordo', String(fluxo.acordo_qtd_parcelas));
+                }
+            }
+        }
+
+        var df = fluxo.descricao_final != null ? String(fluxo.descricao_final).trim() : '';
+        var nota = df
+            ? '<div class="tramit-fluxo-nota"><span class="tramit-fluxo-nota-lab">Observação</span>' +
+                '<p class="tramit-fluxo-nota-txt">' + esc(df) + '</p></div>'
+            : '';
+
+        var head = '';
+        if (statusTramitacao) {
+            head = '<div class="tramit-fluxo-head"><span class="tramit-fluxo-outcome">' + esc(statusTramitacao) + '</span></div>';
+        }
+
+        return (
+            '<div class="tramit-fluxo-panel">' +
+            head +
+            '<div class="tramit-fluxo-grid">' +
+            rows.join('') +
+            '</div>' +
+            nota +
+            '</div>'
+        );
+    }
+
     function buildSection(tramitacoes, contratoId, options) {
         var o = defaultOptions(options);
         var esc = o.esc;
@@ -167,28 +251,40 @@
                 }
                 var payload = escAttr(JSON.stringify(pl));
                 var resultado = fluxo
-                    ? esc(t.status_tramitacao || '—')
+                    ? '<span class="tramit-fluxo-result-pill">' + esc(t.status_tramitacao || '—') + '</span>'
                     : '<span class="status-badge status-active">' + esc(t.tipo) + '</span>';
                 var resumo;
                 if (fluxo) {
-                    resumo = formatBRL(fluxo.carteira_devendo) + ' · Discado: ' + esc(fluxo.numero_discado || '—');
+                    resumo =
+                        '<span class="tramit-resumo-chip tramit-resumo-money">' + formatBRL(fluxo.carteira_devendo) + '</span>' +
+                        '<span class="tramit-resumo-chip tramit-resumo-tel" title="Número discado">' +
+                        '<i class="fa-solid fa-phone" aria-hidden="true"></i> ' + esc(fluxo.numero_discado || '—') + '</span>';
                 } else {
                     resumo = '<span class="status-badge ' + cpcBadgeClass(t.cpc) + '">CPC ' + esc(t.cpc) + '</span>';
                 }
                 html += '<tr class="tramitacao-row-main' + (fluxo ? ' tramitacao-row-fluxo' : '') + '" data-tramit-payload="' + payload + '" data-fluxo="' + (fluxo ? '1' : '0') + '">';
                 html += '<td>' + formatDateTime(t.data) + '</td>';
                 html += '<td>' + resultado + '</td>';
-                html += '<td style="max-width:280px;font-size:0.88rem">' + resumo + '</td>';
+                html += '<td class="tramitacao-col-resumo">' + resumo + '</td>';
                 html += '<td>' + esc(t.funcionario_nome) + '</td>';
-                html += '<td class="text-right" style="white-space:nowrap">';
+                html += '<td class="text-right tramitacao-col-acoes" style="white-space:nowrap">';
                 if (!fluxo) {
                     html += '<button type="button" class="action-btn btn-sm btn-tramit-edit" title="Editar"><i class="fa-solid fa-pen"></i></button> ';
                 }
+                html += '<button type="button" class="action-btn btn-sm btn-tramit-toggle-detail" title="Expandir detalhes" aria-expanded="false" aria-label="Expandir ou ocultar detalhes">';
+                html += '<i class="fa-solid fa-chevron-down tramit-toggle-icon" aria-hidden="true"></i>';
+                html += '</button> ';
                 html += '<button type="button" class="action-btn btn-sm btn-tramit-del" title="Excluir" style="color:#b91c1c"><i class="fa-solid fa-trash"></i></button>';
                 html += '</td></tr>';
-                html += '<tr class="tramitacao-row-desc"><td colspan="5">';
-                html += '<span class="tramitacao-desc-label">Detalhes:</span> ';
-                html += '<span class="tramitacao-desc-text">' + esc(t.descricao) + '</span>';
+                html += '<tr class="tramitacao-row-desc tramitacao-row-desc--collapsed' + (fluxo ? ' tramitacao-row-desc--fluxo' : '') + '"><td colspan="5">';
+                if (fluxo) {
+                    html += buildFluxoDetalhesHtml(fluxo, esc, t.status_tramitacao);
+                } else {
+                    html += '<div class="tramitacao-desc-legacy-wrap">';
+                    html += '<span class="tramitacao-desc-label">Detalhes</span>';
+                    html += '<div class="tramitacao-desc-text">' + esc(t.descricao) + '</div>';
+                    html += '</div>';
+                }
                 html += '</td></tr>';
             });
             html += '</tbody></table></div>';
@@ -237,8 +333,12 @@
         return html;
     }
 
+    var WIZ_STEP_IDX = { base: 0, atendido: 1, cpc1: 2, cpc2: 3, status: 4, final: 99 };
+
     function wizardMarkup() {
         var html = '';
+        html += '<div class="tramit-wiz-layout">';
+        html += '<div class="tramit-wiz-summary-wrap" aria-live="polite"></div>';
         html += '<div class="tramit-wizard-steps">';
         html += '<div class="tramit-wiz-block" data-wiz="base">';
         html += '<p class="tramit-wiz-kicker">Preencha na ordem. Carteira = soma das parcelas em aberto.</p>';
@@ -324,7 +424,7 @@
         html += '<button type="button" class="action-btn tramit-wiz-submit" style="background:#047857;color:#fff;border:0">Salvar tramitação</button></div>';
         html += '</div>';
 
-        html += '</div>';
+        html += '</div></div>';
         return html;
     }
 
@@ -412,8 +512,190 @@
                 cpc_quem: null,
                 cpc_etapa_descricao: '',
                 cpc_qual: null,
-                status_final: null
+                status_final: null,
+                summaryEntries: []
             };
+
+            function lblMotivo(v) {
+                var x = MOTIVOS_NA.find(function (m) { return m.v === v; });
+                return x ? x.t : (v || '—');
+            }
+            function lblCpcQuem(v) {
+                var x = CPC_QUEM.find(function (m) { return m.v === v; });
+                return x ? x.t : (v || '—');
+            }
+            function lblCpcQual(v) {
+                var x = CPC_QUAL.find(function (m) { return m.v === v; });
+                return x ? x.t : (v || '—');
+            }
+            function lblStatus(v) {
+                var x = STATUS_FINAL.find(function (m) { return m.v === v; });
+                return x ? x.t : (v || '—');
+            }
+
+            function truncateSummaryFrom(stepKey) {
+                var cut = WIZ_STEP_IDX[stepKey];
+                if (cut == null) return;
+                state.summaryEntries = (state.summaryEntries || []).filter(function (e) {
+                    return WIZ_STEP_IDX[e.stepKey] < cut;
+                });
+            }
+
+            function softResetDescOnly() {
+                state.descricao_final = '';
+                var df = wizardRoot.querySelector('.tramit-wiz-desc-final');
+                if (df) df.value = '';
+            }
+
+            /** Ao voltar para um passo: limpa respostas dos passos seguintes no estado e no DOM. */
+            function applyResetFrom(targetStep, opts) {
+                opts = opts || {};
+                var shallowCpc1 = !!opts.shallowCpc1;
+
+                if (targetStep === 'base') {
+                    state.numero_discado = '';
+                    if (selDisc) selDisc.selectedIndex = 0;
+                }
+
+                if (targetStep === 'base' || targetStep === 'atendido') {
+                    state.atendido = null;
+                    state.modo_indefinido = false;
+                    state.motivo_nao_atendido = null;
+                    wizardRoot.querySelectorAll('[data-atendido]').forEach(function (b) {
+                        b.classList.remove('is-selected');
+                    });
+                    var mv = wizardRoot.querySelector('.tramit-wiz-motivo');
+                    if (mv) mv.selectedIndex = 0;
+                    setMotivoWrapVisible(false);
+                    setIndefWrapVisible(false);
+                }
+
+                var clearFullCpc = (targetStep === 'base' || targetStep === 'atendido' ||
+                    targetStep === 'cpc1') && !shallowCpc1;
+                if (clearFullCpc) {
+                    state.cpc_correto = null;
+                    state.cpc_quem = null;
+                    state.cpc_qual = null;
+                    state.cpc_etapa_descricao = '';
+                    wizardRoot.querySelectorAll('[data-cpcok]').forEach(function (b) {
+                        b.classList.remove('is-selected');
+                    });
+                    var sq = wizardRoot.querySelector('.tramit-wiz-cpc-quem');
+                    if (sq) sq.selectedIndex = 0;
+                    setCpcQuemWrapVisible(false);
+                    var sq2 = wizardRoot.querySelector('.tramit-wiz-cpc-qual');
+                    if (sq2) sq2.selectedIndex = 0;
+                } else if ((shallowCpc1 && targetStep === 'cpc1') || targetStep === 'cpc2') {
+                    state.cpc_qual = null;
+                    var sq3 = wizardRoot.querySelector('.tramit-wiz-cpc-qual');
+                    if (sq3) sq3.selectedIndex = 0;
+                }
+
+                var mustClearStatus = (
+                    targetStep === 'base' || targetStep === 'atendido' ||
+                    targetStep === 'cpc1' || targetStep === 'cpc2' || targetStep === 'status'
+                );
+                if (mustClearStatus) {
+                    state.status_final = null;
+                    state.agenda_retorno_data = null;
+                    state.agenda_retorno_atividade = '';
+                    state.acordo_data_pagamento = null;
+                    state.acordo_qtd_parcelas = null;
+                    var sf = wizardRoot.querySelector('.tramit-wiz-status-fin');
+                    if (sf) sf.selectedIndex = 0;
+                    var ag = wizardRoot.querySelector('.tramit-wiz-extra-agenda');
+                    var ac = wizardRoot.querySelector('.tramit-wiz-extra-acordo');
+                    if (ag) ag.hidden = true;
+                    if (ac) ac.hidden = true;
+                    var ad = wizardRoot.querySelector('.tramit-wiz-ag-data');
+                    var tit = wizardRoot.querySelector('.tramit-wiz-ag-titulo');
+                    var acd = wizardRoot.querySelector('.tramit-wiz-acordo-data');
+                    var acq = wizardRoot.querySelector('.tramit-wiz-acordo-qtd');
+                    if (ad) ad.value = '';
+                    if (tit) tit.value = '';
+                    if (acd) acd.value = '';
+                    if (acq) acq.value = '';
+                }
+
+                if (targetStep !== 'final') {
+                    state.descricao_final = '';
+                    var df = wizardRoot.querySelector('.tramit-wiz-desc-final');
+                    if (df) df.value = '';
+                }
+            }
+
+            function renderSummaryPanel(visibleStepName) {
+                var wrap = wizardRoot.querySelector('.tramit-wiz-summary-wrap');
+                if (!wrap) return;
+                wrap.innerHTML = '';
+                var cut = visibleStepName === 'final' ? 100 : WIZ_STEP_IDX[visibleStepName];
+                var entries = (state.summaryEntries || []).filter(function (e) {
+                    return WIZ_STEP_IDX[e.stepKey] < cut;
+                });
+                if (!entries.length) return;
+                var tit = document.createElement('div');
+                tit.className = 'tramit-wiz-summary-title';
+                tit.textContent = 'Respostas confirmadas';
+                wrap.appendChild(tit);
+                entries.forEach(function (ent) {
+                    var block = document.createElement('div');
+                    block.className = 'tramit-wiz-summary-block';
+                    ent.rows.forEach(function (row) {
+                        var r = document.createElement('div');
+                        r.className = 'tramit-wiz-summary-row';
+                        var lab = document.createElement('span');
+                        lab.className = 'tramit-wiz-summary-lab';
+                        lab.textContent = row.label;
+                        var val = document.createElement('span');
+                        val.className = 'tramit-wiz-summary-val';
+                        val.textContent = row.value;
+                        r.appendChild(lab);
+                        r.appendChild(val);
+                        block.appendChild(r);
+                    });
+                    var ed = document.createElement('button');
+                    ed.type = 'button';
+                    ed.className = 'tramit-wiz-summary-edit';
+                    ed.textContent = 'Alterar';
+                    (function (sk) {
+                        ed.onclick = function () {
+                            goToStepForEdit(sk);
+                        };
+                    })(ent.stepKey);
+                    block.appendChild(ed);
+                    wrap.appendChild(block);
+                });
+            }
+
+            function goToStepForEdit(stepKey) {
+                showWizardErr('');
+                truncateSummaryFrom(stepKey);
+                applyResetFrom(stepKey, {});
+                showOnly(wizardRoot, stepKey);
+                restoreStepChrome(stepKey);
+                renderSummaryPanel(stepKey);
+            }
+
+            function restoreStepChrome(stepKey) {
+                if (stepKey === 'atendido') {
+                    if (state.atendido === 'nao') {
+                        setMotivoWrapVisible(true);
+                        setIndefWrapVisible(false);
+                    } else if (state.atendido === 'sim') {
+                        setMotivoWrapVisible(false);
+                        setIndefWrapVisible(true);
+                    }
+                }
+                if (stepKey === 'cpc1' && state.cpc_correto === 'nao') setCpcQuemWrapVisible(true);
+                var sf = wizardRoot.querySelector('.tramit-wiz-status-fin');
+                if (stepKey === 'status' && sf && sf.value) {
+                    var ag = wizardRoot.querySelector('.tramit-wiz-extra-agenda');
+                    var ac = wizardRoot.querySelector('.tramit-wiz-extra-acordo');
+                    var v = sf.value;
+                    if (ag) ag.hidden = v !== 'agendamento';
+                    if (ac) ac.hidden = v !== 'acordo_firmado';
+                }
+            }
 
             function syncDiscado() {
                 var v = (selDisc && selDisc.value) ? String(selDisc.value).trim() : '';
@@ -451,6 +733,16 @@
                 });
                 setMotivoWrapVisible(false);
                 setIndefWrapVisible(false);
+                var opt = selDisc && selDisc.options[selDisc.selectedIndex];
+                var discLabel = opt ? String(opt.textContent || '').trim() : state.numero_discado;
+                state.summaryEntries.push({
+                    stepKey: 'base',
+                    rows: [
+                        { label: 'Carteira (total devendo)', value: formatBRL(state.carteira_devendo) },
+                        { label: 'Discado', value: discLabel || state.numero_discado }
+                    ]
+                });
+                renderSummaryPanel('atendido');
                 showOnly(wizardRoot, 'atendido');
             });
 
@@ -484,6 +776,14 @@
                         return;
                     }
                     state.modo_indefinido = false;
+                    state.summaryEntries.push({
+                        stepKey: 'atendido',
+                        rows: [
+                            { label: 'Atendido', value: 'Não' },
+                            { label: 'Motivo', value: lblMotivo(state.motivo_nao_atendido) }
+                        ]
+                    });
+                    renderSummaryPanel('final');
                     showOnly(wizardRoot, 'final');
                     return;
                 }
@@ -493,11 +793,24 @@
                     b.classList.remove('is-selected');
                 });
                 setCpcQuemWrapVisible(false);
+                state.summaryEntries.push({
+                    stepKey: 'atendido',
+                    rows: [{ label: 'Atendido', value: 'Sim' }]
+                });
+                renderSummaryPanel('cpc1');
                 showOnly(wizardRoot, 'cpc1');
             });
 
             wizardRoot.querySelector('.tramit-wiz-indef').addEventListener('click', function () {
                 state.modo_indefinido = true;
+                state.summaryEntries.push({
+                    stepKey: 'atendido',
+                    rows: [
+                        { label: 'Atendido', value: 'Sim' },
+                        { label: 'Situação', value: 'Registro indefinido (sem CPC/status)' }
+                    ]
+                });
+                renderSummaryPanel('final');
                 showOnly(wizardRoot, 'final');
             });
 
@@ -525,10 +838,23 @@
                         showWizardErr('Selecione quem atendeu.');
                         return;
                     }
+                    state.summaryEntries.push({
+                        stepKey: 'cpc1',
+                        rows: [
+                            { label: 'CPC — pessoa certa?', value: 'Não' },
+                            { label: 'Quem atendeu?', value: lblCpcQuem(state.cpc_quem) }
+                        ]
+                    });
+                    renderSummaryPanel('status');
                     showOnly(wizardRoot, 'status');
                     return;
                 }
                 state.cpc_etapa_descricao = '';
+                state.summaryEntries.push({
+                    stepKey: 'cpc1',
+                    rows: [{ label: 'CPC — pessoa certa?', value: 'Sim' }]
+                });
+                renderSummaryPanel('cpc2');
                 showOnly(wizardRoot, 'cpc2');
             });
 
@@ -539,6 +865,11 @@
                     showWizardErr('Selecione qual CPC foi atendido.');
                     return;
                 }
+                state.summaryEntries.push({
+                    stepKey: 'cpc2',
+                    rows: [{ label: 'Qual CPC atendido?', value: lblCpcQual(state.cpc_qual) }]
+                });
+                renderSummaryPanel('status');
                 showOnly(wizardRoot, 'status');
             });
 
@@ -591,6 +922,20 @@
                     state.acordo_data_pagamento = null;
                     state.acordo_qtd_parcelas = null;
                 }
+                var stRows = [{ label: 'Status', value: lblStatus(state.status_final) }];
+                if (state.status_final === 'agendamento') {
+                    stRows.push({
+                        label: 'Retorno (agenda)',
+                        value: (state.agenda_retorno_data || '—') +
+                            (state.agenda_retorno_atividade ? ' — ' + state.agenda_retorno_atividade : '')
+                    });
+                }
+                if (state.status_final === 'acordo_firmado') {
+                    stRows.push({ label: 'Pagamento previsto', value: state.acordo_data_pagamento || '—' });
+                    stRows.push({ label: 'Parcelas no acordo', value: String(state.acordo_qtd_parcelas || '') });
+                }
+                state.summaryEntries.push({ stepKey: 'status', rows: stRows });
+                renderSummaryPanel('final');
                 showOnly(wizardRoot, 'final');
             });
 
@@ -650,38 +995,59 @@
 
             wizardRoot.querySelectorAll('.tramit-wiz-back').forEach(function (bt) {
                 bt.addEventListener('click', function () {
+                    showWizardErr('');
                     var vis = wizardRoot.querySelector('.tramit-wiz-block:not([hidden])');
                     var w = vis ? vis.getAttribute('data-wiz') : '';
-                    if (w === 'atendido') showOnly(wizardRoot, 'base');
-                    else if (w === 'cpc1') showOnly(wizardRoot, 'atendido');
-                    else if (w === 'cpc2') {
+                    if (w === 'atendido') {
+                        truncateSummaryFrom('base');
+                        applyResetFrom('base');
+                        showOnly(wizardRoot, 'base');
+                        renderSummaryPanel('base');
+                    } else if (w === 'cpc1') {
+                        truncateSummaryFrom('atendido');
+                        applyResetFrom('atendido');
+                        showOnly(wizardRoot, 'atendido');
+                        restoreStepChrome('atendido');
+                        renderSummaryPanel('atendido');
+                    } else if (w === 'cpc2') {
+                        truncateSummaryFrom('cpc1');
+                        applyResetFrom('cpc1', { shallowCpc1: true });
                         showOnly(wizardRoot, 'cpc1');
-                        setCpcQuemWrapVisible(state.cpc_correto === 'nao');
-                    }
-                    else if (w === 'status') {
-                        if (state.cpc_correto === 'sim') showOnly(wizardRoot, 'cpc2');
-                        else {
+                        restoreStepChrome('cpc1');
+                        renderSummaryPanel('cpc1');
+                    } else if (w === 'status') {
+                        if (state.cpc_correto === 'sim') {
+                            truncateSummaryFrom('cpc2');
+                            applyResetFrom('cpc2');
+                            showOnly(wizardRoot, 'cpc2');
+                            renderSummaryPanel('cpc2');
+                        } else {
+                            truncateSummaryFrom('cpc1');
+                            applyResetFrom('cpc1');
                             showOnly(wizardRoot, 'cpc1');
-                            setCpcQuemWrapVisible(state.cpc_correto === 'nao');
+                            restoreStepChrome('cpc1');
+                            renderSummaryPanel('cpc1');
                         }
                     } else if (w === 'final') {
                         if (state.atendido === 'nao' || state.modo_indefinido) {
+                            truncateSummaryFrom('atendido');
+                            applyResetFrom('atendido');
                             showOnly(wizardRoot, 'atendido');
-                            if (state.atendido === 'nao') {
-                                setMotivoWrapVisible(true);
-                                setIndefWrapVisible(false);
-                            } else if (state.modo_indefinido) {
-                                setMotivoWrapVisible(false);
-                                setIndefWrapVisible(true);
-                            }
+                            restoreStepChrome('atendido');
+                            renderSummaryPanel('atendido');
                         } else {
+                            truncateSummaryFrom('status');
+                            softResetDescOnly();
                             showOnly(wizardRoot, 'status');
+                            restoreStepChrome('status');
+                            renderSummaryPanel('status');
                         }
                     }
                 });
             });
 
             showOnly(wizardRoot, 'base');
+            renderSummaryPanel('base');
         }
 
         function openWizard() {
@@ -743,6 +1109,18 @@
 
         section.addEventListener('click', function (ev) {
             var t = ev.target;
+            var toggleBtn = t && t.closest && t.closest('.btn-tramit-toggle-detail');
+            if (toggleBtn) {
+                ev.preventDefault();
+                var trMain = toggleBtn.closest('tr.tramitacao-row-main');
+                if (!trMain) return;
+                var descRow = trMain.nextElementSibling;
+                if (!descRow || !descRow.classList.contains('tramitacao-row-desc')) return;
+                var nowCollapsed = descRow.classList.toggle('tramitacao-row-desc--collapsed');
+                toggleBtn.setAttribute('aria-expanded', nowCollapsed ? 'false' : 'true');
+                toggleBtn.title = nowCollapsed ? 'Expandir detalhes' : 'Ocultar detalhes';
+                return;
+            }
             var ed = t && t.closest && t.closest('.btn-tramit-edit');
             if (ed) {
                 ev.preventDefault();

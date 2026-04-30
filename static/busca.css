@@ -309,11 +309,261 @@ select.form-control {
 }
 
 .tramitacao-table tbody .tramitacao-row-main:hover td,
-.tramitacao-table tbody .tramitacao-row-main:hover + .tramitacao-row-desc td {
+.tramitacao-table tbody .tramitacao-row-main:hover + .tramitacao-row-desc:not(.tramitacao-row-desc--collapsed) td {
     background: #f1f5f9;
 }
 
+.tramitacao-row-desc--collapsed {
+    display: none !important;
+}
+
+.tramitacao-col-acoes {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    flex-wrap: nowrap;
+}
+
+.btn-tramit-toggle-detail .tramit-toggle-icon {
+    display: inline-block;
+    transition: transform 0.2s ease;
+}
+
+.btn-tramit-toggle-detail[aria-expanded="true"] .tramit-toggle-icon {
+    transform: rotate(180deg);
+}
+
+.tramitacao-col-resumo {
+    max-width: 260px;
+    font-size: 0.82rem;
+}
+
+.tramit-resumo-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin: 3px 6px 3px 0;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    vertical-align: middle;
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    color: var(--text-main, #334155);
+}
+
+.tramit-resumo-money {
+    background: #eff6ff;
+    border-color: #bfdbfe;
+    color: #1e40af;
+}
+
+.tramit-resumo-tel {
+    font-weight: 500;
+    color: #475569;
+}
+
+.tramit-resumo-tel i {
+    font-size: 0.72rem;
+    opacity: 0.85;
+}
+
+.tramit-fluxo-result-pill {
+    display: inline-block;
+    max-width: 220px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    line-height: 1.35;
+    background: linear-gradient(135deg, #f1f5f9 0%, #e8eef5 100%);
+    border: 1px solid #cbd5e1;
+    color: var(--text-main, #1e293b);
+}
+
+.tramitacao-row-desc--fluxo td {
+    padding: 12px 16px 16px !important;
+    background: #f1f5f9 !important;
+    border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+
+.tramit-fluxo-panel {
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.tramit-fluxo-head {
+    padding: 10px 14px;
+    background: linear-gradient(180deg, #fafbfc 0%, #f4f6f8 100%);
+    border-bottom: 1px solid #e8ecf1;
+}
+
+.tramit-fluxo-outcome {
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--color-accent, #1e3a5f);
+}
+
+.tramit-fluxo-grid {
+    display: grid;
+    grid-template-columns: minmax(140px, 200px) 1fr;
+    gap: 0;
+    padding: 4px 0;
+}
+
+@media (max-width: 520px) {
+    .tramit-fluxo-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.tramit-fluxo-item {
+    display: contents;
+}
+
+.tramit-fluxo-lab,
+.tramit-fluxo-val {
+    padding: 8px 14px;
+    font-size: 0.84rem;
+    line-height: 1.45;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.tramit-fluxo-lab {
+    font-weight: 600;
+    color: var(--text-muted, #64748b);
+    background: #f8fafc;
+}
+
+.tramit-fluxo-val {
+    color: var(--text-main, #1f2937);
+    word-break: break-word;
+}
+
+.tramit-fluxo-grid > .tramit-fluxo-lab:last-of-type,
+.tramit-fluxo-grid > .tramit-fluxo-val:last-of-type {
+    border-bottom: none;
+}
+
+.tramit-fluxo-nota {
+    padding: 12px 14px;
+    border-top: 1px dashed #e2e8f0;
+    background: #fffbeb;
+}
+
+.tramit-fluxo-nota-lab {
+    display: block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #92400e;
+    margin-bottom: 6px;
+}
+
+.tramit-fluxo-nota-txt {
+    margin: 0;
+    font-size: 0.88rem;
+    color: #78350f;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.tramitacao-desc-legacy-wrap .tramitacao-desc-label {
+    display: block;
+    margin-bottom: 6px;
+}
+
+.tramitacao-desc-legacy-wrap .tramitacao-desc-text {
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: #fff;
+    border: 1px solid #e8ecf1;
+    font-size: 0.86rem;
+    line-height: 1.5;
+}
+
 /* Wizard tramitação (ligação) */
+.tramit-wiz-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.tramit-wiz-summary-wrap {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #fff;
+    padding: 12px 14px;
+}
+
+.tramit-wiz-summary-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted, #64748b);
+    margin: 0 0 10px;
+}
+
+.tramit-wiz-summary-block {
+    border-bottom: 1px solid #f1f5f9;
+    padding-bottom: 10px;
+    margin-bottom: 10px;
+}
+
+.tramit-wiz-summary-block:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.tramit-wiz-summary-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    align-items: baseline;
+    font-size: 0.88rem;
+    margin-bottom: 4px;
+}
+
+.tramit-wiz-summary-row:last-child {
+    margin-bottom: 8px;
+}
+
+.tramit-wiz-summary-lab {
+    font-weight: 600;
+    color: var(--text-main, #334155);
+    min-width: 120px;
+}
+
+.tramit-wiz-summary-val {
+    color: var(--text-muted, #475569);
+    flex: 1;
+    min-width: 140px;
+}
+
+.tramit-wiz-summary-edit {
+    margin-top: 6px;
+    padding: 4px 10px;
+    font-size: 0.8rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    background: #fff;
+    color: var(--color-accent, #1e3a5f);
+    cursor: pointer;
+}
+
+.tramit-wiz-summary-edit:hover {
+    background: #f8fafc;
+}
+
 .tramit-wiz-block[hidden] {
     display: none !important;
 }
