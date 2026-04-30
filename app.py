@@ -2801,6 +2801,25 @@ FLUXO_STATUS_LABEL = {
     'ligacao_muda': 'Ligação ficou muda',
 }
 
+# Valores exatos da coluna legada `tramitacao.status` (ENUM), alinhados a Banco/criar_banco.py
+FLUXO_STATUS_FINAL_DB = {
+    'alega_pagamento': 'alega pagamento',
+    'agendamento': 'agendamento',
+    'acordo_firmado': 'acordo firmado',
+    'sem_condicoes': 'sem condições financeiras',
+    'sem_interesse': 'sem interesse no pagamento',
+    'nao_confirma_dados': 'não confirma dados',
+    'atende_desliga': 'atende e desliga',
+    'ligacao_muda': 'ligação ficou muda',
+}
+FLUXO_MOTIVO_NA_DB = {
+    'caixa_postal': 'caixa postal / secretária eletrônica',
+    'chama_nao_atende': 'chama e não atende',
+    'chamada_incompleta': 'chamada não completada',
+    'ligacao_caiu': 'ligação caiu',
+    'numero_inexistente': 'numero não existe',
+}
+
 
 def _ensure_tramitacao_fluxo_columns(cursor):
     """Adiciona fluxo_json e status_tramitacao em bases já existentes."""
@@ -2833,28 +2852,133 @@ def _ensure_tramitacao_fluxo_columns(cursor):
         app.logger.warning('_ensure_tramitacao_fluxo_columns: %s', exc)
 
 
-def _tramitacao_column_names(cursor):
-    """Retorna lista com nomes das colunas em `tramitacao` (ordem SHOW COLUMNS)."""
+def _tramitacao_schema(cursor):
+    """Nomes na ordem do SHOW COLUMNS, tipos em minúsculas, mapa lower -> nome real."""
     cursor.execute('SHOW COLUMNS FROM tramitacao')
     rows = cursor.fetchall()
     names = []
+    types = {}
+    tcols = {}
     for r in rows:
         if isinstance(r, dict):
             fn = r.get('Field') or r.get('field')
+            tp = (r.get('Type') or r.get('type') or '').lower()
         else:
             fn = r[0] if r else None
+            tp = (r[1] or '').lower() if r and len(r) > 1 else ''
         if fn:
             names.append(fn)
+            low = fn.lower()
+            tcols[low] = fn
+            types[low] = tp
+    return names, types, tcols
+
+
+def _tramitacao_column_names(cursor):
+    """Retorna lista com nomes das colunas em `tramitacao` (ordem SHOW COLUMNS)."""
+    names, _, _ = _tramitacao_schema(cursor)
     return names
 
 
-def _tramitacao_insert_parts(cursor, *, id_pessoa, id_contrato, canal, cpc, ts, descricao, fid,
-                             fluxo_json=None, status_tramitacao=None):
-    """Monta INSERT alinhado ao schema GM: `forma`=canal (ligacao/...), `tipo`='ativo'.
+def _tramitacao_truncate_descricao(desc, type_low):
+    """Encolhe texto para colunas VARCHAR(N) legadas."""
+    if desc is None:
+        return None
+    s = str(desc)
+    if 'varchar' not in type_low:
+        return s
+    try:
+        i = type_low.index('varchar(')
+        j = type_low.index(')', i)
+        n = int(type_low[i + 8 : j])
+        return s[:n] if n > 0 else s
+    except (ValueError, IndexError):
+        return s[:255]
 
-    O valor antigo 'ligacao' na coluna `tipo` gerava MySQL 1265 quando `tipo` é enum(ativo,passivo).
+
+def _fluxo_legacy_status_db(payload):
+    """Valor ENUM para coluna legada `status`."""
+    if payload.get('atendido') == 'nao':
+        mk = payload.get('motivo_nao_atendido')
+        return FLUXO_MOTIVO_NA_DB.get(mk, 'chama e não atende')
+    if payload.get('modo_indefinido'):
+        return 'atende e desliga'
+    if payload.get('cpc_correto') == 'nao':
+        qm = payload.get('cpc_quem')
+        if qm == 'nao_consorciado_conhece':
+            return 'não é consorciado, conhece, mas não é responsável'
+        return 'não é o consorciado e não conhece'
+    sf = payload.get('status_final')
+    return FLUXO_STATUS_FINAL_DB.get(sf, 'sem interesse no pagamento')
+
+
+def _fluxo_legacy_contato(payload):
+    """Valor ENUM para coluna legada `contato`."""
+    if payload.get('atendido') == 'nao':
+        return 'indefinido'
+    if payload.get('modo_indefinido'):
+        return 'consorciado'
+    if payload.get('cpc_correto') == 'nao':
+        qm = payload.get('cpc_quem')
+        if qm == 'nao_consorciado_conhece':
+            return 'consorciado'
+        return 'terceiro'
+    cq = payload.get('cpc_qual')
+    return {'consorciado': 'consorciado', 'terceiro': 'terceiro', 'avalista': 'avalista'}.get(
+        cq, 'consorciado'
+    )
+
+
+def _fluxo_legacy_cpc_bit(payload):
+    """1 = pessoa certa (fluxo CPC sim ou indefinido tratado como atendido com consorciado)."""
+    if payload.get('atendido') == 'nao':
+        return 0
+    if payload.get('modo_indefinido'):
+        return 1
+    return 1 if payload.get('cpc_correto') == 'sim' else 0
+
+
+def _fluxo_legacy_exito_bit(payload):
+    if payload.get('atendido') != 'sim':
+        return 0
+    sf = payload.get('status_final')
+    return 1 if sf in ('acordo_firmado', 'agendamento', 'alega_pagamento') else 0
+
+
+def _fluxo_legacy_classificacao(payload):
+    if payload.get('atendido') != 'sim':
+        return 'indefinido'
+    if payload.get('modo_indefinido'):
+        return 'indefinido'
+    sf = payload.get('status_final')
+    if sf == 'acordo_firmado':
+        return 'excelente'
+    if sf in ('sem_interesse', 'nao_confirma_dados', 'atende_desliga', 'ligacao_muda'):
+        return 'ruim'
+    return 'bom'
+
+
+def _tramitacao_col_boolish(type_low):
+    """BIT(1) ou TINYINT usados como booleano na tramitação legada."""
+    if not type_low:
+        return False
+    return 'bit' in type_low or type_low.startswith('tinyint')
+
+
+def _tramitacao_insert_parts(cursor, *, id_pessoa, id_contrato, canal, cpc, ts, descricao, fid,
+                             fluxo_json=None, status_tramitacao=None,
+                             carteira_legacy=None, discado_legacy=None,
+                             fluxo_payload=None):
+    """Monta INSERT alinhado ao schema GM e preenche colunas legadas quando existirem.
+
+    Schemas antigos (BIT/ENUM em criar_banco): `atendido`, `cpc`, `contato`, `exito`, `status`,
+    `classificacao`, `tipo` ativa/receptiva, `carteira`, `discado`. O wizard envia `fluxo_payload`
+    para derivar esses campos; sem payload, usam-se defaults compatíveis com o CHECK legado (quando
+    aplicável).
+
+    Coluna `cpc` pode ser BIT (legado) ou texto (GM): o tipo vem de SHOW COLUMNS.
     """
-    tcols = {c.lower(): c for c in _tramitacao_column_names(cursor)}
+    _, coltypes, tcols = _tramitacao_schema(cursor)
     cols_sql = []
     vals = []
 
@@ -2865,15 +2989,91 @@ def _tramitacao_insert_parts(cursor, *, id_pessoa, id_contrato, canal, cpc, ts, 
         cols_sql.append('`' + cn + '`')
         vals.append(val)
 
+    if 'carteira' in tcols:
+        cv = carteira_legacy
+        if cv is None:
+            cv = 0.0
+        try:
+            cv = float(cv)
+        except (TypeError, ValueError):
+            cv = 0.0
+        add('carteira', cv)
+    if 'discado' in tcols:
+        d = ''
+        if discado_legacy is not None:
+            d = str(discado_legacy).strip()
+        if not d:
+            d = '—'
+        dmax = 20
+        dt = coltypes.get('discado', '')
+        try:
+            if 'varchar' in dt:
+                i = dt.index('varchar(')
+                j = dt.index(')', i)
+                dmax = int(dt[i + 8 : j])
+        except (ValueError, IndexError):
+            pass
+        add('discado', d[:dmax] if dmax > 0 else d)
+
+    if 'atendido' in tcols and _tramitacao_col_boolish(coltypes.get('atendido', '')):
+        if fluxo_payload:
+            add('atendido', 1 if fluxo_payload.get('atendido') == 'sim' else 0)
+        else:
+            add('atendido', 1)
+
     add('id_pessoa', id_pessoa)
     add('id_contrato', id_contrato)
     if 'forma' in tcols:
         add('forma', canal if canal in TRAMITACAO_TIPOS else 'ligacao')
+
     if 'tipo' in tcols:
-        add('tipo', 'ativo')
-    add('cpc', cpc)
+        ttyp = coltypes.get('tipo', '')
+        if 'ativa' in ttyp or 'receptiva' in ttyp:
+            add('tipo', 'ativa')
+        else:
+            add('tipo', 'ativo')
+
+    if 'cpc' in tcols:
+        ctyp = coltypes.get('cpc', '')
+        if _tramitacao_col_boolish(ctyp):
+            if fluxo_payload:
+                add('cpc', _fluxo_legacy_cpc_bit(fluxo_payload))
+            else:
+                add('cpc', 1 if str(cpc).lower() in ('sim', 'avalista', 'parente', 'amigo') else 0)
+        else:
+            add('cpc', cpc)
+
+    if 'contato' in tcols:
+        if fluxo_payload:
+            add('contato', _fluxo_legacy_contato(fluxo_payload))
+        else:
+            add('contato', 'consorciado')
+
+    if 'exito' in tcols and _tramitacao_col_boolish(coltypes.get('exito', '')):
+        if fluxo_payload:
+            add('exito', _fluxo_legacy_exito_bit(fluxo_payload))
+        else:
+            add('exito', 0)
+
+    if 'status' in tcols:
+        if fluxo_payload:
+            add('status', _fluxo_legacy_status_db(fluxo_payload))
+        else:
+            add('status', 'sem interesse no pagamento')
+
+    if 'classificacao' in tcols:
+        if fluxo_payload:
+            add('classificacao', _fluxo_legacy_classificacao(fluxo_payload))
+        else:
+            add('classificacao', 'indefinido')
+
     add('data', ts)
-    add('descricao', descricao)
+
+    desc_out = descricao
+    if 'descricao' in tcols:
+        desc_out = _tramitacao_truncate_descricao(descricao, coltypes.get('descricao', ''))
+    add('descricao', desc_out)
+
     add('id_funcionario', fid)
     if fluxo_json is not None:
         add('fluxo_json', fluxo_json)
@@ -3156,6 +3356,7 @@ def api_tramitacao_criar(contrato_id):
             fid=int(fid),
             fluxo_json=None,
             status_tramitacao=None,
+            discado_legacy=(data.get('numero_discado') or '').strip() or None,
         )
         if not cols_sql:
             return jsonify({'error': 'Tabela tramitacao sem colunas esperadas.'}), 500
@@ -3301,6 +3502,9 @@ def api_tramitacao_fluxo_criar(contrato_id):
             fid=int(fid),
             fluxo_json=fluxo_str,
             status_tramitacao=status_lab[:96],
+            carteira_legacy=payload.get('carteira_devendo'),
+            discado_legacy=payload.get('numero_discado'),
+            fluxo_payload=payload,
         )
         if not cols_sql:
             return jsonify({'error': 'Tabela tramitacao sem colunas esperadas.'}), 500
