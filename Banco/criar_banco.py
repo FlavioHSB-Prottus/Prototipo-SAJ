@@ -764,6 +764,25 @@ CREATE TABLE `negativacao` (
   CONSTRAINT `fk_negativacao_contrato` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
   CONSTRAINT `negativacao_parcela_FK` FOREIGN KEY (`id_parcela`) REFERENCES `parcela` (`id`)
 );
+
+CREATE TABLE `acordo` (
+	`id` BIGINT PRIMARY KEY AUTO_INCREMENT,
+	`id_contrato` BIGINT NOT NULL,
+	`id_funcionario` INT NOT NULL,
+	`quant_parcela` INT NOT NULL,
+	`data_acordo` DATETIME DEFAULT CURRENT_TIMESTAMP(),
+	`data_limite` DATETIME NOT NULL,
+	`efetuado` BIT(1) NOT NULL DEFAULT 0,
+	`created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP(),
+	`updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP() ON UPDATE CURRENT_TIMESTAMP(),
+    
+	FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
+	FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE,
+    
+	CONSTRAINT `check_quant_parcela` CHECK (
+		(`quant_parcela` > 0)
+	)
+);
 """
 
 def connect_server():
