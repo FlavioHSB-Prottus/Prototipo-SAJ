@@ -469,7 +469,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     html += '<li><i class="fa-solid fa-phone"></i> ' + escapeHtml(t.numero || '-');
                     if (t.ramal) html += ' (ramal ' + escapeHtml(t.ramal) + ')';
                     html += '<button type="button" class="btn-ligar" title="Ligar" data-numero="' + escapeHtml(t.numero || '') + '"><i class="fa-solid fa-phone-volume"></i></button>';
-                    html += '<button class="btn-mensagem" title="Enviar Mensagem"><i class="fa-solid fa-comment-dots"></i></button>';
+                    html += '<button type="button" class="btn-mensagem" title="Enviar SMS" data-numero="' + escapeHtml(t.numero || '') + '"><i class="fa-solid fa-comment-dots"></i></button>';
                     html += '<span class="contact-meta">';
                     var _fonteTel = (typeof window.formatContatoFonteLabel === 'function') ? window.formatContatoFonteLabel(t.fonte) : '';
                     if (_fonteTel) html += '<span class="contact-fonte" title="Origem do cadastro">' + escapeHtml(_fonteTel) + '</span>';
