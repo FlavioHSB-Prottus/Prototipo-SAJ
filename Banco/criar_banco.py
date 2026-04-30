@@ -15,7 +15,7 @@ import pymysql
 DB_HOST = os.environ.get("DB_HOST", "localhost")
 DB_USER = os.environ.get("DB_USER", "root")
 DB_PASSWORD = os.environ.get("DB_PASSWORD", "root")
-DB_NAME = os.environ.get("DB_NAME", "consorcio_gm")
+DB_NAME = os.environ.get("DB_NAME", "consorciogm2")
 
 # 2. SQL PURO E COM PONTO-E-VÍRGULA
 RAW_SQL = """
@@ -665,38 +665,28 @@ CREATE TABLE `solicitacao` (
   CONSTRAINT `solicitacao_ibfk_3` FOREIGN KEY (`id_resposta`) REFERENCES `solicitacao` (`id`) ON DELETE CASCADE
 );
 
+-- consorcio_gm.tramitacao definition
+
 CREATE TABLE `tramitacao` (
-	`carteira` DOUBLE NOT NULL,
-	`discado` VARCHAR(20) NOT NULL,
-	`atendido` BIT(1) NOT NULL,
-	`tipo` ENUM('ativa', 'receptiva') NOT NULL,
-	`cpc` BIT(1) NOT NULL,
-	`contato` ENUM('consorciado', 'terceiro', 'avalista', 'indefinido') NOT NULL,
-	`exito` BIT(1) NOT NULL,
-	`status` ENUM('alega pagamento', 'agendamento', 'acordo firmado', 'sem condições financeiras',
-		'sem interesse no pagamento', 'não confirma dados', 'atende e desliga', 'ligação ficou muda',
-		'não é consorciado, conhece, mas não é responsável', 'não é o consorciado e não conhece',
-		'caixa postal / secretária eletrônica', 'chama e não atende', 'chamada não completada', 'ligação caiu',
-		'numero não existe', 'ocupado') NOT NULL,
-	`descricao` VARCHAR(255) DEFAULT NULL,
-	`classificacao` ENUM('excelente', 'bom', 'ruim', 'indefinido') NOT NULL,
-	`id_contrato` BIGINT NOT NULL,
-	`id_funcionario` INT NOT NULL,
-    
-	FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
-	FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE,
-    
-    CONSTRAINT `check_status_atendimento` CHECK (
-        (`atendido` = 0 AND `cpc` = 0 AND `contato` = 'indefinido'
-        AND `status` IN ('caixa postal / secretária eletrônica', 'ocupado', 'chama e não atende', 'chamada não completada',
-        'ligação caiu', 'numero não existe'))
-        OR 
-        (`atendido` = 1 AND `cpc` = 1 AND `contato` = 'consorciado' AND `status` IN ('alega pagamento', 'agendamento', 'acordo firmado', 'sem condições financeiras',
-		'sem interesse no pagamento', 'não confirma dados', 'atende e desliga', 'ligação ficou muda'))
-		OR
-		(`atendido` = 1 AND `cpc` = 0 AND `contato` IN ('consorciado', 'terceiro', 'avalista')
-		AND `status` IN ('não é consorciado, conhece, mas não é responsável', 'não é o consorciado e não conhece'))
-    )
+  `carteira` double NOT NULL,
+  `discado` varchar(20) NOT NULL,
+  `atendido` bit(1) NOT NULL,
+  `tipo` enum('ativa','receptiva') NOT NULL,
+  `cpc` bit(1) NOT NULL,
+  `contato` enum('consorciado','terceiro','avalista','indefinido') NOT NULL,
+  `exito` bit(1) NOT NULL,
+  `status` enum('alega pagamento','agendamento','acordo firmado','sem condições financeiras','sem interesse no pagamento','não confirma dados','atende e desliga','ligação ficou muda','não é consorciado, conhece, mas não é responsável','não é o consorciado e não conhece','caixa postal / secretária eletrônica','chama e não atende','chamada não completada','ligação caiu','numero não existe','ocupado') NOT NULL,
+  `descricao` varchar(255) DEFAULT NULL,
+  `classificacao` enum('excelente','bom','ruim','indefinido') NOT NULL,
+  `id_contrato` bigint(20) NOT NULL,
+  `id_funcionario` int(11) NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  KEY `id_contrato` (`id_contrato`),
+  KEY `id_funcionario` (`id_funcionario`),
+  CONSTRAINT `tramitacao_ibfk_1` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `tramitacao_ibfk_2` FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `check_status_atendimento` CHECK (`atendido` = 0 and `cpc` = 0 and `contato` = 'indefinido' and `status` in ('caixa postal / secretária eletrônica','ocupado','chama e não atende','chamada não completada','ligação caiu','numero não existe') or `atendido` = 1 and `cpc` = 1 and `contato` = 'consorciado' and `status` in ('alega pagamento','agendamento','acordo firmado','sem condições financeiras','sem interesse no pagamento','não confirma dados','atende e desliga','ligação ficou muda') or `atendido` = 1 and `cpc` = 0 and `contato` in ('consorciado','terceiro','avalista') and `status` in ('não é consorciado, conhece, mas não é responsável','não é o consorciado e não conhece'))
 );
 
 CREATE TABLE `agenda` (
