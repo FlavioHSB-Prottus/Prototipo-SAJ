@@ -666,26 +666,37 @@ CREATE TABLE `solicitacao` (
 );
 
 CREATE TABLE `tramitacao` (
-  `id` bigint(20) NOT NULL AUTO_INCREMENT,
-  `id_pessoa` bigint(20) NOT NULL,
-  `id_contrato` bigint(20) NOT NULL,
-  `forma` enum('ligacao','whatsapp','email') NOT NULL,
-  `cpc` enum('sim','nao','parente','amigo','avalista') NOT NULL,
-  `data` timestamp NOT NULL,
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  `descricao` text DEFAULT NULL,
-  `fluxo_json` longtext DEFAULT NULL COMMENT 'Wizard tramitacao (JSON)',
-  `status_tramitacao` varchar(96) DEFAULT NULL COMMENT 'Rotulo do resultado (ex.: Ligação Não atendida)',
-  `id_funcionario` int(11) NOT NULL,
-  `tipo` enum('ativo','passivo') NOT NULL,
-  PRIMARY KEY (`id`),
-  KEY `idx_tramitacao_pessoa` (`id_pessoa`),
-  KEY `idx_tramitacao_contrato` (`id_contrato`),
-  KEY `fk_tramitacao_funcionario` (`id_funcionario`),
-  CONSTRAINT `fk_tramitacao_contrato` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_tramitacao_funcionario` FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`),
-  CONSTRAINT `fk_tramitacao_pessoa` FOREIGN KEY (`id_pessoa`) REFERENCES `pessoa` (`id`) ON DELETE CASCADE
+	`carteira` DOUBLE NOT NULL,
+	`discado` VARCHAR(20) NOT NULL,
+	`atendido` BIT(1) NOT NULL,
+	`tipo` ENUM('ativa', 'receptiva') NOT NULL,
+	`cpc` BIT(1) NOT NULL,
+	`contato` ENUM('consorciado', 'terceiro', 'avalista', 'indefinido') NOT NULL,
+	`exito` BIT(1) NOT NULL,
+	`status` ENUM('alega pagamento', 'agendamento', 'acordo firmado', 'sem condições financeiras',
+		'sem interesse no pagamento', 'não confirma dados', 'atende e desliga', 'ligação ficou muda',
+		'não é consorciado, conhece, mas não é responsável', 'não é o consorciado e não conhece',
+		'caixa postal / secretária eletrônica', 'chama e não atende', 'chamada não completada', 'ligação caiu',
+		'numero não existe', 'ocupado') NOT NULL,
+	`descricao` VARCHAR(255) DEFAULT NULL,
+	`classificacao` ENUM('excelente', 'bom', 'ruim', 'indefinido') NOT NULL,
+	`id_contrato` BIGINT NOT NULL,
+	`id_funcionario` INT NOT NULL,
+    
+	FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
+	FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE,
+    
+    CONSTRAINT `check_status_atendimento` CHECK (
+        (`atendido` = 0 AND `cpc` = 0 AND `contato` = 'indefinido'
+        AND `status` IN ('caixa postal / secretária eletrônica', 'ocupado', 'chama e não atende', 'chamada não completada',
+        'ligação caiu', 'numero não existe'))
+        OR 
+        (`atendido` = 1 AND `cpc` = 1 AND `contato` = 'consorciado' AND `status` IN ('alega pagamento', 'agendamento', 'acordo firmado', 'sem condições financeiras',
+		'sem interesse no pagamento', 'não confirma dados', 'atende e desliga', 'ligação ficou muda'))
+		OR
+		(`atendido` = 1 AND `cpc` = 0 AND `contato` IN ('consorciado', 'terceiro', 'avalista')
+		AND `status` IN ('não é consorciado, conhece, mas não é responsável', 'não é o consorciado e não conhece'))
+    )
 );
 
 CREATE TABLE `agenda` (
