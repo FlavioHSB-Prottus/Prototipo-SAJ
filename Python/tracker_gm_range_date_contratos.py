@@ -686,48 +686,11 @@ def _detalhe_positivacao_pagamento(cursor, id_contrato, arquivo_gm_id, numero_pa
     return " ".join(partes)
 
 
-def _descricao_ocorrencia_parcela_paga_positivacao(cursor, id_contrato, arquivo_gm_id, numero_parcela_quitada):
-    """Resumo na linha de ocorrências (parcela paga), alinhado ao histórico de negativação."""
-    data_ref = _data_referencia_arquivo_gm(cursor, arquivo_gm_id)
-    try:
-        np_txt = str(int(numero_parcela_quitada)) if numero_parcela_quitada is not None else ""
-    except (TypeError, ValueError):
-        np_txt = str(numero_parcela_quitada) if numero_parcela_quitada is not None else ""
-
-    try:
-        cursor.execute(
-            """
-            SELECT p.numero_parcela, DATEDIFF(%s, p.vencimento) AS dias_atraso
-            FROM parcela p
-            WHERE p.id_contrato = %s AND p.status = 'aberto'
-            ORDER BY p.vencimento ASC, p.id ASC
-            LIMIT 1
-            """,
-            (data_ref, id_contrato),
-        )
-        alvo = cursor.fetchone()
-    except Exception:
-        alvo = None
-
-    if alvo and alvo.get("numero_parcela") is not None:
-        try:
-            na = int(alvo["numero_parcela"])
-        except (TypeError, ValueError):
-            na = alvo["numero_parcela"]
-        return (
-            f"Parcela nº {np_txt} paga (antes negativada). "
-            f"Próxima parcela em aberto mais antiga: nº {na} — poderá ser negativada se elegível (31–89 dias de atraso)."
-        )
-    return (
-        f"Parcela nº {np_txt} paga (antes negativada). "
-        "Não há outra parcela em aberto para negativação neste momento."
-    )
-
-
 def _liberar_negativacao_parcela_paga(cursor, conn, id_parcela, id_contrato, arquivo_gm_id):
-    """Se existia `negativacao` para a parcela paga, apaga 1 registro.
-    Grava ocorrencia com status *aberto*, liberando a cobranca visual
-    e a elegibilidade futura para a nova parcela-alvo."""
+    """Se existia `negativacao` para a parcela paga, grava positivação em `negativacao_historico` e remove a linha ativa.
+
+    Não duplica na tabela `ocorrencia`: o contrato já exibe isso em Negativação e positivação.
+    """
     _ensure_negativacao_table(cursor)
     _ensure_negativacao_historico_table(cursor)
     try:
@@ -778,18 +741,6 @@ def _liberar_negativacao_parcela_paga(cursor, conn, id_parcela, id_contrato, arq
         return
     if not cursor.rowcount:
         return
-    try:
-        insert_ocorrencia(
-            cursor,
-            id_contrato,
-            arquivo_gm_id,
-            OCORRENCIA_ABERTO,
-            _descricao_ocorrencia_parcela_paga_positivacao(
-                cursor, id_contrato, arquivo_gm_id, row.get("numero_parcela")
-            ),
-        )
-    except Exception:
-        pass
 
 
 def _extract_field(line, columns_info, field_name):

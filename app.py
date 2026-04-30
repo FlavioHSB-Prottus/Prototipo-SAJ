@@ -129,6 +129,7 @@ def _cobranca_html_ok(path):
         return True
     prefixes = (
         '/cobranca',
+        '/acordos',
         '/negativacao',
         '/busca',
         '/pasta-virtual',
@@ -646,7 +647,31 @@ def cobranca():
 
 @app.route('/negativacao')
 def negativacao():
-    return render_template('negativacao.html')
+    n = _nivel_normalizado(session.get('funcionario_nivel_acesso'))
+    negativacao_page_config = {}
+    if n == 'cobranca':
+        fid = session.get('funcionario_id')
+        try:
+            fid = int(fid) if fid is not None else None
+        except (TypeError, ValueError):
+            fid = None
+        if fid is not None:
+            nome = (session.get('funcionario_nome') or '').strip() or ('#' + str(fid))
+            negativacao_page_config = {
+                'defaultFuncionarioCobrancaId': fid,
+                'defaultFuncionarioCobrancaNome': nome,
+                'perfilCobranca': True,
+            }
+    return render_template(
+        'negativacao.html',
+        negativacao_page_config=negativacao_page_config,
+    )
+
+
+@app.route('/acordos')
+def acordos():
+    """Módulo de gestão de acordos (entrada no menu; telas específicas podem evoluir depois)."""
+    return render_template('acordos.html')
 
 
 @app.route('/operadores')
@@ -2590,6 +2615,18 @@ def _negativacao_parcela_display_key(row):
     return (cid, 'row', int(row.get('id') or 0))
 
 
+# Status interno: positivação já registrada no histórico; falta o operador disparar o envio ao Serasa.
+_NEG_STATUS_AGUARDANDO_POS_SERASA = 'aguardando_positivacao_serasa'
+_NEG_STATUS_SERASA_ELEGIVEL_NEGATIVAR = frozenset({'registrado_tracker', 'falhou'})
+
+
+def _negativacao_row_serasa_flags(row):
+    """Marca elegibilidade para envio manual ao Serasa (camadas separadas do registro interno)."""
+    st = (row.get('status') or '').strip().lower()
+    row['serasa_elegivel_negativar'] = st in _NEG_STATUS_SERASA_ELEGIVEL_NEGATIVAR
+    row['serasa_elegivel_positivar'] = st == _NEG_STATUS_AGUARDANDO_POS_SERASA
+
+
 def _dedupe_negativacao_ativas_exibicao(rows):
     """Uma entrada ativa por parcela lógica (mantém o registro mais recente)."""
     best = {}
@@ -2630,6 +2667,18 @@ def _dedupe_negativacao_historico_exibicao(rows):
             )
     out.extend(obs)
     out.sort(key=lambda x: (str(x.get('data_evento') or ''), int(x.get('id') or 0)))
+    return out
+
+
+def _ocorrencias_sem_echo_positivacao_negativacao(rows):
+    """Remove da timeline genérica ocorrências que só repetem texto de positivação (já em negativacao_historico)."""
+    out = []
+    for r in rows or []:
+        st = (r.get('status') or '').strip().lower()
+        desc = (r.get('descricao') or '').lower()
+        if st == 'aberto' and 'antes negativada' in desc:
+            continue
+        out.append(r)
     return out
 
 
@@ -2683,9 +2732,11 @@ def api_contrato_detalhe(contrato_id):
             "SELECT * FROM parcela WHERE id_contrato = %s ORDER BY numero_parcela",
             (contrato_id,),
         )
-        ocorrencias = _safe_all(
-            "SELECT * FROM ocorrencia WHERE id_contrato = %s ORDER BY data_arquivo ASC, id ASC",
-            (contrato_id,),
+        ocorrencias = _ocorrencias_sem_echo_positivacao_negativacao(
+            _safe_all(
+                "SELECT * FROM ocorrencia WHERE id_contrato = %s ORDER BY data_arquivo ASC, id ASC",
+                (contrato_id,),
+            )
         )
         _ensure_tramitacao_fluxo_columns(cursor)
         _tramit_ord = _tramitacao_list_order_sql({n.lower() for n in _tramitacao_column_names(cursor)})
@@ -7798,6 +7849,65 @@ def _negativacao_listagem_order_at(sort_col, order_dir):
     return 'ORDER BY ' + clauses.get(sort_col, clauses['data'])
 
 
+def _negativacao_apenas_cobranca_exists_clause(cursor, funcionario_id_filtro):
+    """EXISTS + params alinhados ao painel `/api/cobranca` (snapshot GM + parcelas abertas).
+
+    Com `funcionario_id_filtro`, restringe aos contratos com vínculo em `funcionario_cobranca`.
+    Retorna (sql_fragment, params_list, data_ref_iso).
+    """
+    _ensure_cobranca_table(cursor)
+    data_ref = _get_data_referencia_arquivos_gm(cursor)
+    if isinstance(data_ref, datetime.datetime):
+        d_iso = data_ref.date().isoformat()
+    elif isinstance(data_ref, datetime.date):
+        d_iso = data_ref.isoformat()
+    else:
+        d_iso = str(data_ref)[:10]
+
+    if funcionario_id_filtro is not None:
+        sql = (
+            "EXISTS (SELECT 1 FROM cobranca cob "
+            "INNER JOIN contrato cc ON cc.id = cob.id_contrato AND cc.status = 'aberto' "
+            "INNER JOIN parcela par ON par.id_contrato = cc.id AND par.status = 'aberto' "
+            "INNER JOIN funcionario_cobranca fc ON fc.id_contrato = cc.id "
+            "AND fc.id_funcionario = %s "
+            "WHERE cob.data_arquivo = %s AND cob.id_contrato = c.id)"
+        )
+        params = [funcionario_id_filtro, d_iso]
+    else:
+        sql = (
+            "EXISTS (SELECT 1 FROM cobranca cob "
+            "INNER JOIN contrato cc ON cc.id = cob.id_contrato AND cc.status = 'aberto' "
+            "INNER JOIN parcela par ON par.id_contrato = cc.id AND par.status = 'aberto' "
+            "WHERE cob.data_arquivo = %s AND cob.id_contrato = c.id)"
+        )
+        params = [d_iso]
+    return sql, params, d_iso
+
+
+def _split_negativacao_ativos_prioridade(rows):
+    """Mesmas faixas do painel Cobrança: crítico >=60, atenção 30–59, recente 1–29 dias."""
+    critico, atencao, recente = [], [], []
+    for r in rows:
+        dias = r.get('dias_atraso')
+        try:
+            if dias is None:
+                d = 0
+            elif isinstance(dias, str):
+                d = int(float(dias))
+            else:
+                d = int(dias)
+        except (TypeError, ValueError):
+            d = 0
+        if d >= 60:
+            critico.append(r)
+        elif d >= 30:
+            atencao.append(r)
+        elif d >= 1:
+            recente.append(r)
+    return critico, atencao, recente
+
+
 @app.route('/api/negativacao/listagem')
 def api_negativacao_listagem():
     """Lista histórico global de negativações e parcelas ainda ativas (painel do módulo)."""
@@ -7825,6 +7935,20 @@ def api_negativacao_listagem():
     order_hist = (request.args.get('order_hist') or 'desc').strip().lower()
     sort_at = (request.args.get('sort_ativos') or 'data').strip().lower()
     order_at = (request.args.get('order_ativos') or 'desc').strip().lower()
+
+    _ac = (request.args.get('apenas_cobranca') or '').strip().lower()
+    apenas_cobranca = _ac in ('1', 'true', 'yes', 'sim', 'on')
+
+    _pv = (request.args.get('preview_ativos') or '').strip().lower()
+    preview_ativos = _pv in ('1', 'true', 'yes', 'sim', 'on')
+
+    funcionario_id_filtro = None
+    fid_raw = (request.args.get('funcionario_id') or '').strip()
+    if fid_raw:
+        try:
+            funcionario_id_filtro = int(fid_raw)
+        except (TypeError, ValueError):
+            funcionario_id_filtro = None
 
     order_hist_sql = _negativacao_listagem_order_hist(sort_hist, order_hist)
     order_at_sql = _negativacao_listagem_order_at(sort_at, order_at)
@@ -7896,34 +8020,49 @@ def api_negativacao_listagem():
             where_at.append('n.status = %s')
             params_at.append(status_ativo)
 
+        data_ref_cobranca_resp = None
+        if apenas_cobranca:
+            clause_cob, params_cob, data_ref_cobranca_resp = (
+                _negativacao_apenas_cobranca_exists_clause(cursor, funcionario_id_filtro)
+            )
+            where_hist.append(clause_cob)
+            params_hist.extend(params_cob)
+            where_at.append(clause_cob)
+            params_at.extend(params_cob)
+
         wh = ("WHERE " + " AND ".join(where_hist)) if where_hist else ""
         wh_at = ("WHERE " + " AND ".join(where_at)) if where_at else ""
 
-        cursor.execute(
-            f"""
-            SELECT COUNT(*) AS total
-            FROM negativacao_historico h
-            JOIN contrato c ON c.id = h.id_contrato
-            {wh}
-            """,
-            params_hist,
-        )
-        total_hist = int((cursor.fetchone() or {}).get('total') or 0)
+        # Carteira Cobrança: não carrega histórico (UI só usa blocos Crítico/Atenção).
+        if apenas_cobranca:
+            total_hist = 0
+            historico = []
+        else:
+            cursor.execute(
+                f"""
+                SELECT COUNT(*) AS total
+                FROM negativacao_historico h
+                JOIN contrato c ON c.id = h.id_contrato
+                {wh}
+                """,
+                params_hist,
+            )
+            total_hist = int((cursor.fetchone() or {}).get('total') or 0)
 
-        cursor.execute(
-            f"""
-            SELECT h.*, c.grupo, c.cota, c.numero_contrato, c.status AS contrato_status,
-                   f.nome AS funcionario_nome
-            FROM negativacao_historico h
-            JOIN contrato c ON c.id = h.id_contrato
-            LEFT JOIN funcionario f ON h.id_funcionario = f.id
-            {wh}
-            {order_hist_sql}
-            LIMIT %s OFFSET %s
-            """,
-            params_hist + [per_page, offset],
-        )
-        historico = _clean_rows(cursor.fetchall())
+            cursor.execute(
+                f"""
+                SELECT h.*, c.grupo, c.cota, c.numero_contrato, c.status AS contrato_status,
+                       f.nome AS funcionario_nome
+                FROM negativacao_historico h
+                JOIN contrato c ON c.id = h.id_contrato
+                LEFT JOIN funcionario f ON h.id_funcionario = f.id
+                {wh}
+                {order_hist_sql}
+                LIMIT %s OFFSET %s
+                """,
+                params_hist + [per_page, offset],
+            )
+            historico = _clean_rows(cursor.fetchall())
 
         cursor.execute(
             f"""
@@ -7936,6 +8075,17 @@ def api_negativacao_listagem():
         )
         total_ativos = int((cursor.fetchone() or {}).get('total') or 0)
 
+        # Visao geral + filtros padrao + preview: so as 20 parcelas ativas mais recentes.
+        # Carteira cobranca ou pesquisa com filtros: todas as linhas que batem no WHERE.
+        limite_ativos = None
+        if not apenas_cobranca and preview_ativos:
+            limite_ativos = 20
+        limit_sql_at = ''
+        params_limit_at = []
+        if limite_ativos is not None:
+            limit_sql_at = ' LIMIT %s'
+            params_limit_at.append(limite_ativos)
+
         cursor.execute(
             f"""
             SELECT n.*, c.grupo, c.cota, c.numero_contrato, c.status AS contrato_status,
@@ -7945,20 +8095,46 @@ def api_negativacao_listagem():
             LEFT JOIN funcionario f ON n.id_funcionario = f.id
             {wh_at}
             {order_at_sql}
-            LIMIT 400
+            {limit_sql_at}
             """,
-            params_at,
+            params_at + params_limit_at,
         )
         ativos = _dedupe_negativacao_ativas_exibicao(_clean_rows(cursor.fetchall()))
+        for r in ativos:
+            _negativacao_row_serasa_flags(r)
 
-        return jsonify({
+        payload = {
             'historico': historico,
             'total_historico': total_hist,
             'ativos': ativos,
             'total_ativos': total_ativos,
             'page': page,
             'per_page': per_page,
-        })
+            'modo_cobranca': bool(apenas_cobranca),
+            'ativos_em_preview': bool(not apenas_cobranca and limite_ativos == 20),
+        }
+        if apenas_cobranca and data_ref_cobranca_resp:
+            payload['data_referencia_cobranca'] = data_ref_cobranca_resp
+            ac, aa, ar = _split_negativacao_ativos_prioridade(ativos)
+            payload['ativos_critico'] = ac
+            payload['ativos_atencao'] = aa
+            payload['ativos_recente'] = ar
+            payload['total_ativos_critico'] = len(ac)
+            payload['total_ativos_atencao'] = len(aa)
+            payload['total_ativos_recente'] = len(ar)
+            try:
+                cursor.execute(
+                    "SELECT id, nome FROM funcionario WHERE "
+                    + _WHERE_FUNCIONARIO_COBRANCA
+                    + " ORDER BY nome"
+                )
+                payload['funcionarios_cobranca'] = [
+                    {'id': int(x['id']), 'nome': x['nome']}
+                    for x in cursor.fetchall()
+                ]
+            except Exception:
+                payload['funcionarios_cobranca'] = []
+        return jsonify(payload)
     finally:
         try:
             cursor.close()
@@ -7968,6 +8144,130 @@ def api_negativacao_listagem():
             conn.close()
         except Exception:
             pass
+
+
+@app.route('/api/negativacao/positivar-lote-serasa', methods=['POST'])
+def api_negativacao_positivar_lote_serasa_placeholder():
+    """Envio em lote ao Serasa (placeholder): positivar ou negativar parcelas do bloco.
+
+    Só aceita parcelas no estado interno correspondente (negativar: tracker/falha;
+    positivar: aguardando_positivacao_serasa após registro interno de positivação).
+    """
+    payload = request.get_json(silent=True) or {}
+    tipo = (payload.get('tipo_operacao') or '').strip().lower()
+    if tipo not in ('positivar', 'negativar'):
+        return jsonify({'error': 'tipo_operacao deve ser "positivar" ou "negativar".'}), 400
+    faixa = (payload.get('faixa') or '').strip().lower()
+    if faixa and faixa not in ('critico', 'atencao'):
+        return jsonify({'error': 'faixa inválida (use critico ou atencao).'}), 400
+    raw_ids = payload.get('ids_parcela')
+    if not isinstance(raw_ids, list) or len(raw_ids) == 0:
+        return jsonify({'error': 'ids_parcela deve ser uma lista não vazia.'}), 400
+    ids = []
+    for x in raw_ids:
+        try:
+            ids.append(int(x))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'ids_parcela contém valor inválido.'}), 400
+    ids = list(dict.fromkeys(ids))
+    if len(ids) > 50000:
+        return jsonify({'error': 'Quantidade de parcelas acima do limite provisório.'}), 400
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        _ensure_negativacao_table(cursor)
+        ph = ','.join(['%s'] * len(ids))
+        cursor.execute(
+            f'SELECT id_parcela, status FROM negativacao WHERE id_parcela IN ({ph})',
+            ids,
+        )
+        por_parcela = {}
+        for r in cursor.fetchall() or []:
+            try:
+                ip = int(r.get('id_parcela'))
+            except (TypeError, ValueError):
+                continue
+            por_parcela[ip] = (r.get('status') or '').strip().lower()
+
+        if len(por_parcela) != len(ids):
+            return jsonify({
+                'error': 'Uma ou mais parcelas não possuem negativação ativa no cadastro.'
+            }), 400
+
+        invalidas = []
+        for ip in ids:
+            st = por_parcela.get(ip, '')
+            if tipo == 'negativar':
+                if st not in _NEG_STATUS_SERASA_ELEGIVEL_NEGATIVAR:
+                    invalidas.append(ip)
+            else:
+                if st != _NEG_STATUS_AGUARDANDO_POS_SERASA:
+                    invalidas.append(ip)
+
+        if invalidas:
+            msg = (
+                'Nenhuma parcela elegível para esta operação no estado atual '
+                '(negativar: apenas status interno pendente de envio; '
+                'positivar: apenas após positivação interna registrada — botão Positivar na linha).'
+            )
+            return jsonify({'error': msg}), 400
+
+        resposta_mock = '{"mock":true,"serasa":"placeholder"}'
+        if tipo == 'negativar':
+            cursor.execute(
+                f"""
+                UPDATE negativacao
+                SET status = 'enviado', resposta_api = %s, updated_at = CURRENT_TIMESTAMP
+                WHERE id_parcela IN ({ph})
+                  AND LOWER(COALESCE(status, '')) IN ('registrado_tracker', 'falhou')
+                """,
+                [resposta_mock] + ids,
+            )
+        else:
+            cursor.execute(
+                f'DELETE FROM negativacao WHERE id_parcela IN ({ph}) '
+                f"AND LOWER(COALESCE(status, '')) = %s",
+                ids + [_NEG_STATUS_AGUARDANDO_POS_SERASA],
+            )
+
+        conn.commit()
+    except Exception as exc:
+        app.logger.exception('api_negativacao_positivar_lote_serasa_placeholder')
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return jsonify({'error': str(exc)}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    app.logger.info(
+        'negativacao serasa-envio-lote (mock): tipo_operacao=%s faixa=%s qtd=%s',
+        tipo,
+        faixa or '-',
+        len(ids),
+    )
+    faixa_txt = f' faixa={faixa}' if faixa else ''
+    verbo = 'Positivação' if tipo == 'positivar' else 'Negativação'
+    return jsonify({
+        'success': True,
+        'mock': True,
+        'tipo_operacao': tipo,
+        'faixa': faixa or None,
+        'quantidade': len(ids),
+        'mensagem': (
+            f'{verbo} Serasa (simulação){faixa_txt}: {len(ids)} parcela(s). '
+            'Estado interno atualizado; substituir por chamada real à API quando disponível.'
+        ),
+    })
 
 
 @app.route('/api/negativacao/observacao', methods=['POST'])
@@ -8053,6 +8353,15 @@ def api_negativacao_remover_manual():
         if not row:
             return jsonify({'error': 'Nenhuma negativacao ativa para esta parcela.'}), 404
 
+        st_atual = (row.get('status') or '').strip().lower()
+        if st_atual == _NEG_STATUS_AGUARDANDO_POS_SERASA:
+            return jsonify({
+                'error': (
+                    'Esta parcela já está com positivação interna registrada; '
+                    'use o envio ao Serasa (Positivar todos / integração).'
+                )
+            }), 400
+
         id_contrato = int(row['id_contrato'])
         data_ev = datetime.datetime.now()
         _insert_negativacao_historico(
@@ -8067,7 +8376,18 @@ def api_negativacao_remover_manual():
             row.get('status'),
             motivo,
         )
-        cursor.execute("DELETE FROM negativacao WHERE id_parcela = %s", (id_parcela,))
+        cursor.execute(
+            """
+            UPDATE negativacao
+            SET status = %s, resposta_api = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE id_parcela = %s
+            """,
+            (
+                _NEG_STATUS_AGUARDANDO_POS_SERASA,
+                '{"interno":"positivacao_manual_pendente_serasa"}',
+                id_parcela,
+            ),
+        )
         conn.commit()
         return jsonify({'success': True})
     except Exception as exc:
