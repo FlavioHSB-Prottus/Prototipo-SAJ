@@ -4,7 +4,9 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='busca.css') }}">
 <style>
-    /* botoes de acao herdados de busca.css; estilo especifico para remover */
+    /* Positivar (lista ativa): verde. Negativar (historico positivados): vermelho. */
+    .btn-neg-positivar { background: #047857; color: #fff; border: none; padding: 6px 12px; border-radius: 8px; font-size: 0.85rem; cursor: pointer; margin-left: 6px; }
+    .btn-neg-positivar:hover { filter: brightness(1.06); }
     .btn-neg-danger { background: #b91c1c; color: #fff; border: none; padding: 6px 12px; border-radius: 8px; font-size: 0.85rem; cursor: pointer; margin-left: 6px; }
     .btn-neg-danger:hover { filter: brightness(1.05); }
     .neg-subcard { margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(226, 232, 240, 0.95); }

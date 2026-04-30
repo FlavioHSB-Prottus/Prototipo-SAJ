@@ -136,11 +136,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 '<td>' + esc(r.funcionario_nome || '-') + '</td>' +
                 '<td class="text-right">' +
                 '<button type="button" class="action-btn btn-neg-detalhe" data-contrato-id="' + esc(String(idc)) + '"><i class="fa-solid fa-file-lines"></i> Detalhes</button> ' +
-                '<button type="button" class="btn-neg-danger btn-neg-remover" data-id-parcela="' + esc(String(idp)) + '">Remover</button>' +
+                '<button type="button" class="btn-neg-positivar btn-neg-positivar-ativo" data-id-parcela="' + esc(String(idp)) + '">Positivar</button>' +
                 '</td>';
             tb.appendChild(tr);
         });
-        bindRemover(tb);
+        bindPositivar(tb);
         bindDetalhes(tb);
         updateSortIndicators();
     }
@@ -163,6 +163,11 @@ document.addEventListener('DOMContentLoaded', function () {
             var tipo = r.tipo_evento || '';
             var badgeClass = (tipo.indexOf('removido') === 0) ? 'status-success' : 'status-danger';
             if (tipo === 'observacao') badgeClass = 'status-active';
+            var idpHist = r.id_parcela != null && r.id_parcela !== '' ? String(r.id_parcela) : '';
+            var btnNeg = '';
+            if (tipo.indexOf('removido') === 0 && idpHist) {
+                btnNeg = ' <button type="button" class="btn-neg-danger btn-neg-negativar-hist" data-id-parcela="' + esc(idpHist) + '">Negativação</button>';
+            }
             tr.innerHTML =
                 '<td>' + fmtDt(r.data_evento) + '</td>' +
                 '<td>' + gc + '</td>' +
@@ -172,10 +177,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 '<td>' + esc(r.funcionario_nome || '-') + '</td>' +
                 '<td class="text-right">' +
                 '<button type="button" class="action-btn btn-neg-detalhe" data-contrato-id="' + esc(String(idc)) + '"><i class="fa-solid fa-file-lines"></i> Detalhes</button>' +
+                btnNeg +
                 '</td>';
             tb.appendChild(tr);
         });
         bindDetalhes(tb);
+        bindNegativarHistorico(tb);
         updateSortIndicators();
     }
 
@@ -189,20 +196,42 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    function bindRemover(container) {
-        container.querySelectorAll('.btn-neg-remover').forEach(function (btn) {
+    function bindPositivar(container) {
+        container.querySelectorAll('.btn-neg-positivar-ativo').forEach(function (btn) {
             btn.addEventListener('click', function () {
                 var idParcela = parseInt(btn.getAttribute('data-id-parcela'), 10);
                 if (!idParcela || !window.confirm(
-                    'Remover esta negativacao do cadastro interno? Sera registrado um evento de positivacao (manual).'
+                    'Positivar esta parcela? A negativação ativa será retirada do cadastro interno e será registrado um evento de positivação (manual).'
                 )) return;
                 fetch('/api/negativacao/remover-manual', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         id_parcela: idParcela,
-                        motivo: 'Remocao manual pelo modulo Negativacao.'
+                        motivo: 'Positivação manual pelo módulo Negativação.'
                     })
+                }).then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
+                    .then(function (o) {
+                        if (!o.res.ok) throw new Error(o.j.error || o.res.statusText);
+                        load();
+                    })
+                    .catch(function (e) { alert(e.message || String(e)); });
+            });
+        });
+    }
+
+    function bindNegativarHistorico(container) {
+        container.querySelectorAll('.btn-neg-negativar-hist').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var idParcela = parseInt(btn.getAttribute('data-id-parcela'), 10);
+                if (!idParcela || !window.confirm(
+                    'Registrar negativação novamente para esta parcela? ' +
+                    'Só é permitido com parcela e contrato em aberto e atraso entre 31 e 89 dias (mesma regra do painel de cobrança).'
+                )) return;
+                fetch('/api/negativacao/registrar-manual-parcela', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id_parcela: idParcela })
                 }).then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
                     .then(function (o) {
                         if (!o.res.ok) throw new Error(o.j.error || o.res.statusText);

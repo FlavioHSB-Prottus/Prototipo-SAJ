@@ -8088,6 +8088,125 @@ def api_negativacao_remover_manual():
             pass
 
 
+@app.route('/api/negativacao/registrar-manual-parcela', methods=['POST'])
+def api_negativacao_registrar_manual_parcela():
+    """Recoloca uma parcela em `negativacao` a partir do histórico (ex.: após positivação).
+
+    Mesma elegibilidade do fluxo de envio em lote: parcela e contrato em aberto,
+    atraso entre 31 e 89 dias na data de referência do último arquivo GM.
+    """
+    payload = request.get_json(silent=True) or {}
+    try:
+        id_parcela = int(payload.get('id_parcela'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'id_parcela invalido.'}), 400
+
+    fid = session.get('funcionario_id')
+    try:
+        fid = int(fid) if fid is not None else None
+    except (TypeError, ValueError):
+        fid = None
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        _ensure_negativacao_table(cursor)
+        _ensure_negativacao_historico_table(cursor)
+
+        cursor.execute(
+            "SELECT 1 FROM negativacao WHERE id_parcela = %s LIMIT 1",
+            (id_parcela,),
+        )
+        if cursor.fetchone():
+            return jsonify({'error': 'Esta parcela ja possui negativacao ativa no cadastro.'}), 400
+
+        data_ref = _get_data_referencia_arquivos_gm(cursor)
+        cursor.execute(
+            """
+            SELECT p.id, p.id_contrato, p.numero_parcela, p.vencimento,
+                   DATEDIFF(%s, p.vencimento) AS dias_atraso
+            FROM parcela p
+            INNER JOIN contrato c ON c.id = p.id_contrato
+            WHERE p.id = %s AND p.status = 'aberto' AND c.status = 'aberto'
+            LIMIT 1
+            """,
+            (data_ref, id_parcela),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({
+                'error': 'Parcela nao encontrada em aberto ou contrato nao esta aberto.'
+            }), 400
+
+        try:
+            dias = int(row.get('dias_atraso') or 0)
+        except (TypeError, ValueError):
+            dias = 0
+
+        if not (30 < dias < 90):
+            return jsonify({
+                'error': (
+                    f'Elegibilidade: atraso atual {dias} dia(s) na data de referencia '
+                    'dos arquivos GM (necessario entre 31 e 89 dias).'
+                )
+            }), 400
+
+        id_contrato = int(row['id_contrato'])
+        num_parc = row.get('numero_parcela')
+        resposta_json = '{"origem":"painel_negativacao_registrar_manual_parcela"}'
+
+        cursor.execute(
+            "INSERT INTO negativacao "
+            "(id_contrato, id_parcela, numero_parcela, dias_atraso, status, resposta_api, id_funcionario) "
+            "VALUES (%s, %s, %s, %s, 'enviado', %s, %s)",
+            (id_contrato, id_parcela, num_parc, dias, resposta_json, fid),
+        )
+
+        cursor.execute(
+            "SELECT data_negativacao FROM negativacao WHERE id_parcela = %s LIMIT 1",
+            (id_parcela,),
+        )
+        row_dn = cursor.fetchone()
+        data_ev = row_dn.get('data_negativacao') if row_dn else datetime.datetime.now()
+
+        _insert_negativacao_historico(
+            cursor,
+            id_contrato,
+            id_parcela,
+            num_parc,
+            'negativado_manual',
+            data_ev,
+            fid,
+            dias,
+            'enviado',
+            'Negativacao registrada manualmente pelo modulo Negativacao (reingresso apos positivacao).',
+        )
+        conn.commit()
+        return jsonify({'success': True})
+    except IntegrityError:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return jsonify({'error': 'Esta parcela ja possui negativacao cadastrada.'}), 400
+    except Exception as exc:
+        app.logger.exception('api_negativacao_registrar_manual_parcela')
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return jsonify({'error': str(exc)}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 # ---------------------------------------------------------------------------
 # API: Protocolo, Solicitação e Mensagem
 # ---------------------------------------------------------------------------
