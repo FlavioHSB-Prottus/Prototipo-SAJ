@@ -482,6 +482,10 @@ def negativacao_inserir_elegiveis_apos_gm(cursor, _conn, data_referencia, id_arq
         _sync_negativacao_historico_pos_tracker(cursor, data_hora)
     except Exception:
         pass
+    try:
+        _sync_negativacao_historico_negativado_tracker_faltantes(cursor)
+    except Exception:
+        pass
     return int(n) if n is not None else 0
 
 
@@ -517,6 +521,111 @@ def _data_referencia_arquivo_gm(cursor, arquivo_gm_id):
     except Exception:
         pass
     return datetime.date.today()
+
+
+def _data_hora_evento_arquivo_gm(cursor, arquivo_gm_id):
+    """Datetime (meio-dia) no dia do arquivo GM — alinha positivação ao fato do arquivo, não ao relógio do servidor."""
+    d = _data_referencia_arquivo_gm(cursor, arquivo_gm_id)
+    if isinstance(d, datetime.datetime):
+        return datetime.datetime.combine(d.date(), datetime.time(12, 0, 0))
+    if isinstance(d, datetime.date):
+        return datetime.datetime.combine(d, datetime.time(12, 0, 0))
+    return datetime.datetime.combine(datetime.date.today(), datetime.time(12, 0, 0))
+
+
+def _normalize_data_hora_negativacao(val):
+    """Converte data_negativacao do MySQL em datetime (meio-dia se só data)."""
+    if val is None:
+        return None
+    if isinstance(val, datetime.datetime):
+        return val.replace(hour=12, minute=0, second=0, microsecond=0)
+    if isinstance(val, datetime.date):
+        return datetime.datetime.combine(val, datetime.time(12, 0, 0))
+    try:
+        s = str(val)[:19]
+        return datetime.datetime.strptime(s, "%Y-%m-%d %H:%M:%S").replace(
+            hour=12, minute=0, second=0, microsecond=0
+        )
+    except ValueError:
+        try:
+            d0 = datetime.datetime.strptime(str(val)[:10], "%Y-%m-%d").date()
+            return datetime.datetime.combine(d0, datetime.time(12, 0, 0))
+        except ValueError:
+            return datetime.datetime.now()
+
+
+def _ensure_historico_negativado_tracker_para_linha(cursor, row_n):
+    """Se existe `negativacao` sem linha negativado_tracker no histórico, insere (remove 'Sem evento no histórico')."""
+    if not row_n:
+        return
+    id_parcela = row_n.get("id_parcela")
+    if id_parcela is None:
+        return
+    _ensure_negativacao_historico_table(cursor)
+    cursor.execute(
+        """
+        SELECT 1 FROM negativacao_historico
+        WHERE id_parcela = %s AND tipo_evento = 'negativado_tracker'
+        LIMIT 1
+        """,
+        (int(id_parcela),),
+    )
+    if cursor.fetchone():
+        return
+    data_ev = _normalize_data_hora_negativacao(row_n.get("data_negativacao"))
+    if data_ev is None:
+        data_ev = datetime.datetime.now()
+    det = (
+        "Registro automático pelo arquivo GM (data referência "
+        f"{data_ev.strftime('%d/%m/%Y')}"
+        ")."
+    )
+    cursor.execute(
+        """
+        INSERT INTO negativacao_historico (
+            id_contrato, id_parcela, numero_parcela, tipo_evento, data_evento,
+            id_funcionario, dias_atraso, status_snapshot, detalhe
+        ) VALUES (%s, %s, %s, %s, %s, NULL, %s, %s, %s)
+        """,
+        (
+            int(row_n["id_contrato"]),
+            int(id_parcela),
+            row_n.get("numero_parcela"),
+            "negativado_tracker",
+            data_ev,
+            row_n.get("dias_atraso"),
+            row_n.get("status"),
+            det,
+        ),
+    )
+
+
+def _sync_negativacao_historico_negativado_tracker_faltantes(cursor):
+    """Backfill: toda negativação ativa registrado_tracker sem evento negativado_tracker no histórico."""
+    _ensure_negativacao_historico_table(cursor)
+    cursor.execute(
+        """
+        INSERT INTO negativacao_historico (
+            id_contrato, id_parcela, numero_parcela, tipo_evento, data_evento,
+            id_funcionario, dias_atraso, status_snapshot, detalhe
+        )
+        SELECT n.id_contrato, n.id_parcela, n.numero_parcela, 'negativado_tracker',
+               COALESCE(n.data_negativacao, NOW()),
+               NULL, n.dias_atraso, n.status,
+               CONCAT(
+                   'Registro automático pelo arquivo GM (data referência ',
+                   DATE_FORMAT(COALESCE(n.data_negativacao, NOW()), '%d/%m/%Y'),
+                   ').'
+               )
+        FROM negativacao n
+        WHERE n.status = 'registrado_tracker'
+          AND NOT EXISTS (
+              SELECT 1 FROM negativacao_historico h
+              WHERE h.id_parcela = n.id_parcela
+                AND h.tipo_evento = 'negativado_tracker'
+          )
+        """
+    )
 
 
 def _detalhe_positivacao_pagamento(cursor, id_contrato, arquivo_gm_id, numero_parcela_quitada):
@@ -632,6 +741,11 @@ def _liberar_negativacao_parcela_paga(cursor, conn, id_parcela, id_contrato, arq
     if not row:
         return
     try:
+        _ensure_historico_negativado_tracker_para_linha(cursor, row)
+    except Exception:
+        pass
+    data_evento_pos = _data_hora_evento_arquivo_gm(cursor, arquivo_gm_id)
+    try:
         detalhe_hist = _detalhe_positivacao_pagamento(
             cursor,
             int(row["id_contrato"]),
@@ -650,7 +764,7 @@ def _liberar_negativacao_parcela_paga(cursor, conn, id_parcela, id_contrato, arq
                 int(row["id_parcela"]),
                 row.get("numero_parcela"),
                 "removido_pagamento",
-                datetime.datetime.now(),
+                data_evento_pos,
                 row.get("dias_atraso"),
                 row.get("status"),
                 detalhe_hist,
