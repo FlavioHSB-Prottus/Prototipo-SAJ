@@ -238,11 +238,13 @@
             html += '</tr></thead><tbody>';
             list.forEach(function (t) {
                 var fluxo = parseFluxoJson(t);
+                var hasDataCol = t.data != null && String(t.data).trim() !== '';
+                var dataExib = hasDataCol ? t.data : t.created_at || null;
                 var pl = {
                     id: t.id,
                     tipo: t.tipo,
                     cpc: t.cpc,
-                    data: t.data,
+                    data: dataExib,
                     descricao: t.descricao != null ? t.descricao : '',
                     fluxo_json: null
                 };
@@ -263,7 +265,7 @@
                     resumo = '<span class="status-badge ' + cpcBadgeClass(t.cpc) + '">CPC ' + esc(t.cpc) + '</span>';
                 }
                 html += '<tr class="tramitacao-row-main' + (fluxo ? ' tramitacao-row-fluxo' : '') + '" data-tramit-payload="' + payload + '" data-fluxo="' + (fluxo ? '1' : '0') + '">';
-                html += '<td>' + formatDateTime(t.data) + '</td>';
+                html += '<td>' + formatDateTime(dataExib) + '</td>';
                 html += '<td>' + resultado + '</td>';
                 html += '<td class="tramitacao-col-resumo">' + resumo + '</td>';
                 html += '<td>' + esc(t.funcionario_nome) + '</td>';

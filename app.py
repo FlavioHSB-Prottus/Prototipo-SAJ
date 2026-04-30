@@ -2687,11 +2687,14 @@ def api_contrato_detalhe(contrato_id):
             "SELECT * FROM ocorrencia WHERE id_contrato = %s ORDER BY data_arquivo ASC, id ASC",
             (contrato_id,),
         )
+        _ensure_tramitacao_fluxo_columns(cursor)
+        _tramit_ord = _tramitacao_list_order_sql({n.lower() for n in _tramitacao_column_names(cursor)})
         tramitacoes = _safe_all(
             "SELECT t.*, f.nome AS funcionario_nome "
             "FROM tramitacao t "
             "LEFT JOIN funcionario f ON t.id_funcionario = f.id "
-            "WHERE t.id_contrato = %s ORDER BY t.data DESC",
+            "WHERE t.id_contrato = %s ORDER BY "
+            + _tramit_ord,
             (contrato_id,),
         )
 
@@ -2757,8 +2760,6 @@ def api_contrato_detalhe(contrato_id):
 TRAMITACAO_TIPOS = ('ligacao', 'whatsapp', 'email')
 TRAMITACAO_CPCS = ('sim', 'nao', 'parente', 'amigo', 'avalista')
 
-_TRAMIT_ENSURE_FLUXO_DONE = False
-
 FLUXO_MOTIVOS_NA = (
     'caixa_postal',
     'chama_nao_atende',
@@ -2822,10 +2823,10 @@ FLUXO_MOTIVO_NA_DB = {
 
 
 def _ensure_tramitacao_fluxo_columns(cursor):
-    """Adiciona fluxo_json e status_tramitacao em bases já existentes."""
-    global _TRAMIT_ENSURE_FLUXO_DONE
-    if _TRAMIT_ENSURE_FLUXO_DONE:
-        return
+    """Garante colunas esperadas pelo app: `id` (PK), wizard (`fluxo_json`, `status_tramitacao`).
+
+    Idempotente por execução de SHOW COLUMNS (sem cache global), para bases legadas sem `id`.
+    """
     try:
         cursor.execute("SHOW COLUMNS FROM tramitacao")
         rows = cursor.fetchall()
@@ -2837,6 +2838,11 @@ def _ensure_tramitacao_fluxo_columns(cursor):
                     existing.add(str(fn).lower())
             elif r:
                 existing.add(str(r[0]).lower())
+        if 'id' not in existing:
+            cursor.execute(
+                "ALTER TABLE tramitacao ADD COLUMN id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY FIRST"
+            )
+            existing.add('id')
         if 'fluxo_json' not in existing:
             cursor.execute(
                 "ALTER TABLE tramitacao ADD COLUMN fluxo_json LONGTEXT NULL "
@@ -2847,9 +2853,23 @@ def _ensure_tramitacao_fluxo_columns(cursor):
                 "ALTER TABLE tramitacao ADD COLUMN status_tramitacao VARCHAR(96) NULL "
                 "COMMENT 'Rotulo do resultado'"
             )
-        _TRAMIT_ENSURE_FLUXO_DONE = True
     except Exception as exc:
         app.logger.warning('_ensure_tramitacao_fluxo_columns: %s', exc)
+
+
+def _tramitacao_list_order_sql(names_lower):
+    """ORDER BY compatível: GM usa `data`; legado costuma ter `created_at` e, após migração, `id`."""
+    nl = names_lower if isinstance(names_lower, set) else {str(x).lower() for x in names_lower}
+    parts = []
+    if 'data' in nl:
+        parts.append('t.data DESC')
+    if 'created_at' in nl:
+        parts.append('t.created_at DESC')
+    if 'id' in nl:
+        parts.append('t.id DESC')
+    if parts:
+        return ', '.join(parts)
+    return 't.id_contrato DESC'
 
 
 def _tramitacao_schema(cursor):
@@ -3338,6 +3358,7 @@ def api_tramitacao_criar(contrato_id):
     conn = _get_db()
     cursor = conn.cursor()
     try:
+        _ensure_tramitacao_fluxo_columns(cursor)
         cursor.execute("SELECT id, id_pessoa FROM contrato WHERE id = %s", (contrato_id,))
         c_row = cursor.fetchone()
         if not c_row:
@@ -3396,6 +3417,7 @@ def api_tramitacao_item(tramitacao_id):
     conn = _get_db()
     cursor = conn.cursor()
     try:
+        _ensure_tramitacao_fluxo_columns(cursor)
         cursor.execute("SELECT id FROM tramitacao WHERE id = %s", (tramitacao_id,))
         t_row = cursor.fetchone()
         if not t_row:

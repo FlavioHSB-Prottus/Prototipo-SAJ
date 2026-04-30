@@ -15,7 +15,7 @@ import pymysql
 DB_HOST = os.environ.get("DB_HOST", "localhost")
 DB_USER = os.environ.get("DB_USER", "root")
 DB_PASSWORD = os.environ.get("DB_PASSWORD", "root")
-DB_NAME = os.environ.get("DB_NAME", "consorciogm2")
+DB_NAME = os.environ.get("DB_NAME", "consorcio_gm")
 
 # 2. SQL PURO E COM PONTO-E-VÍRGULA
 RAW_SQL = """
@@ -668,6 +668,7 @@ CREATE TABLE `solicitacao` (
 -- consorcio_gm.tramitacao definition
 
 CREATE TABLE `tramitacao` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `carteira` double NOT NULL,
   `discado` varchar(20) NOT NULL,
   `atendido` bit(1) NOT NULL,
@@ -682,6 +683,7 @@ CREATE TABLE `tramitacao` (
   `id_funcionario` int(11) NOT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
   KEY `id_contrato` (`id_contrato`),
   KEY `id_funcionario` (`id_funcionario`),
   CONSTRAINT `tramitacao_ibfk_1` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
