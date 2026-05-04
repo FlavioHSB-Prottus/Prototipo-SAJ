@@ -77,6 +77,35 @@
     </div>
 </div>
 
+<!-- Modal Responder -->
+<div id="responderMsgModal" class="modal-overlay">
+    <div class="modal-container" style="max-width:520px">
+        <div class="modal-header">
+            <h2>Responder mensagem</h2>
+            <button type="button" class="close-modal-btn" id="closeResponderMsgBtn"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="modal-body">
+            <form id="formResponderMsg" class="nova-solic-form">
+                <input type="hidden" id="msgRespIdResposta" value="">
+                <div class="form-group">
+                    <label>Destinatário</label>
+                    <p id="msgRespDestLabel" style="margin:0;font-size:0.95rem;color:#334155"></p>
+                </div>
+                <div class="form-group">
+                    <label for="msgRespAssunto">Assunto</label>
+                    <input type="text" id="msgRespAssunto" class="form-control" required maxlength="500" placeholder="Assunto">
+                </div>
+                <div class="form-group">
+                    <label for="msgRespDesc">Mensagem (opcional)</label>
+                    <textarea id="msgRespDesc" class="form-control" rows="4" placeholder="Texto da resposta"></textarea>
+                </div>
+                <p id="msgRespErr" style="color:#dc2626;font-size:0.9rem;margin:0 0 8px;min-height:1.2em"></p>
+                <button type="submit" class="btn-search" id="msgRespSubmit"><i class="fa-solid fa-paper-plane"></i> Enviar resposta</button>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
     document.querySelector('.module-title').textContent = 'Mensagens';
 </script>
@@ -84,40 +113,12 @@
 
 {% block scripts %}
 <script>
-function findRowById(list, rowId) {
-    return list.find(function (x) { return String(x.id) === String(rowId); });
-}
-function threadRootRow(list, row) {
-    if (!row) return null;
-    var cur = row;
-    var guard = 0;
-    while (cur && cur.id_resposta != null && cur.id_resposta !== '' && guard++ < 500) {
-        var p = findRowById(list, cur.id_resposta);
-        if (!p) break;
-        cur = p;
-    }
-    return cur;
-}
-function isStrictDescendantOf(list, rowId, ancestorId) {
-    if (String(rowId) === String(ancestorId)) return false;
-    var cur = findRowById(list, rowId);
-    var g = 0;
-    while (cur && cur.id_resposta != null && cur.id_resposta !== '' && g++ < 500) {
-        if (String(cur.id_resposta) === String(ancestorId)) return true;
-        cur = findRowById(list, cur.id_resposta);
-    }
-    return false;
-}
-function collectThreadRepliesSorted(list, rootId, excludeClickedId) {
-    var rootIdStr = String(rootId);
+/** Linhas cuja id_resposta e igual ao id do item aberto (respostas diretas), por data. */
+function directRepliesSorted(list, parentId) {
+    var pid = String(parentId);
     var items = list.filter(function (x) {
-        if (String(x.id) === rootIdStr) return false;
-        return isStrictDescendantOf(list, x.id, rootId);
+        return x.id_resposta != null && x.id_resposta !== '' && String(x.id_resposta) === pid;
     });
-    if (excludeClickedId != null && excludeClickedId !== '') {
-        var ex = String(excludeClickedId);
-        items = items.filter(function (x) { return String(x.id) !== ex; });
-    }
     items.sort(function (a, b) {
         return new Date(a.data_envio || 0) - new Date(b.data_envio || 0);
     });
@@ -176,16 +177,16 @@ document.addEventListener('DOMContentLoaded', function() {
                     return String(x.id) === String(id);
                 });
                 if (!m) return;
-                var root = threadRootRow(latestMsg, m);
-                var rootId = root ? root.id : id;
-                var responses = collectThreadRepliesSorted(latestMsg, rootId, m.id);
+                var responses = directRepliesSorted(latestMsg, m.id);
                 var modal = document.getElementById('detalhesModal');
                 var content = document.getElementById('modalContent');
                 var responsesHtml = '';
                 if (responses.length > 0) {
                     responsesHtml =
                         '<div class="responses-container">' +
-                        '<h3 class="responses-title"><i class="fa-solid fa-reply-all"></i> Histórico do fio (respostas)</h3>' +
+                        '<h3 class="responses-title"><i class="fa-solid fa-reply"></i> Respostas a esta mensagem (' +
+                        responses.length +
+                        ')</h3>' +
                         responses
                             .map(function (r) {
                                 return (
@@ -210,24 +211,58 @@ document.addEventListener('DOMContentLoaded', function() {
                             .join('') +
                         '</div>';
                 }
+                var podeResponder =
+                    meuFuncionarioId != null &&
+                    (String(meuFuncionarioId) === String(m.id_remetente) ||
+                        String(meuFuncionarioId) === String(m.id_destinatario));
+                var btnResp = '';
+                if (podeResponder) {
+                    btnResp =
+                        '<div style="margin-top:16px;padding-top:12px;border-top:1px solid #e2e8f0">' +
+                        '<button type="button" class="btn-search btn-responder-msg" data-msg-id="' +
+                        escapeHtml(m.id) +
+                        '"><i class="fa-solid fa-reply"></i> Responder</button></div>';
+                }
                 content.innerHTML =
                     '<div class="detail-grid">' +
                     '<div class="detail-item"><strong>Assunto:</strong> ' +
-                    m.assunto +
+                    escapeHtml(m.assunto) +
                     '</div>' +
                     '<div class="detail-item"><strong>Remetente:</strong> ' +
-                    m.remetente_nome +
+                    escapeHtml(m.remetente_nome) +
                     '</div>' +
                     '<div class="detail-item"><strong>Destinatário:</strong> ' +
-                    m.destinatario_nome +
+                    escapeHtml(m.destinatario_nome) +
                     '</div>' +
                     '<div class="detail-item"><strong>Data Envio:</strong> ' +
-                    m.data_envio +
+                    escapeHtml(m.data_envio) +
                     '</div>' +
                     '<div class="detail-item full-width"><strong>Mensagem:</strong><br>' +
-                    (m.descricao || 'Sem conteúdo') +
+                    escapeHtml(m.descricao || 'Sem conteúdo') +
                     '</div></div>' +
-                    responsesHtml;
+                    responsesHtml +
+                    btnResp;
+                content.querySelectorAll('.btn-responder-msg').forEach(function (br) {
+                    br.addEventListener('click', function () {
+                        var mid = br.getAttribute('data-msg-id');
+                        var mm = latestMsg.find(function (x) {
+                            return String(x.id) === String(mid);
+                        });
+                        if (!mm) return;
+                        var onome =
+                            String(meuFuncionarioId) === String(mm.id_remetente)
+                                ? (mm.destinatario_nome || '')
+                                : (mm.remetente_nome || '');
+                        var as = mm.assunto || '';
+                        document.getElementById('msgRespErr').textContent = '';
+                        document.getElementById('msgRespIdResposta').value = String(mm.id);
+                        document.getElementById('msgRespDestLabel').textContent = onome || '(outro participante)';
+                        var re = /^Re:\s*/i;
+                        document.getElementById('msgRespAssunto').value = re.test(as) ? as : 'Re: ' + as;
+                        document.getElementById('msgRespDesc').value = '';
+                        document.getElementById('responderMsgModal').classList.add('active');
+                    });
+                });
                 modal.classList.add('active');
             });
         });
@@ -340,6 +375,62 @@ document.addEventListener('DOMContentLoaded', function() {
 
     document.getElementById('closeModalBtn').addEventListener('click', function () {
         document.getElementById('detalhesModal').classList.remove('active');
+    });
+
+    var responderMsgModal = document.getElementById('responderMsgModal');
+    document.getElementById('closeResponderMsgBtn').addEventListener('click', function () {
+        responderMsgModal.classList.remove('active');
+    });
+    responderMsgModal.addEventListener('click', function (e) {
+        if (e.target === responderMsgModal) responderMsgModal.classList.remove('active');
+    });
+
+    document.getElementById('formResponderMsg').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var errEl = document.getElementById('msgRespErr');
+        var submitBtn = document.getElementById('msgRespSubmit');
+        errEl.textContent = '';
+        var idResp = document.getElementById('msgRespIdResposta').value.trim();
+        var assunto = document.getElementById('msgRespAssunto').value.trim();
+        var desc = document.getElementById('msgRespDesc').value.trim();
+        if (!idResp) {
+            errEl.textContent = 'Referencia invalida.';
+            return;
+        }
+        if (!assunto) {
+            errEl.textContent = 'Preencha o assunto.';
+            return;
+        }
+        submitBtn.disabled = true;
+        fetch('/api/mensagem', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                id_resposta: parseInt(idResp, 10),
+                assunto: assunto,
+                descricao: desc || null,
+            }),
+        })
+            .then(function (r) {
+                return r.json().then(function (d) {
+                    return { ok: r.ok, d: d };
+                });
+            })
+            .then(function (res) {
+                if (!res.ok) {
+                    errEl.textContent = res.d.error || 'Erro ao enviar.';
+                    return;
+                }
+                responderMsgModal.classList.remove('active');
+                document.getElementById('detalhesModal').classList.remove('active');
+                return loadMensagens();
+            })
+            .catch(function () {
+                errEl.textContent = 'Erro de rede.';
+            })
+            .finally(function () {
+                submitBtn.disabled = false;
+            });
     });
 });
 </script>

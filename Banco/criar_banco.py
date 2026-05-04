@@ -176,7 +176,8 @@ CREATE TABLE `mensagem` (
   KEY `id_resposta` (`id_resposta`),
   CONSTRAINT `mensagem_ibfk_1` FOREIGN KEY (`id_remetente`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE,
   CONSTRAINT `mensagem_ibfk_2` FOREIGN KEY (`id_destinatario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `mensagem_ibfk_3` FOREIGN KEY (`id_resposta`) REFERENCES `mensagem` (`id`) ON DELETE CASCADE
+  CONSTRAINT `mensagem_ibfk_3` FOREIGN KEY (`id_resposta`) REFERENCES `mensagem` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `assunto_constraint` CHECK (trim(`assunto`) <> '')
 );
 
 CREATE TABLE `registro2` (
@@ -654,6 +655,7 @@ CREATE TABLE `solicitacao` (
   `id_resposta` bigint(20) DEFAULT NULL,
   `data_envio` datetime NOT NULL DEFAULT current_timestamp(),
   `id_contrato` bigint(20) DEFAULT NULL,
+  `assunto` varchar(255) NOT NULL,
   PRIMARY KEY (`id`),
   KEY `id_remetente` (`id_remetente`),
   KEY `id_destinatario` (`id_destinatario`),
@@ -662,10 +664,9 @@ CREATE TABLE `solicitacao` (
   CONSTRAINT `solicitacao_contrato_fk` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
   CONSTRAINT `solicitacao_ibfk_1` FOREIGN KEY (`id_remetente`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE,
   CONSTRAINT `solicitacao_ibfk_2` FOREIGN KEY (`id_destinatario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `solicitacao_ibfk_3` FOREIGN KEY (`id_resposta`) REFERENCES `solicitacao` (`id`) ON DELETE CASCADE
+  CONSTRAINT `solicitacao_ibfk_3` FOREIGN KEY (`id_resposta`) REFERENCES `solicitacao` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `assunto_constraint` CHECK (trim(`assunto`) <> '')
 );
-
--- consorcio_gm.tramitacao definition
 
 CREATE TABLE `tramitacao` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
