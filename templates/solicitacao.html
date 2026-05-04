@@ -10,7 +10,10 @@
     <div class="results-card table-section">
         <div class="table-header">
             <h3><i class="fa-solid fa-file-circle-question"></i> Solicitações</h3>
-            <div class="table-header-actions">
+            <div class="table-header-actions" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                <button type="button" class="btn-search" id="btnNovaSolic" style="height:38px;font-size:0.9rem">
+                    <i class="fa-solid fa-plus"></i> Nova solicitação
+                </button>
                 <span class="badge bg-primary" id="totalCount">0 registros</span>
             </div>
         </div>
@@ -31,6 +34,38 @@
                     <tr><td colspan="7" class="text-center">Carregando...</td></tr>
                 </tbody>
             </table>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Nova Solicitação -->
+<div id="novaSolicModal" class="modal-overlay">
+    <div class="modal-container" style="max-width:520px">
+        <div class="modal-header">
+            <h2>Nova solicitação</h2>
+            <button type="button" class="close-modal-btn" id="closeNovaSolicBtn"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="modal-body">
+            <form id="formNovaSolic" class="nova-solic-form">
+                <div class="form-group">
+                    <label for="solicNovaDest">Destinatário</label>
+                    <select id="solicNovaDest" class="form-control" required></select>
+                </div>
+                <div class="form-group">
+                    <label for="solicNovaData">Data a aguardar</label>
+                    <input type="date" id="solicNovaData" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label for="solicNovaDesc">Descrição (opcional, max. 255)</label>
+                    <textarea id="solicNovaDesc" class="form-control" rows="3" maxlength="255" placeholder="Descrição"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="solicNovaContrato">ID contrato (opcional)</label>
+                    <input type="number" id="solicNovaContrato" class="form-control" min="1" placeholder="Deixe vazio se não aplicar">
+                </div>
+                <p id="solicNovaErr" style="color:#dc2626;font-size:0.9rem;margin:0 0 8px;min-height:1.2em"></p>
+                <button type="submit" class="btn-search" id="solicNovaSubmit"><i class="fa-solid fa-paper-plane"></i> Enviar</button>
+            </form>
         </div>
     </div>
 </div>
@@ -104,78 +139,204 @@ function escapeHtml(str) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    fetch('/api/solicitacoes')
-        .then(res => res.json())
-        .then(data => {
-            const body = document.getElementById('solicitacaoBody');
-            const totalCount = document.getElementById('totalCount');
-            totalCount.textContent = `${data.total} registros`;
-            body.innerHTML = '';
-            if (data.results.length === 0) {
-                body.innerHTML = '<tr><td colspan="7" class="text-center">Nenhuma solicitação encontrada.</td></tr>';
-                return;
-            }
-            data.results.forEach(s => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td>${s.id}</td>
-                    <td>${s.remetente_nome || ''}</td>
-                    <td>${s.destinatario_nome || ''}</td>
-                    <td>${s.data_aguardar || ''}</td>
-                    <td>${s.data_envio || ''}</td>
-                    <td>${s.grupo ? s.grupo + '/' + s.cota : '—'}</td>
-                    <td>
-                        <button class="action-btn view-btn" data-id="${s.id}"><i class="fa-solid fa-eye"></i> Ver</button>
-                    </td>
-                `;
-                body.appendChild(tr);
-            });
+    var latestSolic = [];
+    var meuFuncionarioId = null;
+    var listaFuncionarios = [];
 
-            document.querySelectorAll('.view-btn').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    const id = this.dataset.id;
-                    const s = data.results.find(x => x.id == id);
-                    const root = threadRootRow(data.results, s);
-                    const rootId = root ? root.id : id;
-                    const responses = collectThreadRepliesSorted(data.results, rootId, s.id);
+    function renderSolicitacaoTable(data) {
+        latestSolic = data.results || [];
+        var body = document.getElementById('solicitacaoBody');
+        var totalCount = document.getElementById('totalCount');
+        totalCount.textContent = (data.total != null ? data.total : latestSolic.length) + ' registros';
+        body.innerHTML = '';
+        if (latestSolic.length === 0) {
+            body.innerHTML = '<tr><td colspan="7" class="text-center">Nenhuma solicitação encontrada.</td></tr>';
+            return;
+        }
+        latestSolic.forEach(function (s) {
+            var tr = document.createElement('tr');
+            tr.innerHTML =
+                '<td>' + s.id + '</td>' +
+                '<td>' + (s.remetente_nome || '') + '</td>' +
+                '<td>' + (s.destinatario_nome || '') + '</td>' +
+                '<td>' + (s.data_aguardar || '') + '</td>' +
+                '<td>' + (s.data_envio || '') + '</td>' +
+                '<td>' + (s.grupo ? s.grupo + '/' + s.cota : '—') + '</td>' +
+                '<td><button type="button" class="action-btn view-btn" data-id="' + s.id + '"><i class="fa-solid fa-eye"></i> Ver</button></td>';
+            body.appendChild(tr);
+        });
+        bindViewButtonsSolic();
+    }
 
-                    const modal = document.getElementById('detalhesModal');
-                    const content = document.getElementById('modalContent');
-
-                    let responsesHtml = '';
-                    if (responses.length > 0) {
-                        responsesHtml = `
-                            <div class="responses-container">
-                                <h3 class="responses-title"><i class="fa-solid fa-reply-all"></i> Histórico do fio (respostas)</h3>
-                                ${responses.map(r => `
-                                    <div class="response-card">
-                                        <div class="response-header">
-                                            <span class="response-author"><strong>#${escapeHtml(r.id)} ${escapeHtml(r.remetente_nome)}</strong></span>
-                                            <span class="response-date">${escapeHtml(r.data_envio)}</span>
-                                        </div>
-                                        <div class="response-body">${escapeHtml(r.descricao || '')}</div>
-                                    </div>
-                                `).join('')}
-                            </div>
-                        `;
-                    }
-
-                    content.innerHTML = `
-                        <div class="detail-grid">
-                            <div class="detail-item"><strong>Remetente:</strong> ${s.remetente_nome}</div>
-                            <div class="detail-item"><strong>Destinatário:</strong> ${s.destinatario_nome}</div>
-                            <div class="detail-item"><strong>Data Aguardar:</strong> ${s.data_aguardar}</div>
-                            <div class="detail-item"><strong>Data Envio:</strong> ${s.data_envio}</div>
-                            <div class="detail-item full-width"><strong>Descrição:</strong><br>${s.descricao || 'Sem descrição'}</div>
-                        </div>
-                        ${responsesHtml}
-                    `;
-                    modal.classList.add('active');
-                });
+    function bindViewButtonsSolic() {
+        document.querySelectorAll('.view-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var id = this.dataset.id;
+                var s = latestSolic.find(function (x) { return String(x.id) === String(id); });
+                if (!s) return;
+                var root = threadRootRow(latestSolic, s);
+                var rootId = root ? root.id : id;
+                var responses = collectThreadRepliesSorted(latestSolic, rootId, s.id);
+                var modal = document.getElementById('detalhesModal');
+                var content = document.getElementById('modalContent');
+                var responsesHtml = '';
+                if (responses.length > 0) {
+                    responsesHtml =
+                        '<div class="responses-container">' +
+                        '<h3 class="responses-title"><i class="fa-solid fa-reply-all"></i> Histórico do fio (respostas)</h3>' +
+                        responses
+                            .map(function (r) {
+                                return (
+                                    '<div class="response-card">' +
+                                    '<div class="response-header">' +
+                                    '<span class="response-author"><strong>#' +
+                                    escapeHtml(r.id) +
+                                    ' ' +
+                                    escapeHtml(r.remetente_nome) +
+                                    '</strong></span>' +
+                                    '<span class="response-date">' +
+                                    escapeHtml(r.data_envio) +
+                                    '</span></div>' +
+                                    '<div class="response-body">' +
+                                    escapeHtml(r.descricao || '') +
+                                    '</div></div>'
+                                );
+                            })
+                            .join('') +
+                        '</div>';
+                }
+                content.innerHTML =
+                    '<div class="detail-grid">' +
+                    '<div class="detail-item"><strong>Remetente:</strong> ' +
+                    s.remetente_nome +
+                    '</div>' +
+                    '<div class="detail-item"><strong>Destinatário:</strong> ' +
+                    s.destinatario_nome +
+                    '</div>' +
+                    '<div class="detail-item"><strong>Data Aguardar:</strong> ' +
+                    s.data_aguardar +
+                    '</div>' +
+                    '<div class="detail-item"><strong>Data Envio:</strong> ' +
+                    s.data_envio +
+                    '</div>' +
+                    '<div class="detail-item full-width"><strong>Descrição:</strong><br>' +
+                    (s.descricao || 'Sem descrição') +
+                    '</div></div>' +
+                    responsesHtml;
+                modal.classList.add('active');
             });
         });
+    }
 
-    document.getElementById('closeModalBtn').addEventListener('click', () => {
+    function fillDestinatarioSelect() {
+        var sel = document.getElementById('solicNovaDest');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">Selecione…</option>';
+        listaFuncionarios.forEach(function (f) {
+            if (meuFuncionarioId != null && String(f.id) === String(meuFuncionarioId)) return;
+            var o = document.createElement('option');
+            o.value = f.id;
+            o.textContent = f.nome || ('#' + f.id);
+            sel.appendChild(o);
+        });
+    }
+
+    function loadSolicitacoes() {
+        return fetch('/api/solicitacoes')
+            .then(function (res) {
+                return res.json();
+            })
+            .then(function (data) {
+                renderSolicitacaoTable(data);
+            });
+    }
+
+    Promise.all([
+        fetch('/api/funcionario/perfil').then(function (r) {
+            return r.json();
+        }),
+        fetch('/api/funcionarios').then(function (r) {
+            return r.json();
+        }),
+    ])
+        .then(function (results) {
+            var perf = results[0];
+            if (perf.error) throw new Error(perf.error);
+            meuFuncionarioId = perf.funcionario_id;
+            var funcis = results[1];
+            listaFuncionarios = Array.isArray(funcis) ? funcis : [];
+            return loadSolicitacoes();
+        })
+        .catch(function () {
+            document.getElementById('solicitacaoBody').innerHTML =
+                '<tr><td colspan="7" class="text-center" style="color:#dc2626">Erro ao carregar dados.</td></tr>';
+        });
+
+    var novaSolicModal = document.getElementById('novaSolicModal');
+    document.getElementById('btnNovaSolic').addEventListener('click', function () {
+        document.getElementById('solicNovaErr').textContent = '';
+        document.getElementById('formNovaSolic').reset();
+        fillDestinatarioSelect();
+        novaSolicModal.classList.add('active');
+    });
+    document.getElementById('closeNovaSolicBtn').addEventListener('click', function () {
+        novaSolicModal.classList.remove('active');
+    });
+    novaSolicModal.addEventListener('click', function (e) {
+        if (e.target === novaSolicModal) novaSolicModal.classList.remove('active');
+    });
+
+    document.getElementById('formNovaSolic').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var errEl = document.getElementById('solicNovaErr');
+        var submitBtn = document.getElementById('solicNovaSubmit');
+        errEl.textContent = '';
+        var dest = document.getElementById('solicNovaDest').value;
+        var dataAg = document.getElementById('solicNovaData').value;
+        var desc = document.getElementById('solicNovaDesc').value.trim();
+        var idContr = document.getElementById('solicNovaContrato').value.trim();
+        if (!dest) {
+            errEl.textContent = 'Escolha um destinatário.';
+            return;
+        }
+        if (!dataAg) {
+            errEl.textContent = 'Indique a data a aguardar.';
+            return;
+        }
+        var body = {
+            id_destinatario: parseInt(dest, 10),
+            data_aguardar: dataAg,
+            descricao: desc || null,
+        };
+        if (idContr) body.id_contrato = parseInt(idContr, 10);
+        submitBtn.disabled = true;
+        fetch('/api/solicitacao', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        })
+            .then(function (r) {
+                return r.json().then(function (d) {
+                    return { ok: r.ok, d: d };
+                });
+            })
+            .then(function (res) {
+                if (!res.ok) {
+                    errEl.textContent = res.d.error || 'Erro ao enviar.';
+                    return;
+                }
+                novaSolicModal.classList.remove('active');
+                return loadSolicitacoes();
+            })
+            .catch(function () {
+                errEl.textContent = 'Erro de rede.';
+            })
+            .finally(function () {
+                submitBtn.disabled = false;
+            });
+    });
+
+    document.getElementById('closeModalBtn').addEventListener('click', function () {
         document.getElementById('detalhesModal').classList.remove('active');
     });
 });
@@ -191,5 +352,8 @@ document.addEventListener('DOMContentLoaded', function() {
 .response-header { display: flex; justify-content: space-between; font-size: 0.85rem; color: #666; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
 .response-author { color: #2c3e50; }
 .response-body { font-size: 0.95rem; line-height: 1.4; color: #333; }
+.nova-solic-form .form-group { margin-bottom: 14px; display: flex; flex-direction: column; gap: 6px; }
+.nova-solic-form label { font-size: 0.85rem; font-weight: 600; color: #2c3e50; }
+.nova-solic-form .form-control { width: 100%; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-family: inherit; font-size: 0.95rem; }
 </style>
 {% endblock %}

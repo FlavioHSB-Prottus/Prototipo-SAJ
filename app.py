@@ -107,7 +107,9 @@ _COBRANCA_API_PREFIXES_OK = (
     '/api/agenda',
     '/api/protocolos',
     '/api/solicitacoes',
+    '/api/solicitacao',
     '/api/mensagens',
+    '/api/mensagem',
     '/api/cobranca',
     '/api/funcionarios',
     '/api/funcionario/perfil',
@@ -6989,7 +6991,7 @@ def api_funcionarios():
 
 @app.route('/api/funcionario/perfil', methods=['GET'])
 def api_funcionario_perfil():
-    """Dados do funcionário logado (sem id, senha nem foto)."""
+    """Dados do funcionário logado (sem senha nem foto). Inclui funcionario_id para UI (ex.: exclusão do próprio em selects)."""
     fid = session.get('funcionario_id')
     if not fid:
         return jsonify({'error': 'Não autenticado'}), 401
@@ -7016,7 +7018,7 @@ def api_funcionario_perfil():
             conn.close()
     if not row:
         return jsonify({'error': 'Funcionário não encontrado.'}), 404
-    return jsonify({'funcionario': _clean_row(row)})
+    return jsonify({'funcionario': _clean_row(row), 'funcionario_id': int(fid)})
 
 
 @app.route('/api/agenda', methods=['GET', 'POST'])
@@ -8596,6 +8598,105 @@ def api_negativacao_registrar_manual_parcela():
 # ---------------------------------------------------------------------------
 # API: Protocolo, Solicitação e Mensagem
 # ---------------------------------------------------------------------------
+
+@app.route('/api/mensagem', methods=['POST'])
+def api_mensagem_post():
+    """Nova mensagem: id_remetente = sessao (nao vem no JSON)."""
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Nao autenticado.'}), 401
+    payload = request.get_json(silent=True) or {}
+    try:
+        dest_id = int(payload.get('id_destinatario'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Destinatario invalido.'}), 400
+    assunto = (payload.get('assunto') or '').strip()
+    if not assunto:
+        return jsonify({'error': 'Assunto obrigatorio.'}), 400
+    descricao = (payload.get('descricao') or '').strip() or None
+    if int(dest_id) == int(fid):
+        return jsonify({'error': 'O destinatario deve ser outro funcionario.'}), 400
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            'SELECT id FROM funcionario WHERE id = %s AND ativo = 1',
+            (dest_id,),
+        )
+        if not cursor.fetchone():
+            return jsonify({'error': 'Destinatario nao encontrado ou inativo.'}), 400
+        cursor.execute(
+            'INSERT INTO mensagem (id_remetente, id_destinatario, assunto, descricao, id_resposta) '
+            'VALUES (%s, %s, %s, %s, NULL)',
+            (int(fid), dest_id, assunto, descricao),
+        )
+        conn.commit()
+        new_id = cursor.lastrowid
+    except Exception as exc:
+        conn.rollback()
+        app.logger.exception('api_mensagem_post')
+        return jsonify({'error': str(exc)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+    return jsonify({'ok': True, 'id': new_id})
+
+
+@app.route('/api/solicitacao', methods=['POST'])
+def api_solicitacao_post():
+    """Nova solicitacao: id_remetente = sessao (nao vem no JSON)."""
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Nao autenticado.'}), 401
+    payload = request.get_json(silent=True) or {}
+    try:
+        dest_id = int(payload.get('id_destinatario'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Destinatario invalido.'}), 400
+    data_aguardar = (payload.get('data_aguardar') or '').strip()
+    if not data_aguardar:
+        return jsonify({'error': 'Data a aguardar obrigatoria.'}), 400
+    descricao = (payload.get('descricao') or '').strip() or None
+    if descricao and len(descricao) > 255:
+        return jsonify({'error': 'Descricao: maximo 255 caracteres.'}), 400
+    id_contrato = None
+    raw_c = payload.get('id_contrato')
+    if raw_c not in (None, ''):
+        try:
+            id_contrato = int(raw_c)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'ID contrato invalido.'}), 400
+    if int(dest_id) == int(fid):
+        return jsonify({'error': 'O destinatario deve ser outro funcionario.'}), 400
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            'SELECT id FROM funcionario WHERE id = %s AND ativo = 1',
+            (dest_id,),
+        )
+        if not cursor.fetchone():
+            return jsonify({'error': 'Destinatario nao encontrado ou inativo.'}), 400
+        if id_contrato is not None:
+            cursor.execute('SELECT id FROM contrato WHERE id = %s', (id_contrato,))
+            if not cursor.fetchone():
+                return jsonify({'error': 'Contrato nao encontrado.'}), 400
+        cursor.execute(
+            'INSERT INTO solicitacao (id_remetente, id_destinatario, data_aguardar, descricao, '
+            'id_resposta, id_contrato) VALUES (%s, %s, %s, %s, NULL, %s)',
+            (int(fid), dest_id, data_aguardar, descricao, id_contrato),
+        )
+        conn.commit()
+        new_id = cursor.lastrowid
+    except Exception as exc:
+        conn.rollback()
+        app.logger.exception('api_solicitacao_post')
+        return jsonify({'error': str(exc)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+    return jsonify({'ok': True, 'id': new_id})
+
 
 @app.route('/api/protocolos')
 def api_protocolos():
