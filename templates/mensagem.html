@@ -53,6 +53,54 @@
 
 {% block scripts %}
 <script>
+function findRowById(list, rowId) {
+    return list.find(function (x) { return String(x.id) === String(rowId); });
+}
+function threadRootRow(list, row) {
+    if (!row) return null;
+    var cur = row;
+    var guard = 0;
+    while (cur && cur.id_resposta != null && cur.id_resposta !== '' && guard++ < 500) {
+        var p = findRowById(list, cur.id_resposta);
+        if (!p) break;
+        cur = p;
+    }
+    return cur;
+}
+function isStrictDescendantOf(list, rowId, ancestorId) {
+    if (String(rowId) === String(ancestorId)) return false;
+    var cur = findRowById(list, rowId);
+    var g = 0;
+    while (cur && cur.id_resposta != null && cur.id_resposta !== '' && g++ < 500) {
+        if (String(cur.id_resposta) === String(ancestorId)) return true;
+        cur = findRowById(list, cur.id_resposta);
+    }
+    return false;
+}
+function collectThreadRepliesSorted(list, rootId, excludeClickedId) {
+    var rootIdStr = String(rootId);
+    var items = list.filter(function (x) {
+        if (String(x.id) === rootIdStr) return false;
+        return isStrictDescendantOf(list, x.id, rootId);
+    });
+    if (excludeClickedId != null && excludeClickedId !== '') {
+        var ex = String(excludeClickedId);
+        items = items.filter(function (x) { return String(x.id) !== ex; });
+    }
+    items.sort(function (a, b) {
+        return new Date(a.data_envio || 0) - new Date(b.data_envio || 0);
+    });
+    return items;
+}
+function escapeHtml(str) {
+    if (str == null) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     fetch('/api/mensagens')
         .then(res => res.json())
@@ -84,23 +132,26 @@ document.addEventListener('DOMContentLoaded', function() {
                 btn.addEventListener('click', function() {
                     const id = this.dataset.id;
                     const m = data.results.find(x => x.id == id);
-                    const responses = data.results.filter(x => x.id_resposta == id);
-                    
+                    const root = threadRootRow(data.results, m);
+                    const rootId = root ? root.id : id;
+                    const responses = collectThreadRepliesSorted(data.results, rootId, m.id);
+
                     const modal = document.getElementById('detalhesModal');
                     const content = document.getElementById('modalContent');
-                    
+
                     let responsesHtml = '';
                     if (responses.length > 0) {
                         responsesHtml = `
                             <div class="responses-container">
-                                <h3 class="responses-title"><i class="fa-solid fa-reply-all"></i> Respostas</h3>
+                                <h3 class="responses-title"><i class="fa-solid fa-reply-all"></i> Histórico do fio (respostas)</h3>
                                 ${responses.map(r => `
                                     <div class="response-card">
                                         <div class="response-header">
-                                            <span class="response-author"><strong>${r.remetente_nome}</strong></span>
-                                            <span class="response-date">${r.data_envio}</span>
+                                            <span class="response-author"><strong>#${escapeHtml(r.id)} ${escapeHtml(r.remetente_nome)}</strong></span>
+                                            <span class="response-date">${escapeHtml(r.data_envio)}</span>
                                         </div>
-                                        <div class="response-body">${r.descricao || ''}</div>
+                                        ${r.assunto ? '<div class="response-subject">' + escapeHtml(r.assunto) + '</div>' : ''}
+                                        <div class="response-body">${escapeHtml(r.descricao || '')}</div>
                                     </div>
                                 `).join('')}
                             </div>
@@ -137,6 +188,7 @@ document.addEventListener('DOMContentLoaded', function() {
 .response-card { background: #f9f9f9; border-left: 4px solid #3498db; padding: 12px; margin-bottom: 12px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
 .response-header { display: flex; justify-content: space-between; font-size: 0.85rem; color: #666; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
 .response-author { color: #2c3e50; }
+.response-subject { font-size: 0.88rem; font-weight: 600; color: #34495e; margin-bottom: 6px; }
 .response-body { font-size: 0.95rem; line-height: 1.4; color: #333; }
 </style>
 {% endblock %}

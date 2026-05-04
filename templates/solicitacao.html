@@ -54,6 +54,55 @@
 
 {% block scripts %}
 <script>
+function findRowById(list, rowId) {
+    return list.find(function (x) { return String(x.id) === String(rowId); });
+}
+function threadRootRow(list, row) {
+    if (!row) return null;
+    var cur = row;
+    var guard = 0;
+    while (cur && cur.id_resposta != null && cur.id_resposta !== '' && guard++ < 500) {
+        var p = findRowById(list, cur.id_resposta);
+        if (!p) break;
+        cur = p;
+    }
+    return cur;
+}
+function isStrictDescendantOf(list, rowId, ancestorId) {
+    if (String(rowId) === String(ancestorId)) return false;
+    var cur = findRowById(list, rowId);
+    var g = 0;
+    while (cur && cur.id_resposta != null && cur.id_resposta !== '' && g++ < 500) {
+        if (String(cur.id_resposta) === String(ancestorId)) return true;
+        cur = findRowById(list, cur.id_resposta);
+    }
+    return false;
+}
+/** Todas as respostas abaixo da raiz do fio, por data (exclui raiz e opcionalmente o clicado). */
+function collectThreadRepliesSorted(list, rootId, excludeClickedId) {
+    var rootIdStr = String(rootId);
+    var items = list.filter(function (x) {
+        if (String(x.id) === rootIdStr) return false;
+        return isStrictDescendantOf(list, x.id, rootId);
+    });
+    if (excludeClickedId != null && excludeClickedId !== '') {
+        var ex = String(excludeClickedId);
+        items = items.filter(function (x) { return String(x.id) !== ex; });
+    }
+    items.sort(function (a, b) {
+        return new Date(a.data_envio || 0) - new Date(b.data_envio || 0);
+    });
+    return items;
+}
+function escapeHtml(str) {
+    if (str == null) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     fetch('/api/solicitacoes')
         .then(res => res.json())
@@ -86,23 +135,25 @@ document.addEventListener('DOMContentLoaded', function() {
                 btn.addEventListener('click', function() {
                     const id = this.dataset.id;
                     const s = data.results.find(x => x.id == id);
-                    const responses = data.results.filter(x => x.id_resposta == id);
-                    
+                    const root = threadRootRow(data.results, s);
+                    const rootId = root ? root.id : id;
+                    const responses = collectThreadRepliesSorted(data.results, rootId, s.id);
+
                     const modal = document.getElementById('detalhesModal');
                     const content = document.getElementById('modalContent');
-                    
+
                     let responsesHtml = '';
                     if (responses.length > 0) {
                         responsesHtml = `
                             <div class="responses-container">
-                                <h3 class="responses-title"><i class="fa-solid fa-reply-all"></i> Respostas</h3>
+                                <h3 class="responses-title"><i class="fa-solid fa-reply-all"></i> Histórico do fio (respostas)</h3>
                                 ${responses.map(r => `
                                     <div class="response-card">
                                         <div class="response-header">
-                                            <span class="response-author"><strong>${r.remetente_nome}</strong></span>
-                                            <span class="response-date">${r.data_envio}</span>
+                                            <span class="response-author"><strong>#${escapeHtml(r.id)} ${escapeHtml(r.remetente_nome)}</strong></span>
+                                            <span class="response-date">${escapeHtml(r.data_envio)}</span>
                                         </div>
-                                        <div class="response-body">${r.descricao || ''}</div>
+                                        <div class="response-body">${escapeHtml(r.descricao || '')}</div>
                                     </div>
                                 `).join('')}
                             </div>
