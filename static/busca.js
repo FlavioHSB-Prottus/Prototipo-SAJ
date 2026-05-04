@@ -405,13 +405,17 @@ document.addEventListener('DOMContentLoaded', function () {
 
             html += '<div><div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px"><h4 style="font-size:0.85rem;color:var(--text-muted);margin:0">Telefones</h4>';
             html += '<div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="action-btn btn-add-telefone-pessoa" data-pessoa-id="' + pessoaIdStr + '" data-pessoa-nome="' + pnomEnc + '" data-recurso="telefone"><i class="fa-solid fa-plus"></i> Telefone</button></div></div>';
+            var firstContratoSms = (data.contratos && data.contratos.length > 0 && data.contratos[0].id != null) ? String(data.contratos[0].id) : '';
             if (data.telefones && data.telefones.length) {
                 html += '<ul class="contact-list">';
                 data.telefones.forEach(function (t) {
                     html += '<li><i class="fa-solid fa-phone"></i> ' + esc(t.numero || '-');
                     if (t.ramal) html += ' (ramal ' + esc(t.ramal) + ')';
                     html += '<button type="button" class="btn-ligar" title="Ligar" data-numero="' + esc(t.numero || '') + '"><i class="fa-solid fa-phone-volume"></i></button>';
-                    html += '<button type="button" class="btn-mensagem" title="Enviar SMS" data-numero="' + esc(t.numero || '') + '"><i class="fa-solid fa-comment-dots"></i></button>';
+                    var _smsP = ' data-pessoa-id="' + esc(pessoaIdStr) + '"';
+                    if (t.id != null && t.id !== '') { _smsP += ' data-telefone-id="' + esc(String(t.id)) + '"'; }
+                    if (firstContratoSms) { _smsP += ' data-contrato-id="' + esc(firstContratoSms) + '"'; }
+                    html += '<button type="button" class="btn-mensagem" title="Enviar SMS" data-numero="' + esc(t.numero || '') + '"' + _smsP + '"><i class="fa-solid fa-comment-dots"></i></button>';
                     html += '<span class="contact-meta">';
                     var _fonteTelP = (typeof window.formatContatoFonteLabel === 'function') ? window.formatContatoFonteLabel(t.fonte) : '';
                     if (_fonteTelP) html += '<span class="contact-fonte" title="Origem do cadastro">' + esc(_fonteTelP) + '</span>';
@@ -525,12 +529,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Devedor
         if (data.devedor) {
-            html += renderPessoaSection('Devedor', data.devedor, data.devedor_enderecos, data.devedor_telefones, data.devedor_emails);
+            html += renderPessoaSection('Devedor', data.devedor, data.devedor_enderecos, data.devedor_telefones, data.devedor_emails, c.id);
         }
 
         // Avalista
         if (data.avalista) {
-            html += renderPessoaSection('Avalista', data.avalista, data.avalista_enderecos, data.avalista_telefones, data.avalista_emails);
+            html += renderPessoaSection('Avalista', data.avalista, data.avalista_enderecos, data.avalista_telefones, data.avalista_emails, c.id);
         }
 
         // Bem
@@ -645,7 +649,7 @@ document.addEventListener('DOMContentLoaded', function () {
         return value;
     }
 
-    function renderPessoaSection(titulo, pessoa, enderecos, telefones, emails) {
+    function renderPessoaSection(titulo, pessoa, enderecos, telefones, emails, idContrato) {
         var icon = titulo === 'Avalista' ? 'fa-user-shield' : 'fa-user-tie';
         var html = '<div class="detail-section"><h3><i class="fa-solid ' + icon + '"></i> ' + esc(titulo) + '</h3>';
         html += '<div class="detail-grid">';
@@ -676,7 +680,10 @@ document.addEventListener('DOMContentLoaded', function () {
                     html += '<li><i class="fa-solid fa-phone"></i> ' + esc(t.numero || '-');
                     if (t.ramal) html += ' (ramal ' + esc(t.ramal) + ')';
                     html += '<button type="button" class="btn-ligar" title="Ligar" data-numero="' + esc(t.numero || '') + '"><i class="fa-solid fa-phone-volume"></i></button>';
-                    html += '<button type="button" class="btn-mensagem" title="Enviar SMS" data-numero="' + esc(t.numero || '') + '"><i class="fa-solid fa-comment-dots"></i></button>';
+                    var _smsB = ' data-pessoa-id="' + esc(_pId) + '"';
+                    if (t.id != null && t.id !== '') { _smsB += ' data-telefone-id="' + esc(String(t.id)) + '"'; }
+                    if (idContrato != null && String(idContrato) !== '') { _smsB += ' data-contrato-id="' + esc(String(idContrato)) + '"'; }
+                    html += '<button type="button" class="btn-mensagem" title="Enviar SMS" data-numero="' + esc(t.numero || '') + '"' + _smsB + '"><i class="fa-solid fa-comment-dots"></i></button>';
                     html += '<span class="contact-meta">';
                     var _fonteTel = (typeof window.formatContatoFonteLabel === 'function') ? window.formatContatoFonteLabel(t.fonte) : '';
                     if (_fonteTel) html += '<span class="contact-fonte" title="Origem do cadastro">' + esc(_fonteTel) + '</span>';

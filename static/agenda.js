@@ -331,12 +331,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Devedor
         if (data.devedor) {
-            html += renderPessoaSection('Devedor', data.devedor, data.devedor_enderecos, data.devedor_telefones, data.devedor_emails);
+            html += renderPessoaSection('Devedor', data.devedor, data.devedor_enderecos, data.devedor_telefones, data.devedor_emails, c.id);
         }
 
         // Avalista
         if (data.avalista) {
-            html += renderPessoaSection('Avalista', data.avalista, data.avalista_enderecos, data.avalista_telefones, data.avalista_emails);
+            html += renderPessoaSection('Avalista', data.avalista, data.avalista_enderecos, data.avalista_telefones, data.avalista_emails, c.id);
         }
 
         // Bem
@@ -438,7 +438,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return value;
     }
 
-    function renderPessoaSection(titulo, pessoa, enderecos, telefones, emails) {
+    function renderPessoaSection(titulo, pessoa, enderecos, telefones, emails, idContrato) {
         let icon = titulo === 'Avalista' ? 'fa-user-shield' : 'fa-user-tie';
         let html = '<div class="detail-section"><h3><i class="fa-solid ' + icon + '"></i> ' + escapeHtml(titulo) + '</h3>';
         html += '<div class="detail-grid">';
@@ -469,7 +469,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     html += '<li><i class="fa-solid fa-phone"></i> ' + escapeHtml(t.numero || '-');
                     if (t.ramal) html += ' (ramal ' + escapeHtml(t.ramal) + ')';
                     html += '<button type="button" class="btn-ligar" title="Ligar" data-numero="' + escapeHtml(t.numero || '') + '"><i class="fa-solid fa-phone-volume"></i></button>';
-                    html += '<button type="button" class="btn-mensagem" title="Enviar SMS" data-numero="' + escapeHtml(t.numero || '') + '"><i class="fa-solid fa-comment-dots"></i></button>';
+                    var _smsE = ' data-pessoa-id="' + escapeHtml(_pIdA) + '"';
+                    if (t.id != null && t.id !== '') { _smsE += ' data-telefone-id="' + escapeHtml(String(t.id)) + '"'; }
+                    if (idContrato != null && String(idContrato) !== '') { _smsE += ' data-contrato-id="' + escapeHtml(String(idContrato)) + '"'; }
+                    html += '<button type="button" class="btn-mensagem" title="Enviar SMS" data-numero="' + escapeHtml(t.numero || '') + '"' + _smsE + '"><i class="fa-solid fa-comment-dots"></i></button>';
                     html += '<span class="contact-meta">';
                     var _fonteTel = (typeof window.formatContatoFonteLabel === 'function') ? window.formatContatoFonteLabel(t.fonte) : '';
                     if (_fonteTel) html += '<span class="contact-fonte" title="Origem do cadastro">' + escapeHtml(_fonteTel) + '</span>';

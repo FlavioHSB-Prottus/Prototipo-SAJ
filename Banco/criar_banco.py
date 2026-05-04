@@ -775,6 +775,27 @@ CREATE TABLE `acordo` (
 		(`quant_parcela` > 0)
 	)
 );
+
+
+CREATE TABLE `registro_sms` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `id_contrato` bigint(20) NOT NULL,
+  `id_pessoa` bigint(20) NOT NULL,
+  `id_telefone` bigint(20) NOT NULL,
+  `id_funcionario` int(11) NOT NULL,
+  `mensagem` varchar(1600) NOT NULL,
+  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `id_contrato` (`id_contrato`),
+  KEY `id_pessoa` (`id_pessoa`),
+  KEY `id_telefone` (`id_telefone`),
+  KEY `id_funcionario` (`id_funcionario`),
+  CONSTRAINT `registro_sms_ibfk_1` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `registro_sms_ibfk_2` FOREIGN KEY (`id_pessoa`) REFERENCES `pessoa` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `registro_sms_ibfk_3` FOREIGN KEY (`id_telefone`) REFERENCES `telefone` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `registro_sms_ibfk_4` FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE
+);
 """
 
 def connect_server():

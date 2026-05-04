@@ -67,7 +67,7 @@ document.addEventListener('DOMContentLoaded', function () {
         return '<div class="data-item"><span class="data-label">' + esc(label) + '</span><span class="data-value">' + display + '</span></div>';
     }
 
-    function renderPessoaSection(titulo, pessoa, enderecos, telefones, emails) {
+    function renderPessoaSection(titulo, pessoa, enderecos, telefones, emails, idContrato) {
         var icon = titulo === 'Avalista' ? 'fa-user-shield' : 'fa-user-tie';
         var html = '<div class="detail-section"><h3><i class="fa-solid ' + icon + '"></i> ' + esc(titulo) + '</h3>';
         html += '<div class="detail-grid">';
@@ -98,7 +98,10 @@ document.addEventListener('DOMContentLoaded', function () {
                     html += '<li><i class="fa-solid fa-phone"></i> ' + esc(t.numero || '-');
                     if (t.ramal) html += ' (ramal ' + esc(t.ramal) + ')';
                     html += '<button type="button" class="btn-ligar" title="Ligar" data-numero="' + esc(t.numero || '') + '"><i class="fa-solid fa-phone-volume"></i></button>';
-                    html += '<button type="button" class="btn-mensagem" title="Enviar SMS" data-numero="' + esc(t.numero || '') + '"><i class="fa-solid fa-comment-dots"></i></button>';
+                    var _smsG = ' data-pessoa-id="' + esc(_pId) + '"';
+                    if (t.id != null && t.id !== '') { _smsG += ' data-telefone-id="' + esc(String(t.id)) + '"'; }
+                    if (idContrato != null && String(idContrato) !== '') { _smsG += ' data-contrato-id="' + esc(String(idContrato)) + '"'; }
+                    html += '<button type="button" class="btn-mensagem" title="Enviar SMS" data-numero="' + esc(t.numero || '') + '"' + _smsG + '"><i class="fa-solid fa-comment-dots"></i></button>';
                     html += '<span class="contact-meta">';
                     var _fonteTel = (typeof window.formatContatoFonteLabel === 'function') ? window.formatContatoFonteLabel(t.fonte) : '';
                     if (_fonteTel) html += '<span class="contact-fonte" title="Origem do cadastro">' + esc(_fonteTel) + '</span>';
@@ -149,10 +152,10 @@ document.addEventListener('DOMContentLoaded', function () {
         html += '</div>';
 
         if (data.devedor) {
-            html += renderPessoaSection('Devedor', data.devedor, data.devedor_enderecos, data.devedor_telefones, data.devedor_emails);
+            html += renderPessoaSection('Devedor', data.devedor, data.devedor_enderecos, data.devedor_telefones, data.devedor_emails, c.id);
         }
         if (data.avalista) {
-            html += renderPessoaSection('Avalista', data.avalista, data.avalista_enderecos, data.avalista_telefones, data.avalista_emails);
+            html += renderPessoaSection('Avalista', data.avalista, data.avalista_enderecos, data.avalista_telefones, data.avalista_emails, c.id);
         }
 
         if (data.parcelas && data.parcelas.length > 0) {

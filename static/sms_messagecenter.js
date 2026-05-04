@@ -35,10 +35,28 @@
         }
         var prev = btn.disabled;
         btn.disabled = true;
+        var body = { numero: numero, mensagem: mensagem };
+        ['data-pessoa-id', 'data-telefone-id', 'data-contrato-id'].forEach(function (attr) {
+            var v = (btn.getAttribute(attr) || '').trim();
+            if (!v) {
+                return;
+            }
+            var n = parseInt(v, 10);
+            if (isNaN(n) || n <= 0) {
+                return;
+            }
+            if (attr === 'data-pessoa-id') {
+                body.id_pessoa = n;
+            } else if (attr === 'data-telefone-id') {
+                body.id_telefone = n;
+            } else if (attr === 'data-contrato-id') {
+                body.id_contrato = n;
+            }
+        });
         window.fetch('/api/enviar-sms', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ numero: numero, mensagem: mensagem }),
+            body: JSON.stringify(body),
         })
             .then(function (r) {
                 return r.text().then(function (text) {
