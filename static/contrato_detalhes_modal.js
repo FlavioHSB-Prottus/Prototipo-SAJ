@@ -396,7 +396,7 @@
         return html;
     }
 
-    function renderPessoaSection(titulo, pessoa, enderecos, telefones, emails) {
+    function renderPessoaSection(titulo, pessoa, enderecos, telefones, emails, idContrato) {
         var icon = titulo === 'Avalista' ? 'fa-user-shield' : 'fa-user-tie';
         var html = '<div class="detail-section"><h3><i class="fa-solid ' + icon + '"></i> ' + esc(titulo) + '</h3>';
         html += '<div class="detail-grid">';
@@ -425,7 +425,10 @@
                     html += '<li><i class="fa-solid fa-phone"></i> ' + esc(t.numero || '-');
                     if (t.ramal) html += ' (ramal ' + esc(t.ramal) + ')';
                     html += '<button type="button" class="btn-ligar" title="Ligar" data-numero="' + esc(t.numero || '') + '"><i class="fa-solid fa-phone-volume"></i></button>';
-                    html += '<button type="button" class="btn-mensagem" title="Enviar SMS" data-numero="' + esc(t.numero || '') + '"><i class="fa-solid fa-comment-dots"></i></button>';
+                    var _smsA = ' data-pessoa-id="' + esc(_pId) + '"';
+                    if (t.id != null && t.id !== '') { _smsA += ' data-telefone-id="' + esc(String(t.id)) + '"'; }
+                    if (idContrato != null && String(idContrato) !== '') { _smsA += ' data-contrato-id="' + esc(String(idContrato)) + '"'; }
+                    html += '<button type="button" class="btn-mensagem" title="Enviar SMS" data-numero="' + esc(t.numero || '') + '"' + _smsA + '"><i class="fa-solid fa-comment-dots"></i></button>';
                     html += '<span class="contact-meta">';
                     var _fonteTel = (typeof window.formatContatoFonteLabel === 'function') ? window.formatContatoFonteLabel(t.fonte) : '';
                     if (_fonteTel) html += '<span class="contact-fonte" title="Origem do cadastro">' + esc(_fonteTel) + '</span>';
@@ -482,8 +485,8 @@
         html += '<div style="margin-top:14px"><button type="button" class="btn-search btn-pv-insert-from-contrato" style="max-width:380px" data-grupo="' + encodeURIComponent(String(c.grupo != null ? c.grupo : '')) + '" data-cota="' + encodeURIComponent(String(c.cota != null ? c.cota : '')) + '"><i class="fa-solid fa-folder-plus"></i> Registrar na Pasta Virtual</button></div>';
         html += '</div>';
 
-        if (data.devedor) html += renderPessoaSection('Devedor', data.devedor, data.devedor_enderecos, data.devedor_telefones, data.devedor_emails);
-        if (data.avalista) html += renderPessoaSection('Avalista', data.avalista, data.avalista_enderecos, data.avalista_telefones, data.avalista_emails);
+        if (data.devedor) html += renderPessoaSection('Devedor', data.devedor, data.devedor_enderecos, data.devedor_telefones, data.devedor_emails, c.id);
+        if (data.avalista) html += renderPessoaSection('Avalista', data.avalista, data.avalista_enderecos, data.avalista_telefones, data.avalista_emails, c.id);
         html += renderBemSection(data.bens);
 
         if (data.parcelas && data.parcelas.length > 0) {

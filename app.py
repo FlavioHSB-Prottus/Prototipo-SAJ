@@ -2570,10 +2570,127 @@ SMS_MC_HEADER_VALUE = (
     'MC.cC719ae5-22B3-439b-9D63-4D544f79Fffc-788B1CE2-9af2-417F-85Ba-67d3E16a7243'
 )
 
+_TELEFONE_NUMERO_DIGITS_SQL = (
+    "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(IFNULL(numero,''),'+',''),'-',''),' ',''),'(',''),')',''),'.','')"
+)
+
+
+def _sms_digits_only(s):
+    return ''.join(ch for ch in (s or '') if ch.isdigit())
+
+
+def _sms_phone_variants(digits):
+    """Variantes com/sem prefixo 55 para cruzar com `telefone.numero` formatado."""
+    d = _sms_digits_only(digits)
+    if not d:
+        return []
+    out = {d}
+    if d.startswith('55') and len(d) > 2:
+        out.add(d[2:])
+    if not d.startswith('55'):
+        out.add('55' + d)
+    return list(out)
+
+
+def _sms_numero_variant_sets_overlap(numero_db, digits_destino):
+    va = set(_sms_phone_variants(numero_db))
+    vb = set(_sms_phone_variants(digits_destino))
+    return bool(va & vb)
+
+
+def _parse_positive_int(val):
+    if val is None or val is False:
+        return None
+    try:
+        n = int(val)
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
+def _resolve_ids_registro_sms(cursor, payload, digits_destino):
+    """Resolve id_telefone, id_pessoa e id_contrato para INSERT em registro_sms.
+
+    Retorna (ids_dict|None, erro_str|None). ids_dict tem chaves id_telefone,
+    id_pessoa, id_contrato (todos int).
+    """
+    id_tel_req = _parse_positive_int(payload.get('id_telefone'))
+    id_pessoa_req = _parse_positive_int(payload.get('id_pessoa'))
+    id_contrato_req = _parse_positive_int(payload.get('id_contrato'))
+
+    if id_tel_req:
+        cursor.execute(
+            'SELECT id, id_pessoa, numero FROM telefone WHERE id = %s',
+            (id_tel_req,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None, 'Telefone informado nao encontrado.'
+        tid = int(row['id'])
+        pid = int(row['id_pessoa'])
+        if not _sms_numero_variant_sets_overlap(row.get('numero'), digits_destino):
+            return None, 'Numero do SMS nao confere com o telefone informado.'
+        if id_pessoa_req is not None and id_pessoa_req != pid:
+            return None, 'Pessoa informada nao e a dona do telefone.'
+    else:
+        variants = _sms_phone_variants(digits_destino)
+        if not variants:
+            return None, 'Numero invalido.'
+        ph = ','.join(['%s'] * len(variants))
+        sql = (
+            f'SELECT id, id_pessoa, numero FROM telefone '
+            f'WHERE {_TELEFONE_NUMERO_DIGITS_SQL} IN ({ph})'
+        )
+        cursor.execute(sql, tuple(variants))
+        rows = cursor.fetchall() or []
+        if not rows:
+            return None, (
+                'Nao foi possivel associar o numero a um telefone cadastrado. '
+                'Abra o cadastro e use o botao de SMS ao lado do telefone.'
+            )
+        if id_pessoa_req is not None:
+            rows = [r for r in rows if int(r['id_pessoa']) == id_pessoa_req]
+        if not rows:
+            return None, 'Nenhum telefone cadastrado corresponde a esta pessoa e ao numero.'
+        rows.sort(key=lambda r: int(r['id']), reverse=True)
+        row = rows[0]
+        tid = int(row['id'])
+        pid = int(row['id_pessoa'])
+
+    if id_contrato_req is not None:
+        cursor.execute(
+            'SELECT id FROM contrato WHERE id = %s AND (id_pessoa = %s OR id_avalista = %s)',
+            (id_contrato_req, pid, pid),
+        )
+        crow = cursor.fetchone()
+        if not crow:
+            return None, 'Contrato informado invalido para esta pessoa.'
+        cid = int(crow['id'])
+    else:
+        cursor.execute(
+            'SELECT id FROM contrato WHERE id_pessoa = %s OR id_avalista = %s ORDER BY id ASC LIMIT 1',
+            (pid, pid),
+        )
+        crow = cursor.fetchone()
+        if not crow:
+            return None, (
+                'Esta pessoa nao possui contrato cadastrado; nao e possivel registrar o envio do SMS.'
+            )
+        cid = int(crow['id'])
+
+    return {'id_telefone': tid, 'id_pessoa': pid, 'id_contrato': cid}, None
+
+
 @app.route('/api/enviar-sms', methods=['POST'])
 def api_enviar_sms():
-    """Proxy: recebe POST JSON; chama MessageCenter com GET (query Phone, Msgtext)."""
-    if not session.get('funcionario_id'):
+    """Proxy: recebe POST JSON; chama MessageCenter com GET (query Phone, Msgtext).
+
+    Apos sucesso, insere em `registro_sms` (id_funcionario da sessao, mensagem,
+    id_pessoa, id_telefone, id_contrato). IDs de contexto podem vir no JSON ou
+    ser resolvidos pelo numero / telefone cadastrado.
+    """
+    fid = session.get('funcionario_id')
+    if not fid:
         return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
     payload = request.get_json(silent=True) or {}
     raw = (payload.get('numero') or '').strip()
@@ -2586,6 +2703,15 @@ def api_enviar_sms():
         return jsonify({'error': 'Mensagem vazia.'}), 400
     if len(msg) > 1600:
         return jsonify({'error': 'Mensagem muito longa (max. 1600 caracteres).'}), 400
+
+    conn = _get_db()
+    try:
+        with conn.cursor() as cursor:
+            ids, err = _resolve_ids_registro_sms(cursor, payload, digits)
+            if err:
+                return jsonify({'error': err}), 400
+    finally:
+        conn.close()
 
     params = {'Phone': digits, 'Msgtext': msg}
     headers = {SMS_MC_HEADER_NAME: SMS_MC_HEADER_VALUE}
@@ -2608,6 +2734,31 @@ def api_enviar_sms():
             'status': resp.status_code,
             'detalhe': data,
         }), 502
+
+    conn = _get_db()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                'INSERT INTO registro_sms (id_contrato, id_pessoa, id_telefone, id_funcionario, mensagem) '
+                'VALUES (%s, %s, %s, %s, %s)',
+                (
+                    ids['id_contrato'],
+                    ids['id_pessoa'],
+                    ids['id_telefone'],
+                    int(fid),
+                    msg,
+                ),
+            )
+            conn.commit()
+    except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        app.logger.warning('registro_sms insert falhou apos SMS ok: %s', exc)
+    finally:
+        conn.close()
+
     return jsonify({'ok': True, 'sms': data})
 
 
