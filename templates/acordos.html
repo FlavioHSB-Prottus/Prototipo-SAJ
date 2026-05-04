@@ -1,0 +1,22 @@
+{% extends 'layout.html' %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='busca.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="busca-wrapper">
+    <div class="filter-card">
+        <h3><i class="fa-solid fa-handshake"></i> Acordos</h3>
+        <p style="margin:0;color:#475569;max-width:640px;line-height:1.5">
+            Área do módulo <strong>Acordos</strong>. Você pode registrar acordos no fluxo de tramitação ao abrir um contrato em
+            <a href="{{ url_for('cobranca') }}">Cobrança</a> ou em <a href="{{ url_for('busca') }}">Busca por Contratos</a>.
+            Funcionalidades centralizadas nesta página poderão ser adicionadas em seguida.
+        </p>
+    </div>
+</div>
+<script>
+    document.querySelector('.module-title').textContent = 'Acordos';
+</script>
+{% endblock %}

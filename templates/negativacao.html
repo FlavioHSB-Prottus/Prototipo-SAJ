@@ -3,8 +3,11 @@
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='busca.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='cobranca.css') }}">
 <style>
-    /* botoes de acao herdados de busca.css; estilo especifico para remover */
+    /* Positivar (lista ativa): verde. Negativar (historico positivados): vermelho. */
+    .btn-neg-positivar { background: #047857; color: #fff; border: none; padding: 6px 12px; border-radius: 8px; font-size: 0.85rem; cursor: pointer; margin-left: 6px; }
+    .btn-neg-positivar:hover { filter: brightness(1.06); }
     .btn-neg-danger { background: #b91c1c; color: #fff; border: none; padding: 6px 12px; border-radius: 8px; font-size: 0.85rem; cursor: pointer; margin-left: 6px; }
     .btn-neg-danger:hover { filter: brightness(1.05); }
     .neg-subcard { margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(226, 232, 240, 0.95); }
@@ -13,14 +16,154 @@
     th.neg-sort { cursor: pointer; user-select: none; white-space: nowrap; }
     th.neg-sort:hover { color: #2563eb; }
     th.neg-sort .sort-ind { opacity: 0.55; font-size: 0.72em; margin-left: 4px; font-weight: 600; }
+    .neg-view-toolbar { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
+    .neg-view-toolbar .neg-view-head { flex: 1 1 260px; min-width: 0; }
+    .neg-view-toolbar h3 { margin: 0 0 6px; font-size: 1.05rem; }
+    .neg-view-toolbar .neg-view-sub { margin: 0; font-size: 0.82rem; color: #64748b; line-height: 1.35; }
+    .neg-view-toggle-wrap { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
+    .neg-view-label { font-size: 0.85rem; color: #475569; font-weight: 600; }
+    .neg-modo-btn { padding: 8px 14px; border-radius: 8px; font-size: 0.88rem; cursor: pointer; border: 1px solid #cbd5e1; background: #fff; color: #334155; }
+    .neg-modo-btn:hover { border-color: #94a3b8; }
+    .neg-modo-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+    .neg-modo-banner { margin: 0 0 16px; padding: 10px 14px; border-radius: 8px; background: #eff6ff; border: 1px solid #bfdbfe; color: #1e3a8a; font-size: 0.9rem; line-height: 1.45; }
+    .neg-mod-cobranca #negFilterCard {
+        min-width: 0;
+        overflow-x: hidden;
+    }
+    .neg-mod-cobranca #negFilterCard .filter-form {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr));
+        gap: 12px 16px;
+        align-items: end;
+        min-width: 0;
+    }
+    .neg-mod-cobranca #negFilterCard .filter-form .form-group { margin-bottom: 0; min-width: 0; }
+    .neg-mod-cobranca #negFilterCard .filter-form .form-control,
+    .neg-mod-cobranca #negFilterCard .filter-form select.form-control {
+        min-width: 0;
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+    }
+    .neg-mod-cobranca #negOperadorWrap {
+        max-width: min(240px, 100%);
+    }
+    /* Botoes lado a lado quando o grupo participa do grid (visao geral). */
+    .neg-cobranca-inline-btns {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+    }
+    /* Data fim + acoes na mesma linha (evita botoes em linha extra vazia). */
+    .neg-cobranca-fim-actions { display: contents; }
+    .neg-mod-cobranca #negFilterCard .filter-form .neg-cobranca-fim-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: 12px 16px;
+        grid-column: 1 / -1;
+        width: 100%;
+        justify-content: flex-start;
+    }
+    .neg-mod-cobranca #negFilterCard .filter-form .neg-cobranca-data-fim-wrap {
+        flex: 0 1 auto;
+        min-width: min(100%, 180px);
+        max-width: 220px;
+    }
+    .neg-mod-cobranca #negFilterCard .filter-form .neg-cobranca-inline-btns .btn-search,
+    .neg-mod-cobranca #negFilterCard .filter-form .neg-cobranca-inline-btns .btn-secondary {
+        margin: 0;
+        white-space: nowrap;
+    }
+    .neg-mod-cobranca .neg-subcard-obs { display: none !important; }
+    .neg-mod-cobranca .neg-subcard-ativos { margin-top: 0; padding-top: 0; border-top: none; }
+    .neg-mod-cobranca .neg-subcard-ativos > h4:first-of-type,
+    .neg-mod-cobranca #negAtivosMeta {
+        display: none !important;
+    }
+    .neg-mod-cobranca .neg-subcard-hist { display: none !important; }
+    .neg-mod-cobranca .neg-only-geral { display: none !important; }
+    .neg-only-cobranca { display: none !important; }
+    .neg-mod-cobranca .neg-only-cobranca:not(.neg-operador-hidden) { display: block !important; }
+    .neg-mod-cobranca #negFilterSub { display: none !important; }
+    .neg-cobranca-kpis {
+        display: none;
+        flex-wrap: wrap;
+        gap: 14px 22px;
+        align-items: center;
+        margin-bottom: 14px;
+        padding: 12px 14px;
+        background: #f8fafc;
+        border-radius: 10px;
+        border: 1px solid #e2e8f0;
+        font-size: 0.9rem;
+        color: #334155;
+    }
+    .neg-mod-cobranca .neg-cobranca-kpis { display: flex !important; }
+    .neg-cobranca-kpis .fb-item { display: inline-flex; align-items: center; gap: 6px; }
+    .neg-cobranca-kpis strong { font-weight: 700; }
+    #negAtivosBlocksContainer { display: none; flex-direction: column; gap: 24px; }
+    .neg-mod-cobranca #negAtivosBlocksContainer { display: flex !important; }
+    .neg-mod-cobranca .priority-block .priority-header-right {
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 10px;
+        align-items: center;
+    }
+    .neg-priority-bulk-wrap {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+    }
+    .neg-priority-bulk-wrap .bulk-btn { font-size: 0.72rem; padding: 5px 8px; }
+    .neg-priority-bulk-wrap .bulk-btn span { max-width: 11em; text-align: left; white-space: normal; line-height: 1.2; }
+    .bulk-btn-positivar-lote {
+        background: rgba(4, 120, 87, 0.12);
+        color: #047857;
+        border-color: rgba(4, 120, 87, 0.35);
+    }
+    .bulk-btn-positivar-lote:hover:not(:disabled) {
+        background: #047857;
+        color: #fff;
+        border-color: #047857;
+    }
+    .bulk-btn-negativar-lote {
+        background: rgba(185, 28, 28, 0.12);
+        color: #b91c1c;
+        border-color: rgba(185, 28, 28, 0.4);
+    }
+    .bulk-btn-negativar-lote:hover:not(:disabled) {
+        background: #b91c1c;
+        color: #fff;
+        border-color: #b91c1c;
+    }
+    .bulk-btn-positivar-lote:disabled,
+    .bulk-btn-negativar-lote:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+        pointer-events: none;
+    }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="busca-wrapper">
+<div class="busca-wrapper" id="negRoot">
 
-    <div class="filter-card">
-        <h3><i class="fa-solid fa-filter"></i> Busca em negativa&#231;&#227;o e positiva&#231;&#227;o</h3>
+    <div class="filter-card" id="negFilterCard">
+        <div class="neg-view-toolbar">
+            <div class="neg-view-head">
+                <h3 id="negFilterTitle"><i class="fa-solid fa-filter"></i> Busca em negativa&#231;&#227;o e positiva&#231;&#227;o</h3>
+                <p class="neg-view-sub" id="negFilterSub">Alterne para analisar apenas contratos que constam no painel de Cobran&#231;a (&#250;ltimo snapshot GM).</p>
+            </div>
+            <div class="neg-view-toggle-wrap">
+                <span class="neg-view-label">Vis&#227;o</span>
+                <button type="button" class="neg-modo-btn active" id="negBtnModoGeral" aria-pressed="true">Geral</button>
+                <button type="button" class="neg-modo-btn" id="negBtnModoCobranca" aria-pressed="false">Carteira Cobran&#231;a</button>
+            </div>
+        </div>
+        <p id="negModoCobrancaBanner" class="neg-modo-banner d-none" role="status"></p>
         <form id="negSearchForm" class="filter-form">
             <div class="form-group">
                 <label for="neg_tipo_busca">Tipo de busca</label>
@@ -53,18 +196,29 @@
                     <option value="registrado_tracker">registrado_tracker</option>
                     <option value="enviado">enviado</option>
                     <option value="falhou">falhou</option>
+                    <option value="aguardando_positivacao_serasa">aguardando_positivacao_serasa</option>
                 </select>
             </div>
-            <div class="form-group">
-                <label for="neg_data_inicio">Data início</label>
+            <div class="form-group neg-only-cobranca" id="negOperadorWrap">
+                <label for="neg_operador_cobranca"><i class="fa-solid fa-user-tie"></i> Operador</label>
+                <select id="neg_operador_cobranca" class="form-control" title="Mesmos operadores do painel Cobran&#231;a">
+                    <option value="">Todos os operadores</option>
+                </select>
+            </div>
+            <div class="form-group neg-only-geral">
+                <label for="neg_data_inicio">Data in&#237;cio</label>
                 <input type="date" id="neg_data_inicio" class="form-control" autocomplete="off">
             </div>
-            <div class="form-group">
-                <label for="neg_data_fim">Data fim</label>
-                <input type="date" id="neg_data_fim" class="form-control" autocomplete="off">
+            <div class="neg-cobranca-fim-actions">
+                <div class="form-group neg-cobranca-data-fim-wrap">
+                    <label for="neg_data_fim">Data fim</label>
+                    <input type="date" id="neg_data_fim" class="form-control" autocomplete="off">
+                </div>
+                <div class="neg-cobranca-inline-btns">
+                    <button type="submit" class="btn-search"><i class="fa-solid fa-magnifying-glass"></i> Pesquisar</button>
+                    <button type="button" class="btn-secondary" id="negBtnLimpar">Limpar</button>
+                </div>
             </div>
-            <button type="submit" class="btn-search"><i class="fa-solid fa-magnifying-glass"></i> Pesquisar</button>
-            <button type="button" class="btn-secondary" id="negBtnLimpar">Limpar</button>
         </form>
     </div>
 
@@ -73,10 +227,16 @@
             <h3 id="negResultsTitle">Negativacao e positivacao</h3>
         </div>
 
-        <div class="neg-subcard">
+        <div class="neg-subcard neg-subcard-ativos">
             <h4 style="margin:0 0 12px;font-size:1rem;color:#334155;"><i class="fa-solid fa-ban"></i> Parcelas com negativacao ativa</h4>
             <p class="neg-meta" id="negAtivosMeta" style="font-size:0.9rem;color:#64748b;margin-bottom:10px;"></p>
-            <div class="table-responsive">
+            <div class="neg-cobranca-kpis" id="negCobrancaKpis" aria-label="Totais por faixa de atraso">
+                <span class="fb-item"><span class="fb-dot dot-critico"></span> Cr&#237;tico: <strong id="negKpiCritico">0</strong></span>
+                <span class="fb-item"><span class="fb-dot dot-atencao"></span> Aten&#231;&#227;o: <strong id="negKpiAtencao">0</strong></span>
+                <span class="fb-item"><i class="fa-solid fa-layer-group" style="color:#64748b;"></i> Total ativas: <strong id="negKpiTotalAtivos">0</strong></span>
+            </div>
+            <div id="negAtivosBlocksContainer"></div>
+            <div class="table-responsive neg-only-geral">
                 <table class="styled-table busca-results-table" id="negTableAtivos">
                     <thead>
                         <tr>
@@ -94,7 +254,7 @@
             </div>
         </div>
 
-        <div class="neg-subcard">
+        <div class="neg-subcard neg-subcard-hist">
             <h4 style="margin:0 0 12px;font-size:1rem;color:#334155;"><i class="fa-solid fa-clock-rotate-left"></i> Historico de eventos</h4>
             <p class="neg-meta" id="negHistMeta" style="font-size:0.9rem;color:#64748b;margin-bottom:10px;"></p>
             <div class="table-responsive">
@@ -120,7 +280,7 @@
             </div>
         </div>
 
-        <div class="neg-subcard">
+        <div class="neg-subcard neg-subcard-obs">
             <h4 style="margin:0 0 12px;font-size:1rem;color:#334155;"><i class="fa-solid fa-note-sticky"></i> Registrar observacao em um contrato</h4>
             <form id="negObsForm" class="filter-form" style="max-width:520px;flex-wrap:wrap;">
                 <div class="form-group">
@@ -154,6 +314,7 @@
 </div>
 
 <script>
+    window.NEGATIVACAO_PAGE_CONFIG = {{ negativacao_page_config | default({}) | tojson }};
     document.querySelector('.module-title').textContent = 'Negativacao';
 </script>
 {% endblock %}
