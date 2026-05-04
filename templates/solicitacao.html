@@ -22,16 +22,15 @@
                 <thead>
                     <tr>
                         <th>ID</th>
+                        <th>Assunto</th>
                         <th>Remetente</th>
                         <th>Destinatário</th>
-                        <th>Data Aguardar</th>
                         <th>Data Envio</th>
-                        <th>Contrato</th>
                         <th>Ações</th>
                     </tr>
                 </thead>
                 <tbody id="solicitacaoBody">
-                    <tr><td colspan="7" class="text-center">Carregando...</td></tr>
+                    <tr><td colspan="6" class="text-center">Carregando...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -52,12 +51,16 @@
                     <select id="solicNovaDest" class="form-control" required></select>
                 </div>
                 <div class="form-group">
+                    <label for="solicNovaAssunto">Assunto</label>
+                    <input type="text" id="solicNovaAssunto" class="form-control" required maxlength="255" placeholder="Assunto">
+                </div>
+                <div class="form-group">
                     <label for="solicNovaData">Data a aguardar</label>
                     <input type="date" id="solicNovaData" class="form-control" required>
                 </div>
                 <div class="form-group">
                     <label for="solicNovaDesc">Descrição (opcional, max. 255)</label>
-                    <textarea id="solicNovaDesc" class="form-control" rows="3" maxlength="255" placeholder="Descrição"></textarea>
+                    <textarea id="solicNovaDesc" class="form-control" rows="4" maxlength="255" placeholder="Descrição"></textarea>
                 </div>
                 <div class="form-group">
                     <label for="solicNovaContrato">ID contrato (opcional)</label>
@@ -82,6 +85,39 @@
     </div>
 </div>
 
+<!-- Modal Responder -->
+<div id="responderSolicModal" class="modal-overlay">
+    <div class="modal-container" style="max-width:520px">
+        <div class="modal-header">
+            <h2>Responder solicitação</h2>
+            <button type="button" class="close-modal-btn" id="closeResponderSolicBtn"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="modal-body">
+            <form id="formResponderSolic" class="nova-solic-form">
+                <input type="hidden" id="solicRespIdResposta" value="">
+                <div class="form-group">
+                    <label>Destinatário</label>
+                    <p id="solicRespDestLabel" style="margin:0;font-size:0.95rem;color:#334155"></p>
+                </div>
+                <div class="form-group">
+                    <label for="solicRespAssunto">Assunto</label>
+                    <input type="text" id="solicRespAssunto" class="form-control" required maxlength="255" placeholder="Assunto">
+                </div>
+                <div class="form-group">
+                    <label for="solicRespData">Data a aguardar</label>
+                    <input type="date" id="solicRespData" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label for="solicRespDesc">Descrição (opcional, max. 255)</label>
+                    <textarea id="solicRespDesc" class="form-control" rows="4" maxlength="255" placeholder="Descrição"></textarea>
+                </div>
+                <p id="solicRespErr" style="color:#dc2626;font-size:0.9rem;margin:0 0 8px;min-height:1.2em"></p>
+                <button type="submit" class="btn-search" id="solicRespSubmit"><i class="fa-solid fa-paper-plane"></i> Enviar resposta</button>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
     document.querySelector('.module-title').textContent = 'Solicitações';
 </script>
@@ -89,41 +125,12 @@
 
 {% block scripts %}
 <script>
-function findRowById(list, rowId) {
-    return list.find(function (x) { return String(x.id) === String(rowId); });
-}
-function threadRootRow(list, row) {
-    if (!row) return null;
-    var cur = row;
-    var guard = 0;
-    while (cur && cur.id_resposta != null && cur.id_resposta !== '' && guard++ < 500) {
-        var p = findRowById(list, cur.id_resposta);
-        if (!p) break;
-        cur = p;
-    }
-    return cur;
-}
-function isStrictDescendantOf(list, rowId, ancestorId) {
-    if (String(rowId) === String(ancestorId)) return false;
-    var cur = findRowById(list, rowId);
-    var g = 0;
-    while (cur && cur.id_resposta != null && cur.id_resposta !== '' && g++ < 500) {
-        if (String(cur.id_resposta) === String(ancestorId)) return true;
-        cur = findRowById(list, cur.id_resposta);
-    }
-    return false;
-}
-/** Todas as respostas abaixo da raiz do fio, por data (exclui raiz e opcionalmente o clicado). */
-function collectThreadRepliesSorted(list, rootId, excludeClickedId) {
-    var rootIdStr = String(rootId);
+/** Linhas cuja id_resposta e igual ao id do item aberto (respostas diretas), por data. */
+function directRepliesSorted(list, parentId) {
+    var pid = String(parentId);
     var items = list.filter(function (x) {
-        if (String(x.id) === rootIdStr) return false;
-        return isStrictDescendantOf(list, x.id, rootId);
+        return x.id_resposta != null && x.id_resposta !== '' && String(x.id_resposta) === pid;
     });
-    if (excludeClickedId != null && excludeClickedId !== '') {
-        var ex = String(excludeClickedId);
-        items = items.filter(function (x) { return String(x.id) !== ex; });
-    }
     items.sort(function (a, b) {
         return new Date(a.data_envio || 0) - new Date(b.data_envio || 0);
     });
@@ -150,18 +157,17 @@ document.addEventListener('DOMContentLoaded', function() {
         totalCount.textContent = (data.total != null ? data.total : latestSolic.length) + ' registros';
         body.innerHTML = '';
         if (latestSolic.length === 0) {
-            body.innerHTML = '<tr><td colspan="7" class="text-center">Nenhuma solicitação encontrada.</td></tr>';
+            body.innerHTML = '<tr><td colspan="6" class="text-center">Nenhuma solicitação encontrada.</td></tr>';
             return;
         }
         latestSolic.forEach(function (s) {
             var tr = document.createElement('tr');
             tr.innerHTML =
                 '<td>' + s.id + '</td>' +
-                '<td>' + (s.remetente_nome || '') + '</td>' +
-                '<td>' + (s.destinatario_nome || '') + '</td>' +
-                '<td>' + (s.data_aguardar || '') + '</td>' +
-                '<td>' + (s.data_envio || '') + '</td>' +
-                '<td>' + (s.grupo ? s.grupo + '/' + s.cota : '—') + '</td>' +
+                '<td><strong>' + escapeHtml(s.assunto || '') + '</strong></td>' +
+                '<td>' + escapeHtml(s.remetente_nome || '') + '</td>' +
+                '<td>' + escapeHtml(s.destinatario_nome || '') + '</td>' +
+                '<td>' + escapeHtml(s.data_envio || '') + '</td>' +
                 '<td><button type="button" class="action-btn view-btn" data-id="' + s.id + '"><i class="fa-solid fa-eye"></i> Ver</button></td>';
             body.appendChild(tr);
         });
@@ -174,16 +180,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 var id = this.dataset.id;
                 var s = latestSolic.find(function (x) { return String(x.id) === String(id); });
                 if (!s) return;
-                var root = threadRootRow(latestSolic, s);
-                var rootId = root ? root.id : id;
-                var responses = collectThreadRepliesSorted(latestSolic, rootId, s.id);
+                var responses = directRepliesSorted(latestSolic, s.id);
                 var modal = document.getElementById('detalhesModal');
                 var content = document.getElementById('modalContent');
                 var responsesHtml = '';
                 if (responses.length > 0) {
                     responsesHtml =
                         '<div class="responses-container">' +
-                        '<h3 class="responses-title"><i class="fa-solid fa-reply-all"></i> Histórico do fio (respostas)</h3>' +
+                        '<h3 class="responses-title"><i class="fa-solid fa-reply"></i> Respostas a esta solicitação (' +
+                        responses.length +
+                        ')</h3>' +
                         responses
                             .map(function (r) {
                                 return (
@@ -197,6 +203,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                     '<span class="response-date">' +
                                     escapeHtml(r.data_envio) +
                                     '</span></div>' +
+                                    (r.assunto
+                                        ? '<div class="response-subject">' + escapeHtml(r.assunto) + '</div>'
+                                        : '') +
                                     '<div class="response-body">' +
                                     escapeHtml(r.descricao || '') +
                                     '</div></div>'
@@ -205,24 +214,68 @@ document.addEventListener('DOMContentLoaded', function() {
                             .join('') +
                         '</div>';
                 }
+                var podeResponderS =
+                    meuFuncionarioId != null &&
+                    (String(meuFuncionarioId) === String(s.id_remetente) ||
+                        String(meuFuncionarioId) === String(s.id_destinatario));
+                var btnRespS = '';
+                if (podeResponderS) {
+                    btnRespS =
+                        '<div style="margin-top:16px;padding-top:12px;border-top:1px solid #e2e8f0">' +
+                        '<button type="button" class="btn-search btn-responder-solic" data-solic-id="' +
+                        escapeHtml(s.id) +
+                        '"><i class="fa-solid fa-reply"></i> Responder</button></div>';
+                }
+                var contratoTxt = s.grupo ? String(s.grupo) + '/' + String(s.cota) : '—';
                 content.innerHTML =
                     '<div class="detail-grid">' +
+                    '<div class="detail-item"><strong>Assunto:</strong> ' +
+                    escapeHtml(s.assunto || '') +
+                    '</div>' +
                     '<div class="detail-item"><strong>Remetente:</strong> ' +
-                    s.remetente_nome +
+                    escapeHtml(s.remetente_nome) +
                     '</div>' +
                     '<div class="detail-item"><strong>Destinatário:</strong> ' +
-                    s.destinatario_nome +
-                    '</div>' +
-                    '<div class="detail-item"><strong>Data Aguardar:</strong> ' +
-                    s.data_aguardar +
+                    escapeHtml(s.destinatario_nome) +
                     '</div>' +
                     '<div class="detail-item"><strong>Data Envio:</strong> ' +
-                    s.data_envio +
+                    escapeHtml(s.data_envio) +
+                    '</div>' +
+                    '<div class="detail-item"><strong>Data a aguardar:</strong> ' +
+                    escapeHtml(s.data_aguardar) +
+                    '</div>' +
+                    '<div class="detail-item"><strong>Contrato:</strong> ' +
+                    escapeHtml(contratoTxt) +
                     '</div>' +
                     '<div class="detail-item full-width"><strong>Descrição:</strong><br>' +
-                    (s.descricao || 'Sem descrição') +
+                    escapeHtml(s.descricao || 'Sem descrição') +
                     '</div></div>' +
-                    responsesHtml;
+                    responsesHtml +
+                    btnRespS;
+                content.querySelectorAll('.btn-responder-solic').forEach(function (br) {
+                    br.addEventListener('click', function () {
+                        var sid = br.getAttribute('data-solic-id');
+                        var ss = latestSolic.find(function (x) {
+                            return String(x.id) === String(sid);
+                        });
+                        if (!ss) return;
+                        var onome =
+                            String(meuFuncionarioId) === String(ss.id_remetente)
+                                ? (ss.destinatario_nome || '')
+                                : (ss.remetente_nome || '');
+                        var dag = ss.data_aguardar || '';
+                        if (dag && dag.indexOf('T') !== -1) dag = dag.split('T')[0];
+                        document.getElementById('solicRespErr').textContent = '';
+                        document.getElementById('solicRespIdResposta').value = String(ss.id);
+                        document.getElementById('solicRespDestLabel').textContent = onome || '(outro participante)';
+                        document.getElementById('solicRespData').value = dag || '';
+                        document.getElementById('solicRespDesc').value = '';
+                        var as = ss.assunto || '';
+                        var re = /^Re:\s*/i;
+                        document.getElementById('solicRespAssunto').value = re.test(as) ? as : 'Re: ' + as;
+                        document.getElementById('responderSolicModal').classList.add('active');
+                    });
+                });
                 modal.classList.add('active');
             });
         });
@@ -269,7 +322,7 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .catch(function () {
             document.getElementById('solicitacaoBody').innerHTML =
-                '<tr><td colspan="7" class="text-center" style="color:#dc2626">Erro ao carregar dados.</td></tr>';
+                '<tr><td colspan="6" class="text-center" style="color:#dc2626">Erro ao carregar dados.</td></tr>';
         });
 
     var novaSolicModal = document.getElementById('novaSolicModal');
@@ -292,11 +345,16 @@ document.addEventListener('DOMContentLoaded', function() {
         var submitBtn = document.getElementById('solicNovaSubmit');
         errEl.textContent = '';
         var dest = document.getElementById('solicNovaDest').value;
+        var assunto = document.getElementById('solicNovaAssunto').value.trim();
         var dataAg = document.getElementById('solicNovaData').value;
         var desc = document.getElementById('solicNovaDesc').value.trim();
         var idContr = document.getElementById('solicNovaContrato').value.trim();
         if (!dest) {
             errEl.textContent = 'Escolha um destinatário.';
+            return;
+        }
+        if (!assunto) {
+            errEl.textContent = 'Preencha o assunto.';
             return;
         }
         if (!dataAg) {
@@ -305,6 +363,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         var body = {
             id_destinatario: parseInt(dest, 10),
+            assunto: assunto,
             data_aguardar: dataAg,
             descricao: desc || null,
         };
@@ -339,6 +398,68 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('closeModalBtn').addEventListener('click', function () {
         document.getElementById('detalhesModal').classList.remove('active');
     });
+
+    var responderSolicModal = document.getElementById('responderSolicModal');
+    document.getElementById('closeResponderSolicBtn').addEventListener('click', function () {
+        responderSolicModal.classList.remove('active');
+    });
+    responderSolicModal.addEventListener('click', function (e) {
+        if (e.target === responderSolicModal) responderSolicModal.classList.remove('active');
+    });
+
+    document.getElementById('formResponderSolic').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var errEl = document.getElementById('solicRespErr');
+        var submitBtn = document.getElementById('solicRespSubmit');
+        errEl.textContent = '';
+        var idResp = document.getElementById('solicRespIdResposta').value.trim();
+        var assunto = document.getElementById('solicRespAssunto').value.trim();
+        var dataAg = document.getElementById('solicRespData').value.trim();
+        var desc = document.getElementById('solicRespDesc').value.trim();
+        if (!idResp) {
+            errEl.textContent = 'Referencia invalida.';
+            return;
+        }
+        if (!assunto) {
+            errEl.textContent = 'Preencha o assunto.';
+            return;
+        }
+        if (!dataAg) {
+            errEl.textContent = 'Indique a data a aguardar.';
+            return;
+        }
+        submitBtn.disabled = true;
+        fetch('/api/solicitacao', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                id_resposta: parseInt(idResp, 10),
+                assunto: assunto,
+                data_aguardar: dataAg,
+                descricao: desc || null,
+            }),
+        })
+            .then(function (r) {
+                return r.json().then(function (d) {
+                    return { ok: r.ok, d: d };
+                });
+            })
+            .then(function (res) {
+                if (!res.ok) {
+                    errEl.textContent = res.d.error || 'Erro ao enviar.';
+                    return;
+                }
+                responderSolicModal.classList.remove('active');
+                document.getElementById('detalhesModal').classList.remove('active');
+                return loadSolicitacoes();
+            })
+            .catch(function () {
+                errEl.textContent = 'Erro de rede.';
+            })
+            .finally(function () {
+                submitBtn.disabled = false;
+            });
+    });
 });
 </script>
 <style>
@@ -351,6 +472,7 @@ document.addEventListener('DOMContentLoaded', function() {
 .response-card { background: #f9f9f9; border-left: 4px solid #3498db; padding: 12px; margin-bottom: 12px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
 .response-header { display: flex; justify-content: space-between; font-size: 0.85rem; color: #666; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
 .response-author { color: #2c3e50; }
+.response-subject { font-size: 0.88rem; font-weight: 600; color: #34495e; margin-bottom: 6px; }
 .response-body { font-size: 0.95rem; line-height: 1.4; color: #333; }
 .nova-solic-form .form-group { margin-bottom: 14px; display: flex; flex-direction: column; gap: 6px; }
 .nova-solic-form label { font-size: 0.85rem; font-weight: 600; color: #2c3e50; }

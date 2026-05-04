@@ -8743,36 +8743,119 @@ def api_negativacao_registrar_manual_parcela():
 # API: Protocolo, Solicitação e Mensagem
 # ---------------------------------------------------------------------------
 
+def _optional_positive_int(val):
+    if val in (None, '', False):
+        return None
+    try:
+        n = int(val)
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
+def _mensagem_fio_sem_ciclo(cursor, parent_id):
+    """Sobe por id_resposta a partir do pai; devolve (ok, erro_ou_none)."""
+    seen = set()
+    cur = int(parent_id)
+    for _ in range(500):
+        if cur in seen:
+            return False, 'Fio de mensagens inconsistente (ciclo).'
+        seen.add(cur)
+        cursor.execute('SELECT id_resposta FROM mensagem WHERE id = %s', (cur,))
+        row = cursor.fetchone()
+        if not row:
+            return False, 'Mensagem referenciada nao encontrada.'
+        pr = row.get('id_resposta')
+        if pr is None:
+            return True, None
+        cur = int(pr)
+    return False, 'Fio de mensagens excede o limite de profundidade.'
+
+
+def _solicitacao_fio_sem_ciclo(cursor, parent_id):
+    """Sobe por id_resposta a partir do pai; devolve (ok, erro_ou_none)."""
+    seen = set()
+    cur = int(parent_id)
+    for _ in range(500):
+        if cur in seen:
+            return False, 'Fio de solicitacoes inconsistente (ciclo).'
+        seen.add(cur)
+        cursor.execute('SELECT id_resposta FROM solicitacao WHERE id = %s', (cur,))
+        row = cursor.fetchone()
+        if not row:
+            return False, 'Solicitacao referenciada nao encontrada.'
+        pr = row.get('id_resposta')
+        if pr is None:
+            return True, None
+        cur = int(pr)
+    return False, 'Fio de solicitacoes excede o limite de profundidade.'
+
+
 @app.route('/api/mensagem', methods=['POST'])
 def api_mensagem_post():
-    """Nova mensagem: id_remetente = sessao (nao vem no JSON)."""
+    """Nova mensagem ou resposta: id_remetente = sessao.
+
+    Com ``id_resposta``, o destinatario e o outro participante do pai
+    (``id_destinatario`` no JSON e ignorado nesse caso).
+    """
     fid = session.get('funcionario_id')
     if not fid:
         return jsonify({'error': 'Nao autenticado.'}), 401
     payload = request.get_json(silent=True) or {}
-    try:
-        dest_id = int(payload.get('id_destinatario'))
-    except (TypeError, ValueError):
-        return jsonify({'error': 'Destinatario invalido.'}), 400
+    fid = int(fid)
+    id_resposta = _optional_positive_int(payload.get('id_resposta'))
     assunto = (payload.get('assunto') or '').strip()
     if not assunto:
         return jsonify({'error': 'Assunto obrigatorio.'}), 400
     descricao = (payload.get('descricao') or '').strip() or None
-    if int(dest_id) == int(fid):
-        return jsonify({'error': 'O destinatario deve ser outro funcionario.'}), 400
+
     conn = _get_db()
     cursor = conn.cursor()
     try:
-        cursor.execute(
-            'SELECT id FROM funcionario WHERE id = %s AND ativo = 1',
-            (dest_id,),
-        )
-        if not cursor.fetchone():
-            return jsonify({'error': 'Destinatario nao encontrado ou inativo.'}), 400
+        if id_resposta is None:
+            id_ins = None
+            try:
+                dest_id = int(payload.get('id_destinatario'))
+            except (TypeError, ValueError):
+                return jsonify({'error': 'Destinatario invalido.'}), 400
+            if int(dest_id) == fid:
+                return jsonify({'error': 'O destinatario deve ser outro funcionario.'}), 400
+            cursor.execute(
+                'SELECT id FROM funcionario WHERE id = %s AND ativo = 1',
+                (dest_id,),
+            )
+            if not cursor.fetchone():
+                return jsonify({'error': 'Destinatario nao encontrado ou inativo.'}), 400
+        else:
+            ok_fio, err_fio = _mensagem_fio_sem_ciclo(cursor, id_resposta)
+            if not ok_fio:
+                return jsonify({'error': err_fio}), 400
+            cursor.execute(
+                'SELECT id, id_remetente, id_destinatario FROM mensagem WHERE id = %s',
+                (id_resposta,),
+            )
+            pai = cursor.fetchone()
+            if not pai:
+                return jsonify({'error': 'Mensagem pai nao encontrada.'}), 404
+            rem_p = int(pai['id_remetente'])
+            des_p = int(pai['id_destinatario'])
+            if fid not in (rem_p, des_p):
+                return jsonify({'error': 'So participantes do fio podem responder.'}), 403
+            dest_id = des_p if fid == rem_p else rem_p
+            if int(dest_id) == fid:
+                return jsonify({'error': 'Nao e possivel determinar o destinatario da resposta.'}), 400
+            cursor.execute(
+                'SELECT id FROM funcionario WHERE id = %s AND ativo = 1',
+                (dest_id,),
+            )
+            if not cursor.fetchone():
+                return jsonify({'error': 'Destinatario nao encontrado ou inativo.'}), 400
+            id_ins = id_resposta
+
         cursor.execute(
             'INSERT INTO mensagem (id_remetente, id_destinatario, assunto, descricao, id_resposta) '
-            'VALUES (%s, %s, %s, %s, NULL)',
-            (int(fid), dest_id, assunto, descricao),
+            'VALUES (%s, %s, %s, %s, %s)',
+            (fid, dest_id, assunto, descricao, id_ins),
         )
         conn.commit()
         new_id = cursor.lastrowid
@@ -8788,33 +8871,76 @@ def api_mensagem_post():
 
 @app.route('/api/solicitacao', methods=['POST'])
 def api_solicitacao_post():
-    """Nova solicitacao: id_remetente = sessao (nao vem no JSON)."""
+    """Nova solicitacao ou resposta: id_remetente = sessao.
+
+    Com ``id_resposta``, o destinatario e o outro participante do pai;
+    ``id_contrato`` omitido herda do pai quando existir.
+    """
     fid = session.get('funcionario_id')
     if not fid:
         return jsonify({'error': 'Nao autenticado.'}), 401
     payload = request.get_json(silent=True) or {}
-    try:
-        dest_id = int(payload.get('id_destinatario'))
-    except (TypeError, ValueError):
-        return jsonify({'error': 'Destinatario invalido.'}), 400
+    fid = int(fid)
+    id_resposta = _optional_positive_int(payload.get('id_resposta'))
     data_aguardar = (payload.get('data_aguardar') or '').strip()
     if not data_aguardar:
         return jsonify({'error': 'Data a aguardar obrigatoria.'}), 400
     descricao = (payload.get('descricao') or '').strip() or None
     if descricao and len(descricao) > 255:
         return jsonify({'error': 'Descricao: maximo 255 caracteres.'}), 400
-    id_contrato = None
-    raw_c = payload.get('id_contrato')
-    if raw_c not in (None, ''):
-        try:
-            id_contrato = int(raw_c)
-        except (TypeError, ValueError):
-            return jsonify({'error': 'ID contrato invalido.'}), 400
-    if int(dest_id) == int(fid):
-        return jsonify({'error': 'O destinatario deve ser outro funcionario.'}), 400
+    assunto = (payload.get('assunto') or '').strip()
+    if not assunto:
+        return jsonify({'error': 'Assunto obrigatorio.'}), 400
+    if len(assunto) > 255:
+        return jsonify({'error': 'Assunto: maximo 255 caracteres.'}), 400
+
     conn = _get_db()
     cursor = conn.cursor()
     try:
+        if id_resposta is None:
+            try:
+                dest_id = int(payload.get('id_destinatario'))
+            except (TypeError, ValueError):
+                return jsonify({'error': 'Destinatario invalido.'}), 400
+            if int(dest_id) == fid:
+                return jsonify({'error': 'O destinatario deve ser outro funcionario.'}), 400
+            id_contrato = None
+            raw_c = payload.get('id_contrato')
+            if raw_c not in (None, ''):
+                try:
+                    id_contrato = int(raw_c)
+                except (TypeError, ValueError):
+                    return jsonify({'error': 'ID contrato invalido.'}), 400
+            id_ins = None
+        else:
+            ok_fio, err_fio = _solicitacao_fio_sem_ciclo(cursor, id_resposta)
+            if not ok_fio:
+                return jsonify({'error': err_fio}), 400
+            cursor.execute(
+                'SELECT id, id_remetente, id_destinatario, id_contrato FROM solicitacao WHERE id = %s',
+                (id_resposta,),
+            )
+            pai = cursor.fetchone()
+            if not pai:
+                return jsonify({'error': 'Solicitacao pai nao encontrada.'}), 404
+            rem_p = int(pai['id_remetente'])
+            des_p = int(pai['id_destinatario'])
+            if fid not in (rem_p, des_p):
+                return jsonify({'error': 'So participantes do fio podem responder.'}), 403
+            dest_id = des_p if fid == rem_p else rem_p
+            if int(dest_id) == fid:
+                return jsonify({'error': 'Nao e possivel determinar o destinatario da resposta.'}), 400
+            id_ins = id_resposta
+            id_contrato = None
+            raw_c = payload.get('id_contrato')
+            if raw_c not in (None, ''):
+                try:
+                    id_contrato = int(raw_c)
+                except (TypeError, ValueError):
+                    return jsonify({'error': 'ID contrato invalido.'}), 400
+            elif pai.get('id_contrato') is not None:
+                id_contrato = int(pai['id_contrato'])
+
         cursor.execute(
             'SELECT id FROM funcionario WHERE id = %s AND ativo = 1',
             (dest_id,),
@@ -8825,10 +8951,11 @@ def api_solicitacao_post():
             cursor.execute('SELECT id FROM contrato WHERE id = %s', (id_contrato,))
             if not cursor.fetchone():
                 return jsonify({'error': 'Contrato nao encontrado.'}), 400
+
         cursor.execute(
             'INSERT INTO solicitacao (id_remetente, id_destinatario, data_aguardar, descricao, '
-            'id_resposta, id_contrato) VALUES (%s, %s, %s, %s, NULL, %s)',
-            (int(fid), dest_id, data_aguardar, descricao, id_contrato),
+            'id_resposta, id_contrato, assunto) VALUES (%s, %s, %s, %s, %s, %s, %s)',
+            (fid, dest_id, data_aguardar, descricao, id_ins, id_contrato, assunto),
         )
         conn.commit()
         new_id = cursor.lastrowid
