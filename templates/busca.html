@@ -22,9 +22,15 @@
                 </select>
             </div>
             
-            <div class="form-group">
-                <label for="termo">Termo da Busca</label>
+            <div class="form-group busca-termo-group" id="termoGroup">
+                <label for="termo" id="termoLabel">Termo da Busca</label>
                 <input type="text" id="termo" name="termo" class="form-control" placeholder="Digite o nome ou CPF/CNPJ...">
+            </div>
+
+            <div class="form-group busca-bem-fields d-none" id="bemSearchFields" aria-hidden="true">
+                <span class="bem-fields-label">Dados do bem <span id="bemTabelaNome" class="bem-tabela-tag"></span></span>
+                <div class="bem-search-grid" id="bemSearchGrid"></div>
+                <p class="bem-search-hint">Preencha um ou mais campos conforme as colunas da tabela de bens. Só aparecem contratos cujo bem satisfaça <strong>todos</strong> os campos preenchidos.</p>
             </div>
 
             <div class="form-group" id="statusGroup">

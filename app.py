@@ -2117,6 +2117,49 @@ def _bem_where_clause(termo, alias_bem='b'):
     return "(" + " OR ".join(parts) + ")", params
 
 
+def _bem_rotulo_coluna(nome_coluna):
+    """Rotulo amigavel a partir do nome da coluna na tabela de bens."""
+    if not nome_coluna:
+        return ''
+    s = str(nome_coluna).replace('_', ' ').strip()
+    return s[:1].upper() + s[1:] if s else ''
+
+
+def _bem_where_clause_from_params(args, alias_bem='b'):
+    """WHERE com AND: aceita apenas bem_<nome_coluna> que exista em text_cols (tabela bem/bens)."""
+    info = _get_bem_schema()
+    text_cols = info.get('text_cols') or []
+    if not text_cols:
+        return None, []
+    lower_to_actual = {}
+    for col in text_cols:
+        lk = col.lower()
+        if lk not in lower_to_actual:
+            lower_to_actual[lk] = col
+    parts = []
+    params = []
+    seen_cols = set()
+    for key in args:
+        if not isinstance(key, str) or not key.startswith('bem_'):
+            continue
+        suffix = key[4:]
+        if not suffix:
+            continue
+        col = lower_to_actual.get(suffix.lower())
+        if not col or col in seen_cols:
+            continue
+        raw = args.get(key, '') or ''
+        val = raw.strip() if isinstance(raw, str) else str(raw).strip()
+        if not val:
+            continue
+        parts.append(f"{alias_bem}.`{col}` LIKE %s")
+        params.append(f'%{val}%')
+        seen_cols.add(col)
+    if not parts:
+        return None, []
+    return "(" + " AND ".join(parts) + ")", params
+
+
 def _bem_concat_expr(alias_bem='b'):
     """Expressao SQL que concatena as colunas textuais para mostrar no resultado.
 
@@ -2160,11 +2203,34 @@ def _fetch_bens_para_contrato(cursor, contrato):
 # API: Busca por Pessoa / Contrato
 # ---------------------------------------------------------------------------
 
+@app.route('/api/busca/campos-bem')
+def api_busca_campos_bem():
+    """Lista colunas textuais da tabela bem/bens para montar filtros na UI (espelha o schema real)."""
+    info = _get_bem_schema()
+    colunas = []
+    for nome in info.get('text_cols') or []:
+        colunas.append({'nome': nome, 'rotulo': _bem_rotulo_coluna(nome)})
+    return jsonify({
+        'ok': True,
+        'tabela': info.get('table'),
+        'colunas': colunas,
+    })
+
+
 @app.route('/api/busca')
 def api_busca():
     tipo = request.args.get('tipo', '').strip()
     termo = request.args.get('termo', '').strip()
-    if not termo:
+    bem_where_cached = None
+    bem_params_cached = []
+
+    if tipo == 'bem':
+        bem_where_cached, bem_params_cached = _bem_where_clause_from_params(request.args, 'b')
+        if not bem_where_cached and termo:
+            bem_where_cached, bem_params_cached = _bem_where_clause(termo, 'b')
+        if not bem_where_cached:
+            return jsonify({'results': [], 'tipo': tipo})
+    elif not termo:
         return jsonify({'results': [], 'tipo': tipo})
 
     conn = _get_db()
@@ -2227,7 +2293,7 @@ def api_busca():
         # Schema da tabela de bens e detectado dinamicamente.
         status_filtro = request.args.get('status', '').strip()
         join_clause = _bem_join_clause('c', 'b')
-        bem_where, bem_params = _bem_where_clause(termo, 'b')
+        bem_where, bem_params = bem_where_cached, list(bem_params_cached)
 
         if not join_clause or not bem_where:
             # Tabela de bens indisponivel ou sem colunas textuais.
