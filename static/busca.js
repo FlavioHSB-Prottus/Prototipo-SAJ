@@ -16,6 +16,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const statusFiltro = document.getElementById('status_filtro');
     const buscaResultsFooter = document.getElementById('buscaResultsFooter');
     const btnExportarBusca = document.getElementById('btnExportarBusca');
+    const termoGroup = document.getElementById('termoGroup');
+    const bemSearchFields = document.getElementById('bemSearchFields');
 
     var searchResults = [];
     var lastSearchTipo = 'pessoa';
@@ -25,19 +27,51 @@ document.addEventListener('DOMContentLoaded', function () {
     var _pessoaCache = null;
     var _fromPessoa = false;
 
-    // Placeholder dinamico (filtro de status visivel em todos os tipos)
+    function updateBuscaFieldsVisibility() {
+        var t = tipoBusca.value;
+        if (t === 'bem') {
+            if (termoGroup) termoGroup.classList.add('d-none');
+            if (bemSearchFields) {
+                bemSearchFields.classList.remove('d-none');
+                bemSearchFields.setAttribute('aria-hidden', 'false');
+            }
+        } else {
+            if (termoGroup) termoGroup.classList.remove('d-none');
+            if (bemSearchFields) {
+                bemSearchFields.classList.add('d-none');
+                bemSearchFields.setAttribute('aria-hidden', 'true');
+            }
+            if (t === 'pessoa') {
+                termoInput.placeholder = 'Digite o nome ou CPF/CNPJ...';
+            } else {
+                termoInput.placeholder = 'Digite grupo/cota (ex: 001234/0012)';
+            }
+        }
+    }
+
+    // Placeholder dinamico + alternar termo unico vs campos de bem
     tipoBusca.addEventListener('change', function () {
         activeTipo = this.value;
-        if (activeTipo === 'pessoa') {
-            termoInput.placeholder = 'Digite o nome ou CPF/CNPJ...';
-        } else if (activeTipo === 'bem') {
-            termoInput.placeholder = 'Digite a descrição do bem (modelo, marca, etc)...';
-        } else {
-            termoInput.placeholder = 'Digite grupo/cota (ex: 001234/0012)';
+        if (activeTipo !== 'bem') {
+            if (activeTipo === 'pessoa') {
+                termoInput.placeholder = 'Digite o nome ou CPF/CNPJ...';
+            } else {
+                termoInput.placeholder = 'Digite grupo/cota (ex: 001234/0012)';
+            }
         }
+        updateBuscaFieldsVisibility();
     });
+    updateBuscaFieldsVisibility();
 
-    // Limpar resultados
+    function clearBemGridInputs() {
+        var grid = document.getElementById('bemSearchGrid');
+        if (!grid) return;
+        grid.querySelectorAll('input[data-bem-col]').forEach(function (inp) {
+            inp.value = '';
+        });
+    }
+
+    // Limpar resultados (reset do form limpa inputs; aqui escondemos tabela)
     btnLimpar.addEventListener('click', function () {
         resultsSection.classList.add('d-none');
         resultsBody.innerHTML = '';
@@ -46,21 +80,46 @@ document.addEventListener('DOMContentLoaded', function () {
         searchResults = [];
         sortConfig = { column: null, order: 'asc' };
         if (buscaResultsFooter) buscaResultsFooter.classList.add('d-none');
+        clearBemGridInputs();
     });
 
     // Busca
     searchForm.addEventListener('submit', async function (e) {
         e.preventDefault();
         activeTipo = tipoBusca.value;
-        const termo = termoInput.value.trim();
-        if (!termo) return;
+        var termo = termoInput.value.trim();
+        var url = '/api/busca?tipo=' + encodeURIComponent(activeTipo);
+
+        if (activeTipo === 'bem') {
+            var anyBem = false;
+            var bemGrid = document.getElementById('bemSearchGrid');
+            if (bemGrid) {
+                bemGrid.querySelectorAll('input[data-bem-col]').forEach(function (inp) {
+                    var v = String(inp.value || '').trim();
+                    if (!v) return;
+                    var col = inp.getAttribute('data-bem-col');
+                    if (!col) return;
+                    anyBem = true;
+                    url += '&bem_' + encodeURIComponent(col) + '=' + encodeURIComponent(v);
+                });
+            }
+            if (!anyBem && !termo) {
+                window.alert('Preencha pelo menos um campo do bem.');
+                return;
+            }
+            if (termo) {
+                url += '&termo=' + encodeURIComponent(termo);
+            }
+        } else {
+            if (!termo) return;
+            url += '&termo=' + encodeURIComponent(termo);
+        }
 
         resultsBody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text-muted)"><i class="fa-solid fa-spinner fa-spin"></i> Buscando...</td></tr>';
         noResults.classList.add('d-none');
         resultsSection.classList.remove('d-none');
 
         try {
-            var url = '/api/busca?tipo=' + encodeURIComponent(activeTipo) + '&termo=' + encodeURIComponent(termo);
             if (statusFiltro.value) {
                 url += '&status=' + encodeURIComponent(statusFiltro.value);
             }
@@ -724,5 +783,63 @@ document.addEventListener('DOMContentLoaded', function () {
         if (s === 'parcela vencida') return 'status-danger';
         return 'status-active';
     }
+
+    function renderBemCamposFromSchema(colunas) {
+        var grid = document.getElementById('bemSearchGrid');
+        var tag = document.getElementById('bemTabelaNome');
+        if (!grid) return;
+        grid.innerHTML = '';
+        if (tag) tag.textContent = '';
+        if (!colunas || colunas.length === 0) {
+            var pEmpty = document.createElement('p');
+            pEmpty.className = 'bem-search-hint';
+            pEmpty.style.margin = '0';
+            pEmpty.textContent = 'Nao ha colunas de texto na tabela de bens (ou a tabela nao esta disponivel).';
+            grid.appendChild(pEmpty);
+            return;
+        }
+        colunas.forEach(function (c, idx) {
+            var nome = c.nome;
+            if (!nome) return;
+            var rotulo = c.rotulo != null && c.rotulo !== '' ? String(c.rotulo) : String(nome);
+            var wrap = document.createElement('div');
+            var lab = document.createElement('label');
+            var inpId = 'bem_inp_' + idx;
+            lab.setAttribute('for', inpId);
+            lab.textContent = rotulo;
+            var inp = document.createElement('input');
+            inp.type = 'text';
+            inp.className = 'form-control';
+            inp.id = inpId;
+            inp.setAttribute('data-bem-col', nome);
+            inp.name = 'bem_' + nome;
+            inp.setAttribute('placeholder', rotulo);
+            inp.setAttribute('autocomplete', 'off');
+            wrap.appendChild(lab);
+            wrap.appendChild(inp);
+            grid.appendChild(wrap);
+        });
+    }
+
+    (function carregarCamposBemDaTabela() {
+        var grid = document.getElementById('bemSearchGrid');
+        if (!grid) return;
+        fetch('/api/busca/campos-bem')
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                var tag = document.getElementById('bemTabelaNome');
+                if (tag && data.tabela) tag.textContent = '(' + data.tabela + ')';
+                renderBemCamposFromSchema(data.colunas || []);
+            })
+            .catch(function () {
+                grid.innerHTML = '';
+                var pErr = document.createElement('p');
+                pErr.className = 'bem-search-hint';
+                pErr.style.margin = '0';
+                pErr.style.color = '#ef4444';
+                pErr.textContent = 'Nao foi possivel carregar as colunas da tabela de bens.';
+                grid.appendChild(pErr);
+            });
+    })();
 
 });
