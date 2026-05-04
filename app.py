@@ -131,7 +131,6 @@ def _cobranca_html_ok(path):
         return True
     prefixes = (
         '/cobranca',
-        '/acordos',
         '/negativacao',
         '/busca',
         '/pasta-virtual',
@@ -668,12 +667,6 @@ def negativacao():
         'negativacao.html',
         negativacao_page_config=negativacao_page_config,
     )
-
-
-@app.route('/acordos')
-def acordos():
-    """Módulo de gestão de acordos (entrada no menu; telas específicas podem evoluir depois)."""
-    return render_template('acordos.html')
 
 
 @app.route('/operadores')

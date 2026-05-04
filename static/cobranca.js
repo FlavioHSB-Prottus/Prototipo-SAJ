@@ -1170,7 +1170,15 @@ document.addEventListener('DOMContentLoaded', function () {
         // "Negativação" - envia ao Serasa (via API futura do Flávio). O módulo
         // CobrancaAutomacoes trata confirmação + loading; o backend filtra os
         // elegíveis (31-89 dias) e ignora contratos já negativados.
-        if (btnNeg) btnNeg.addEventListener('click', function () { dispararFooterLote('negativacao'); });
+        if (btnNeg) btnNeg.addEventListener('click', function () {
+            var qs = new URLSearchParams();
+            qs.set('carteira', '1');
+            qs.set('pesquisar', '1');
+            if (operadorSelect && operadorSelect.value) {
+                qs.set('funcionario_id', operadorSelect.value);
+            }
+            window.location.href = '/negativacao?' + qs.toString();
+        });
     }
 
     function dispararFooterLote(tipo) {

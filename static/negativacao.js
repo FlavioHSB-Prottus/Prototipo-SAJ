@@ -15,7 +15,71 @@ document.addEventListener('DOMContentLoaded', function () {
     var cfg = window.NEGATIVACAO_PAGE_CONFIG || {};
     var STORAGE_KEY = 'negativacao_modo_cobranca';
 
+    /** Deep link ex.: /negativacao?carteira=1&pesquisar=1&funcionario_id= (painel Cobrança). */
+    var negUrlBootstrap = (function () {
+        try {
+            var p = new URLSearchParams(window.location.search);
+            return {
+                forceCarteira: p.get('carteira') === '1' ||
+                    (p.get('modo') || '').toLowerCase() === 'carteira',
+                autoPesquisar: p.get('pesquisar') === '1' || p.get('auto') === '1',
+                funcionarioId: (p.get('funcionario_id') || p.get('operador') || '').trim()
+            };
+        } catch (err) {
+            return { forceCarteira: false, autoPesquisar: false, funcionarioId: '' };
+        }
+    }());
+
+    var negDeepLinkOperadorId = negUrlBootstrap.funcionarioId || null;
+    var negStripDeepLinkAfterLoad = !!(negUrlBootstrap.forceCarteira && negUrlBootstrap.autoPesquisar);
+
+    function stripNegativacaoDeepLinkParams() {
+        try {
+            var u = new URL(window.location.href);
+            if (!u.search) return;
+            var keys = ['carteira', 'pesquisar', 'auto', 'modo', 'funcionario_id', 'operador'];
+            var touched = false;
+            keys.forEach(function (k) {
+                if (u.searchParams.has(k)) {
+                    u.searchParams.delete(k);
+                    touched = true;
+                }
+            });
+            if (!touched) return;
+            var q = u.searchParams.toString();
+            history.replaceState({}, '', u.pathname + (q ? '?' + q : '') + u.hash);
+        } catch (e) { /* ignore */ }
+    }
+
+    /** Apos populateOperadorSelect: aplica operador vindo da Cobrança e pede novo load se necessário. */
+    function tryApplyDeepLinkOperador() {
+        if (!negDeepLinkOperadorId || !modoCobranca || !negOperadorCobranca || cfg.perfilCobranca) {
+            negDeepLinkOperadorId = null;
+            return false;
+        }
+        var wanted = String(negDeepLinkOperadorId).trim();
+        negDeepLinkOperadorId = null;
+        if (!wanted) return false;
+        var ok = false;
+        for (var i = 0; i < negOperadorCobranca.options.length; i++) {
+            if (negOperadorCobranca.options[i].value === wanted) {
+                ok = true;
+                break;
+            }
+        }
+        if (!ok) return false;
+        if (negOperadorCobranca.value !== wanted) {
+            negOperadorCobranca.value = wanted;
+            return true;
+        }
+        return false;
+    }
+
     function initialModoCobranca() {
+        if (negUrlBootstrap.forceCarteira) {
+            sessionStorage.setItem(STORAGE_KEY, '1');
+            return true;
+        }
         var raw = sessionStorage.getItem(STORAGE_KEY);
         if (raw === '1') return true;
         if (raw === '0') return false;
@@ -240,6 +304,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
     applyModoUI();
     updateBannerText();
+
+    if (negUrlBootstrap.autoPesquisar && modoCobranca) {
+        negAtivosListagemCompleta = true;
+        if (negResultsSection) negResultsSection.classList.remove('d-none');
+        page = 1;
+        load();
+    }
 
     function populateOperadorSelect(data) {
         if (!negOperadorCobranca || cfg.perfilCobranca) return;
@@ -776,6 +847,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 if (modoCobranca) {
                     populateOperadorSelect(data);
+                    if (tryApplyDeepLinkOperador()) {
+                        page = 1;
+                        load();
+                        return;
+                    }
                     renderAtivosCobranca(data);
                     var tbClear = document.getElementById('negTbodyAtivos');
                     if (tbClear) tbClear.innerHTML = '';
@@ -803,6 +879,11 @@ document.addEventListener('DOMContentLoaded', function () {
                     : (ativos.length === 0 && hist.length === 0);
                 if (negNoResults) {
                     negNoResults.classList.toggle('d-none', !empty);
+                }
+
+                if (negStripDeepLinkAfterLoad && modoCobranca) {
+                    stripNegativacaoDeepLinkParams();
+                    negStripDeepLinkAfterLoad = false;
                 }
             })
             .catch(function (e) {
