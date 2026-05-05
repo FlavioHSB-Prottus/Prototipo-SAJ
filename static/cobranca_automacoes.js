@@ -412,8 +412,6 @@
             '<i class="fa-solid fa-check"></i> Concluir</button>';
         d.statusFooter.querySelector('[data-close-status]').onclick = function () {
             fechar(d.statusOverlay);
-            // Após negativar, recarrega a lista para pintar de cinza os contratos
-            // que acabaram de ser negativados.
             if (tipo === 'negativacao' && typeof window.CobrancaReload === 'function') {
                 try { window.CobrancaReload(); } catch (e) { /* silencioso */ }
             }

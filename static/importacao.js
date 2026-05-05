@@ -7,6 +7,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnAprovarDistribuicao = document.getElementById('btnAprovarDistribuicao');
     const btnRecarregarDistribuicao = document.getElementById('btnRecarregarDistribuicao');
     const btnRestaurarDistribuicao = document.getElementById('btnRestaurarDistribuicao');
+    const btnNegPosDistribuicao = document.getElementById('btnNegPosDistribuicao');
+    const negPosEscolhaModal = document.getElementById('negPosEscolhaModal');
     const distribuicaoToggle = document.getElementById('distribuicaoToggle');
 
     function setDistribuicaoExpandido(expandido) {
@@ -639,6 +641,40 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnAprovarDistribuicao) btnAprovarDistribuicao.addEventListener('click', aprovarDistribuicao);
     if (btnRecarregarDistribuicao) btnRecarregarDistribuicao.addEventListener('click', () => loadDistribuicao(false));
     if (btnRestaurarDistribuicao) btnRestaurarDistribuicao.addEventListener('click', restaurarDistribuicao);
+
+    (function setupNegPosEscolhaModal() {
+        if (!negPosEscolhaModal) return;
+        function fecharNegPosModal() {
+            negPosEscolhaModal.classList.add('d-none');
+        }
+        function abrirNegPosModal() {
+            negPosEscolhaModal.classList.remove('d-none');
+        }
+        if (btnNegPosDistribuicao) {
+            btnNegPosDistribuicao.addEventListener('click', abrirNegPosModal);
+        }
+        var fecharBtn = document.getElementById('negPosEscolhaFechar');
+        var cancelarBtn = document.getElementById('negPosEscolhaCancelar');
+        var btnTodos = document.getElementById('negPosEscolhaTodos');
+        var btnSemCobranca = document.getElementById('negPosEscolhaSemCobranca');
+        if (fecharBtn) fecharBtn.addEventListener('click', fecharNegPosModal);
+        if (cancelarBtn) cancelarBtn.addEventListener('click', fecharNegPosModal);
+        negPosEscolhaModal.addEventListener('click', function (e) {
+            if (e.target === negPosEscolhaModal) fecharNegPosModal();
+        });
+        if (btnTodos) {
+            btnTodos.addEventListener('click', function () {
+                fecharNegPosModal();
+                window.location.href = '/negativacao?carteira=1&pesquisar=1';
+            });
+        }
+        if (btnSemCobranca) {
+            btnSemCobranca.addEventListener('click', function () {
+                fecharNegPosModal();
+                window.location.href = '/negativacao?carteira=1&pesquisar=1&sem_operador_cobranca=1';
+            });
+        }
+    }());
 
     async function restaurarDistribuicao() {
         const msg = 'Restaurar a distribuição inicial da importação?\n\n' +

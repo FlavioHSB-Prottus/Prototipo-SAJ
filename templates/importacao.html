@@ -62,8 +62,11 @@
             <!-- Blocos por funcionario -->
             <div class="distribuicao-funcionarios" id="distribuicaoFuncionarios"></div>
 
-            <!-- Acoes: Recarregar / Restaurar / Aprovar (rodape do painel) -->
+            <!-- Acoes: Negativação/Positivação / Recarregar / Restaurar / Aprovar (rodape do painel) -->
             <div class="distribuicao-actions distribuicao-actions-footer">
+                <button type="button" class="btn-secondary-dist btn-neg-pos-dist" id="btnNegPosDistribuicao" title="Abrir módulo Negativação na Carteira Cobrança">
+                    <i class="fa-solid fa-scale-balanced"></i> Negativação/Positivação
+                </button>
                 <button type="button" class="btn-secondary-dist" id="btnRecarregarDistribuicao" title="Recarregar proposta (apenas re-lê do banco)">
                     <i class="fa-solid fa-rotate"></i> Recarregar
                 </button>
@@ -116,6 +119,34 @@
                 <button type="button" class="btn-aprovar-dist" id="transferConfirmar">
                     <i class="fa-solid fa-check"></i> Confirmar transferência
                 </button>
+            </footer>
+        </div>
+    </div>
+
+    <!-- Modal: escolha de filtro antes de abrir Negativação (Carteira) -->
+    <div class="transfer-modal-overlay d-none" id="negPosEscolhaModal" role="dialog" aria-modal="true" aria-labelledby="negPosEscolhaTitle">
+        <div class="transfer-modal neg-pos-modal">
+            <header class="transfer-modal-header">
+                <div>
+                    <h3 id="negPosEscolhaTitle"><i class="fa-solid fa-scale-balanced"></i> Negativação / Positivação</h3>
+                    <p class="transfer-modal-sub" id="negPosEscolhaSub">
+                        Você quer visualizar todos positivados e negativados ou você quer apenas visualizar os que não têm cobrança?
+                    </p>
+                </div>
+                <button type="button" class="transfer-close" id="negPosEscolhaFechar" aria-label="Fechar">&times;</button>
+            </header>
+            <div class="transfer-modal-body neg-pos-modal-body">
+                <button type="button" class="neg-pos-choice-btn" id="negPosEscolhaTodos">
+                    <strong>Todos</strong>
+                    <span>Carteira cobrança com todos os operadores</span>
+                </button>
+                <button type="button" class="neg-pos-choice-btn neg-pos-choice-alt" id="negPosEscolhaSemCobranca">
+                    <strong>Sem Cobrança</strong>
+                    <span>Somente contratos sem operador em cobrança</span>
+                </button>
+            </div>
+            <footer class="transfer-modal-footer">
+                <button type="button" class="btn-secondary-dist" id="negPosEscolhaCancelar">Cancelar</button>
             </footer>
         </div>
     </div>

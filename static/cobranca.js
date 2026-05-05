@@ -32,7 +32,6 @@ document.addEventListener('DOMContentLoaded', function () {
     const searchInput = document.getElementById('searchInput');
     const searchType = document.getElementById('searchType');
     const btnSearchClear = document.getElementById('btnSearchClear');
-    const negativacaoSelect = document.getElementById('negativacaoSelect');
     const btnParcelasDesordenadas = document.getElementById('btnParcelasDesordenadas');
 
     /** Filtro da API: somente contratos com parcela em aberto anterior a parcela paga. */
@@ -87,24 +86,12 @@ document.addEventListener('DOMContentLoaded', function () {
     loadCobranca();
     bindFooterBulkActions();
 
-    // Expõe recarga para módulos auxiliares (ex.: cobranca_automacoes.js após
-    // negativar, precisa recarregar para pintar contratos em cinza).
+    // Expõe recarga para módulos auxiliares (ex.: cobranca_automacoes.js após disparos).
     window.CobrancaReload = function () { return loadCobranca(); };
 
     operadorSelect.addEventListener('change', function () {
         loadCobranca();
     });
-
-    if (negativacaoSelect) {
-        negativacaoSelect.addEventListener('change', function () {
-            var wrapper = negativacaoSelect.closest('.negativacao-filter');
-            if (wrapper) {
-                wrapper.classList.toggle('filter-active', !!this.value);
-                wrapper.classList.toggle('neg-filtro-ativo', this.value === 'ativo');
-            }
-            applyFilter();
-        });
-    }
 
     if (btnParcelasDesordenadas) {
         btnParcelasDesordenadas.addEventListener('click', function () {
@@ -174,77 +161,30 @@ document.addEventListener('DOMContentLoaded', function () {
         searchInput.focus();
     }
 
-    function syncNegativacaoFilterStyle() {
-        if (!negativacaoSelect) return;
-        const wrapper = negativacaoSelect.closest('.negativacao-filter');
-        if (!wrapper) return;
-        const v = negativacaoSelect.value;
-        wrapper.classList.toggle('filter-active', !!v);
-        wrapper.classList.toggle('neg-filtro-ativo', v === 'ativo');
-    }
-
     function applyFilter() {
         if (!currentData) return;
 
         const termo = searchInput.value.trim().toLowerCase();
         const tipo = searchType.value;
-        const negFilter = negativacaoSelect ? negativacaoSelect.value : '';
 
-        if (!termo && !negFilter) {
+        if (!termo) {
             renderView(currentData);
-            syncNegativacaoFilterStyle();
             return;
         }
 
         const filtered = {
-            critico: filterContracts(currentData.critico, termo, tipo, negFilter),
-            atencao: filterContracts(currentData.atencao, termo, tipo, negFilter),
-            recente: filterContracts(currentData.recente, termo, tipo, negFilter),
+            critico: filterContracts(currentData.critico, termo, tipo),
+            atencao: filterContracts(currentData.atencao, termo, tipo),
+            recente: filterContracts(currentData.recente, termo, tipo),
             funcionarios: currentData.funcionarios,
         };
 
         renderView(filtered);
-        syncNegativacaoFilterStyle();
     }
 
-    // Aplica o filtro de negativação (pendente / negativado / ativo / todos).
-    //
-    // O backend entrega status_negativacao:
-    //   'negativado'   -> parcela-alvo já na tabela negativacao
-    //   'pendente'     -> 31–89 dias na parcela-alvo, ainda não negativada
-    //   'nao_elegivel' -> fora da janela Serasa (<=30 ou >=90) ou regra ainda
-    //                     fora do fluxo de envio.
-    //
-    //   'ativo' (só no filtro): cobrança "recente" = **uma** parcela aberta
-    //   e atraso < 31 dias. Não inclui crítico/atenção com 1 parcela; esses
-    //   vão a pendente (janela) ou nao_elegivel (ex.: 90+).
-    function matchNegativacao(c, negFilter) {
-        if (!negFilter) return true;
-        var st = c.status_negativacao;
-        if (!st) {
-            if (c.negativado) st = 'negativado';
-            else if (c.elegivel_negativacao) st = 'pendente';
-            else st = 'nao_elegivel';
-        }
-        if (negFilter === 'negativado') return st === 'negativado';
-        if (negFilter === 'pendente')   return st === 'pendente';
-        if (negFilter === 'ativo') {
-            var nparc = parseInt(c.parcelas_abertas, 10);
-            if (!isFinite(nparc)) nparc = 0;
-            var d = parseInt(c.dias_atraso, 10);
-            if (!isFinite(d)) d = 0;
-            return st === 'nao_elegivel' && nparc === 1 && d < 31;
-        }
-        return true;
-    }
-
-    function filterContracts(contracts, termo, tipo, negFilter) {
+    function filterContracts(contracts, termo, tipo) {
         if (!contracts) return [];
         return contracts.filter(function (c) {
-            // Filtro de negativação sempre se aplica (quando definido).
-            if (!matchNegativacao(c, negFilter)) return false;
-
-            // Sem termo de pesquisa: só o filtro de negativação vale.
             if (!termo) return true;
 
             var grupoCota = ((c.grupo || '') + ' / ' + (c.cota || '')).toLowerCase();
@@ -452,12 +392,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function buildKanbanCard(level, c) {
         var card = document.createElement('div');
-        card.className = 'kanban-card kanban-card-' + level +
-            (c.negativado ? ' kanban-card-negativado' : '');
+        card.className = 'kanban-card kanban-card-' + level;
         card.setAttribute('data-id', c.id);
-        if (c.negativado) {
-            card.setAttribute('title', 'Contrato já negativado no Serasa');
-        }
 
         var dias = c.dias_atraso || 0;
         if (typeof dias === 'string') dias = parseInt(dias) || 0;
@@ -490,11 +426,6 @@ document.addEventListener('DOMContentLoaded', function () {
         } else if (c.parcelas_abertas) {
             pillHTML = '<span class="kanban-card-pill">' + c.parcelas_abertas + ' parc.</span>';
         }
-        if (c.negativado) {
-            pillHTML += '<span class="kanban-card-pill pill-negativado" title="Negativado no Serasa">' +
-                '<i class="fa-solid fa-ban"></i> Negativado</span>';
-        }
-
         card.innerHTML =
             '<div class="kanban-card-top">' +
             '  <span class="kanban-grupo">' + esc(c.grupo) + '/' + esc(c.cota) + '</span>' +
@@ -635,21 +566,14 @@ document.addEventListener('DOMContentLoaded', function () {
             contracts.forEach(function (c) {
                 // Linha principal do contrato
                 const tr = document.createElement('tr');
-                tr.className = 'contract-row' + (c.negativado ? ' contract-negativado' : '');
+                tr.className = 'contract-row';
                 tr.setAttribute('data-id', c.id);
-                if (c.negativado) {
-                    tr.setAttribute('title', 'Contrato já negativado no Serasa');
-                }
 
                 var dias = c.dias_atraso || 0;
                 if (typeof dias === 'string') dias = parseInt(dias);
 
-                var negBadge = c.negativado
-                    ? ' <span class="neg-badge" title="Negativado no Serasa"><i class="fa-solid fa-ban"></i></span>'
-                    : '';
-
                 tr.innerHTML =
-                    '<td class="fw-bold">' + esc(c.grupo) + '/' + esc(c.cota) + negBadge + '</td>' +
+                    '<td class="fw-bold">' + esc(c.grupo) + '/' + esc(c.cota) + '</td>' +
                     '<td>' + esc(c.nome_devedor || '-') + '</td>' +
                     '<td>' + esc(c.cpf_cnpj || '-') + '</td>' +
                     '<td>' + esc(c.parcelas_abertas || 0) + '</td>' +
@@ -1141,15 +1065,13 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // Devolve os contratos visíveis no bloco selecionado, respeitando filtro de
-    // pesquisa atual, filtro de negativação e ordenação aplicada na coluna.
+    // Devolve os contratos visíveis no bloco selecionado, respeitando busca e ordenação.
     function getContratosNivelAtual(level) {
         if (!currentData) return [];
         var termo = (searchInput.value || '').trim().toLowerCase();
         var tipo = searchType.value;
-        var negFilter = negativacaoSelect ? negativacaoSelect.value : '';
         var lista = currentData[level] || [];
-        if (termo || negFilter) lista = filterContracts(lista, termo, tipo, negFilter);
+        if (termo) lista = filterContracts(lista, termo, tipo);
         return sortLevelData(lista, level);
     }
 
@@ -1170,9 +1092,7 @@ document.addEventListener('DOMContentLoaded', function () {
         var btnNeg = document.getElementById('footerBulkNegativacao');
         if (btnSms) btnSms.addEventListener('click', function () { dispararFooterLote('sms'); });
         if (btnMail) btnMail.addEventListener('click', function () { dispararFooterLote('email'); });
-        // "Negativação" - envia ao Serasa (via API futura do Flávio). O módulo
-        // CobrancaAutomacoes trata confirmação + loading; o backend filtra os
-        // elegíveis (31-89 dias) e ignora contratos já negativados.
+        // Abre o módulo Negativação (Carteira) com o mesmo operador selecionado.
         if (btnNeg) btnNeg.addEventListener('click', function () {
             var qs = new URLSearchParams();
             qs.set('carteira', '1');

@@ -12,7 +12,54 @@
     .btn-neg-danger:hover { filter: brightness(1.05); }
     .neg-subcard { margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(226, 232, 240, 0.95); }
     .neg-subcard:first-of-type { margin-top: 0; padding-top: 0; border-top: none; }
-    .neg-pagination { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 14px; flex-wrap: wrap; }
+    .neg-split-panel {
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        margin-top: 14px;
+        overflow: hidden;
+        background: #fff;
+    }
+    .neg-split-panel:first-of-type { margin-top: 0; }
+    .neg-split-panel-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        padding: 12px 14px;
+        background: #f8fafc;
+        cursor: pointer;
+        user-select: none;
+        border-bottom: 1px solid transparent;
+    }
+    .neg-split-panel:not(.collapsed) .neg-split-panel-header {
+        border-bottom-color: #e2e8f0;
+    }
+    .neg-split-panel-header:focus-visible {
+        outline: 2px solid #2563eb;
+        outline-offset: 2px;
+    }
+    .neg-split-panel-header h4 {
+        margin: 0;
+        font-size: 1rem;
+        color: #334155;
+        flex: 1 1 160px;
+    }
+    .neg-split-badge {
+        font-size: 0.88rem;
+        color: #64748b;
+        white-space: nowrap;
+    }
+    .neg-split-panel.collapsed .neg-split-panel-body { display: none; }
+    .neg-split-chevron i {
+        transition: transform 0.15s ease;
+        display: inline-block;
+        color: #64748b;
+    }
+    .neg-split-panel.collapsed .neg-split-chevron i { transform: rotate(-90deg); }
+    .neg-split-panel-body { padding: 0 0 12px; }
+    .neg-split-panel-body .table-responsive { margin-top: 0; }
+    .neg-split-panel-header .bulk-btn { margin-left: auto; cursor: pointer; }
+    .neg-split-panel-header .bulk-btn:disabled { opacity: 0.45; cursor: not-allowed; }
     th.neg-sort { cursor: pointer; user-select: none; white-space: nowrap; }
     th.neg-sort:hover { color: #2563eb; }
     th.neg-sort .sort-ind { opacity: 0.55; font-size: 0.72em; margin-left: 4px; font-weight: 600; }
@@ -76,13 +123,11 @@
         margin: 0;
         white-space: nowrap;
     }
-    .neg-mod-cobranca .neg-subcard-obs { display: none !important; }
     .neg-mod-cobranca .neg-subcard-ativos { margin-top: 0; padding-top: 0; border-top: none; }
     .neg-mod-cobranca .neg-subcard-ativos > h4:first-of-type,
     .neg-mod-cobranca #negAtivosMeta {
         display: none !important;
     }
-    .neg-mod-cobranca .neg-subcard-hist { display: none !important; }
     .neg-mod-cobranca .neg-only-geral { display: none !important; }
     .neg-only-cobranca { display: none !important; }
     .neg-mod-cobranca .neg-only-cobranca:not(.neg-operador-hidden) { display: block !important; }
@@ -145,6 +190,19 @@
         cursor: not-allowed;
         pointer-events: none;
     }
+    /* Carteira: bloco Positivados em verde (nao usar estilo amarelo .atencao do cobranca.css) */
+    .neg-mod-cobranca #negAtivosBlocksContainer .priority-block.neg-carteira-pos {
+        border-left: 5px solid #16a34a;
+    }
+    .neg-mod-cobranca #negAtivosBlocksContainer .neg-carteira-pos .priority-icon {
+        background-color: #ecfdf5;
+        color: #16a34a;
+    }
+    .neg-mod-cobranca #negAtivosBlocksContainer .neg-carteira-pos .priority-count {
+        background-color: #ecfdf5;
+        color: #15803d;
+    }
+    .neg-cobranca-kpis .fb-dot.dot-positivados { background-color: #22c55e; }
 </style>
 {% endblock %}
 
@@ -230,70 +288,68 @@
         <div class="neg-subcard neg-subcard-ativos">
             <h4 style="margin:0 0 12px;font-size:1rem;color:#334155;"><i class="fa-solid fa-ban"></i> Parcelas com negativacao ativa</h4>
             <p class="neg-meta" id="negAtivosMeta" style="font-size:0.9rem;color:#64748b;margin-bottom:10px;"></p>
-            <div class="neg-cobranca-kpis" id="negCobrancaKpis" aria-label="Totais por faixa de atraso">
-                <span class="fb-item"><span class="fb-dot dot-critico"></span> Cr&#237;tico: <strong id="negKpiCritico">0</strong></span>
-                <span class="fb-item"><span class="fb-dot dot-atencao"></span> Aten&#231;&#227;o: <strong id="negKpiAtencao">0</strong></span>
-                <span class="fb-item"><i class="fa-solid fa-layer-group" style="color:#64748b;"></i> Total ativas: <strong id="negKpiTotalAtivos">0</strong></span>
+            <div class="neg-cobranca-kpis" id="negCobrancaKpis" aria-label="Totais Negativados e Positivados">
+                <span class="fb-item"><span class="fb-dot dot-critico"></span> Negativados: <strong id="negKpiNegativados">0</strong></span>
+                <span class="fb-item"><span class="fb-dot dot-positivados"></span> Positivados: <strong id="negKpiPositivados">0</strong></span>
+                <span class="fb-item"><i class="fa-solid fa-layer-group" style="color:#64748b;"></i> Total: <strong id="negKpiTotalAtivos">0</strong></span>
             </div>
             <div id="negAtivosBlocksContainer"></div>
-            <div class="table-responsive neg-only-geral">
-                <table class="styled-table busca-results-table" id="negTableAtivos">
-                    <thead>
-                        <tr>
-                            <th class="neg-sort" data-neg-table="ativos" data-neg-sort="contrato">Contrato <span class="sort-ind" aria-hidden="true"></span></th>
-                            <th class="neg-sort" data-neg-table="ativos" data-neg-sort="parcela">Parcela <span class="sort-ind"></span></th>
-                            <th class="neg-sort" data-neg-table="ativos" data-neg-sort="dias">Dias atraso <span class="sort-ind"></span></th>
-                            <th class="neg-sort" data-neg-table="ativos" data-neg-sort="status">Status <span class="sort-ind"></span></th>
-                            <th class="neg-sort" data-neg-table="ativos" data-neg-sort="data">Data <span class="sort-ind"></span></th>
-                            <th class="neg-sort" data-neg-table="ativos" data-neg-sort="operador">Operador <span class="sort-ind"></span></th>
-                            <th class="text-right">Acoes</th>
-                        </tr>
-                    </thead>
-                    <tbody id="negTbodyAtivos"></tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="neg-subcard neg-subcard-hist">
-            <h4 style="margin:0 0 12px;font-size:1rem;color:#334155;"><i class="fa-solid fa-clock-rotate-left"></i> Historico de eventos</h4>
-            <p class="neg-meta" id="negHistMeta" style="font-size:0.9rem;color:#64748b;margin-bottom:10px;"></p>
-            <div class="table-responsive">
-                <table class="styled-table busca-results-table" id="negTableHist">
-                    <thead>
-                        <tr>
-                            <th class="neg-sort" data-neg-table="hist" data-neg-sort="data">Data <span class="sort-ind"></span></th>
-                            <th class="neg-sort" data-neg-table="hist" data-neg-sort="contrato">Contrato <span class="sort-ind"></span></th>
-                            <th class="neg-sort" data-neg-table="hist" data-neg-sort="parcela">Parcela <span class="sort-ind"></span></th>
-                            <th class="neg-sort" data-neg-table="hist" data-neg-sort="tipo">Evento <span class="sort-ind"></span></th>
-                            <th class="neg-sort" data-neg-table="hist" data-neg-sort="detalhe">Detalhe <span class="sort-ind"></span></th>
-                            <th class="neg-sort" data-neg-table="hist" data-neg-sort="operador">Operador <span class="sort-ind"></span></th>
-                            <th class="text-right">Acoes</th>
-                        </tr>
-                    </thead>
-                    <tbody id="negTbodyHist"></tbody>
-                </table>
-            </div>
-            <div class="neg-pagination">
-                <span id="negPageInfo"></span>
-                <button type="button" class="btn-secondary" id="negPrevPage">Anterior</button>
-                <button type="button" class="btn-secondary" id="negNextPage">Proxima</button>
-            </div>
-        </div>
-
-        <div class="neg-subcard neg-subcard-obs">
-            <h4 style="margin:0 0 12px;font-size:1rem;color:#334155;"><i class="fa-solid fa-note-sticky"></i> Registrar observacao em um contrato</h4>
-            <form id="negObsForm" class="filter-form" style="max-width:520px;flex-wrap:wrap;">
-                <div class="form-group">
-                    <label for="negObsContratoId">ID do contrato</label>
-                    <input type="number" id="negObsContratoId" class="form-control" min="1" required placeholder="ID interno">
+            <div class="neg-only-geral">
+                <div class="neg-split-panel collapsed" id="negPanelNegativacao">
+                    <div class="neg-split-panel-header" role="button" tabindex="0" aria-expanded="false" aria-controls="negPanelNegativacaoBody">
+                        <span class="neg-split-chevron" aria-hidden="true"><i class="fa-solid fa-chevron-down"></i></span>
+                        <h4><i class="fa-solid fa-ban"></i> Parcelas para negativa&#231;&#227;o</h4>
+                        <span class="neg-split-badge"><span id="negSplitNegativacaoCount">0</span> parcela(s)</span>
+                        <button type="button" class="bulk-btn bulk-btn-negativar-lote" id="negBtnBulkNegativarGeral"
+                            title="Registrar negativacao novamente para cada parcela (mesma validacao do botao por linha)">Negativar todos</button>
+                    </div>
+                    <div class="neg-split-panel-body" id="negPanelNegativacaoBody">
+                        <div class="table-responsive">
+                            <table class="styled-table busca-results-table" id="negTableGeralNeg">
+                                <thead>
+                                    <tr>
+                                        <th class="neg-sort" data-neg-table="ativos" data-neg-sort="contrato">Contrato <span class="sort-ind" aria-hidden="true"></span></th>
+                                        <th class="neg-sort" data-neg-table="ativos" data-neg-sort="parcela">Parcela <span class="sort-ind"></span></th>
+                                        <th class="neg-sort" data-neg-table="ativos" data-neg-sort="dias">Dias atraso <span class="sort-ind"></span></th>
+                                        <th class="neg-sort" data-neg-table="ativos" data-neg-sort="status">Status <span class="sort-ind"></span></th>
+                                        <th class="neg-sort" data-neg-table="ativos" data-neg-sort="data">Data <span class="sort-ind"></span></th>
+                                        <th class="neg-sort" data-neg-table="ativos" data-neg-sort="operador">Operador <span class="sort-ind"></span></th>
+                                        <th class="text-right">Acoes</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="negTbodyGeralNeg"></tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
-                <div class="form-group" style="flex:1 1 280px;min-width:220px;">
-                    <label for="negObsTexto">Texto</label>
-                    <textarea id="negObsTexto" class="form-control" rows="2" required placeholder="Observacao sobre o contrato"></textarea>
+                <div class="neg-split-panel collapsed" id="negPanelPositivacao">
+                    <div class="neg-split-panel-header" role="button" tabindex="0" aria-expanded="false" aria-controls="negPanelPositivacaoBody">
+                        <span class="neg-split-chevron" aria-hidden="true"><i class="fa-solid fa-chevron-down"></i></span>
+                        <h4><i class="fa-solid fa-check-double"></i> Parcelas para positiva&#231;&#227;o</h4>
+                        <span class="neg-split-badge"><span id="negSplitPositivacaoCount">0</span> parcela(s)</span>
+                        <button type="button" class="bulk-btn bulk-btn-positivar-lote" id="negBtnBulkPositivarGeral"
+                            title="Envio em lote ao Serasa (parcelas elegiveis: aguardando Serasa ou sem cadastro ativo)">Positivar todos</button>
+                    </div>
+                    <div class="neg-split-panel-body" id="negPanelPositivacaoBody">
+                        <div class="table-responsive">
+                            <table class="styled-table busca-results-table" id="negTableGeralPos">
+                                <thead>
+                                    <tr>
+                                        <th class="neg-sort" data-neg-table="ativos" data-neg-sort="contrato">Contrato <span class="sort-ind" aria-hidden="true"></span></th>
+                                        <th class="neg-sort" data-neg-table="ativos" data-neg-sort="parcela">Parcela <span class="sort-ind"></span></th>
+                                        <th class="neg-sort" data-neg-table="ativos" data-neg-sort="dias">Dias atraso <span class="sort-ind"></span></th>
+                                        <th class="neg-sort" data-neg-table="ativos" data-neg-sort="status">Status <span class="sort-ind"></span></th>
+                                        <th class="neg-sort" data-neg-table="ativos" data-neg-sort="data">Data <span class="sort-ind"></span></th>
+                                        <th class="neg-sort" data-neg-table="ativos" data-neg-sort="operador">Operador <span class="sort-ind"></span></th>
+                                        <th class="text-right">Acoes</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="negTbodyGeralPos"></tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
-                <button type="submit" class="btn-search" style="max-width:220px;align-self:flex-end;"><i class="fa-solid fa-floppy-disk"></i> Salvar</button>
-            </form>
-            <p id="negObsMsg" style="display:none;margin-top:10px;font-size:0.9rem;"></p>
+            </div>
         </div>
 
         <div class="no-results d-none" id="negNoResults">
