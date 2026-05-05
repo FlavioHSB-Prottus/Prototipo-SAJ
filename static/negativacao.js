@@ -162,6 +162,14 @@ document.addEventListener('DOMContentLoaded', function () {
         return 'status-danger';
     }
 
+    /** Badge da coluna Status quando tipo_evento vem na linha (ex.: resposta estendida). */
+    function badgeClassTipoEventoNeg(t) {
+        var s = String(t || '');
+        if (s.indexOf('removido') === 0) return 'status-success';
+        if (s === 'observacao') return 'status-active';
+        return 'status-danger';
+    }
+
     function countSerasaElegivelCarteira(rows, tipoOperacao) {
         var key = tipoOperacao === 'positivar' ? 'serasa_elegivel_positivar' : 'serasa_elegivel_negativar';
         var n = 0;
@@ -208,7 +216,7 @@ document.addEventListener('DOMContentLoaded', function () {
             parts.push('de ' + negDataInicio.value);
         }
         if (negDataFim && negDataFim.value) {
-            parts.push('ate ' + negDataFim.value);
+            parts.push(modoCobranca ? ('negativacao (evento) em ' + negDataFim.value) : ('ate ' + negDataFim.value));
         }
         if (modoCobranca && negOperadorCobranca && negOperadorCobranca.value && !cfg.perfilCobranca) {
             var opLab = negOperadorCobranca.options[negOperadorCobranca.selectedIndex];
@@ -240,6 +248,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (negFilterSub) {
             negFilterSub.textContent = modoCobranca
                 ? ('Somente contratos no mesmo universo do modulo Cobranca (ultimo snapshot GM, parcelas em aberto).' +
+                    ' A Data fim filtra pelo dia do evento de negativacao no historico (mesmo criterio do modal do contrato); padrao: dia do ultimo GM.' +
                     (cfg.perfilCobranca ? ' Seu perfil lista apenas contratos atribuidos a voce.' : ''))
                 : 'Alterne para analisar apenas contratos que constam no painel de Cobranca (ultimo snapshot GM).';
         }
@@ -273,6 +282,9 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
             chunks.push('Pesquise para carregar a data de referencia.');
         }
+        if (negDataFim && negDataFim.value) {
+            chunks.push('Data fim: negativacoes com evento no historico nesse dia (alinha ao modal do contrato).');
+        }
         negModoCobrancaBanner.textContent = chunks.join(' ');
     }
 
@@ -283,6 +295,13 @@ document.addEventListener('DOMContentLoaded', function () {
         negAtivosListagemCompleta = false;
         applyModoUI();
         updateBannerText();
+        if (modoCobranca) {
+            negAtivosListagemCompleta = true;
+            if (negResultsSection) negResultsSection.classList.remove('d-none');
+            page = 1;
+            load();
+            return;
+        }
         if (negResultsSection && !negResultsSection.classList.contains('d-none')) {
             page = 1;
             load();
@@ -386,8 +405,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 return tieBreak(ra, rb);
             }
             case 'status': {
-                var sta = String(ra.status || '');
-                var stb = String(rb.status || '');
+                var sta = String(ra.tipo_evento || ra.status || '');
+                var stb = String(rb.tipo_evento || rb.status || '');
                 var st = cmpStr(sta, stb);
                 if (st) return st;
                 return tieBreak(ra, rb);
@@ -418,17 +437,31 @@ document.addEventListener('DOMContentLoaded', function () {
         var gc = esc(r.grupo) + '/' + esc(r.cota);
         var idp = r.id_parcela;
         var idc = r.id_contrato;
+        var tipoEv = r.tipo_evento ? String(r.tipo_evento) : '';
         var stLow = String(r.status || '').toLowerCase();
         var badgeCls = statusAtivoBadgeClass(r.status);
-        var acaoPos = stLow === 'aguardando_positivacao_serasa'
-            ? '<span style="font-size:0.78rem;color:#92400e;white-space:normal;max-width:9rem;display:inline-block;text-align:right">' +
-            'Pendente envio Serasa (use Positivar todos)</span>'
-            : '<button type="button" class="btn-neg-positivar btn-neg-positivar-ativo" data-id-parcela="' + esc(String(idp)) + '">Positivar</button>';
+        var statusCellHtml;
+        if (tipoEv) {
+            statusCellHtml = '<span class="status-badge ' + badgeClassTipoEventoNeg(tipoEv) + '">' +
+                esc(tipoLabel(tipoEv)) + '</span>';
+        } else {
+            statusCellHtml = '<span class="status-badge ' + badgeCls + '">' + esc(statusAtivoLabel(r.status)) + '</span>';
+        }
+        var acaoPos;
+        if (tipoEv.indexOf('removido') === 0) {
+            acaoPos = '<span style="font-size:0.78rem;color:#64748b">\u2014</span>';
+        } else if (stLow === 'aguardando_positivacao_serasa') {
+            acaoPos = '<span style="font-size:0.78rem;color:#92400e;white-space:normal;max-width:9rem;display:inline-block;text-align:right">' +
+                'Pendente envio Serasa (use Positivar todos)</span>';
+        } else {
+            acaoPos = '<button type="button" class="btn-neg-positivar btn-neg-positivar-ativo" data-id-parcela="' +
+                esc(String(idp)) + '">Positivar</button>';
+        }
         tr.innerHTML =
             '<td>' + gc + '</td>' +
             '<td>' + esc(r.numero_parcela != null ? r.numero_parcela : '-') + '</td>' +
             '<td>' + esc(r.dias_atraso != null ? r.dias_atraso : '-') + '</td>' +
-            '<td><span class="status-badge ' + badgeCls + '">' + esc(statusAtivoLabel(r.status)) + '</span></td>' +
+            '<td>' + statusCellHtml + '</td>' +
             '<td>' + fmtDt(r.data_negativacao) + '</td>' +
             '<td>' + esc(r.funcionario_nome || '-') + '</td>' +
             '<td class="text-right">' +
@@ -834,6 +867,14 @@ document.addEventListener('DOMContentLoaded', function () {
                     lastDataRefCobranca = data.data_referencia_cobranca;
                     updateBannerText();
                 }
+                if (modoCobranca && negDataFim && data.carteira_filtro_data_negativacao) {
+                    var cfd = data.carteira_filtro_data_negativacao;
+                    var cfFim = cfd.data_fim || '';
+                    if (cfFim && (!negDataFim.value || cfd.usou_data_padrao_ultimo_gm)) {
+                        negDataFim.value = cfFim;
+                        updateBannerText();
+                    }
+                }
 
                 var total = data.total_historico != null ? data.total_historico : 0;
                 var maxPage = Math.max(1, Math.ceil(total / perPage));
@@ -971,7 +1012,13 @@ document.addEventListener('DOMContentLoaded', function () {
             if (negEvento) negEvento.value = 'todos';
             if (negStatusAtivo) negStatusAtivo.value = '';
             if (negDataInicio) negDataInicio.value = '';
-            if (negDataFim) negDataFim.value = '';
+            if (negDataFim) {
+                if (modoCobranca && lastDataRefCobranca) {
+                    negDataFim.value = lastDataRefCobranca;
+                } else {
+                    negDataFim.value = '';
+                }
+            }
             if (negOperadorCobranca) negOperadorCobranca.value = '';
             page = 1;
             negAtivosListagemCompleta = false;
@@ -1049,7 +1096,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
     updateSortIndicators();
 
-    if (!modoCobranca && negResultsSection) {
+    if (modoCobranca && negResultsSection && !negUrlBootstrap.autoPesquisar) {
+        negResultsSection.classList.remove('d-none');
+        negAtivosListagemCompleta = true;
+        load();
+    } else if (!modoCobranca && negResultsSection) {
         negResultsSection.classList.remove('d-none');
         negAtivosListagemCompleta = false;
         load();

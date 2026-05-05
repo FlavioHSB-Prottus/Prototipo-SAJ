@@ -8594,6 +8594,56 @@ def _negativacao_listagem_order_at(sort_col, order_dir):
     return 'ORDER BY ' + clauses.get(sort_col, clauses['data'])
 
 
+def _negativacao_carteira_where_data_negativacao_efetiva(carteira_dn_ini, carteira_dn_fim):
+    """Restringe linhas de `negativacao` ao dia (ou intervalo) da negativação no histórico.
+
+    O modal do contrato usa `negativacao_historico`; filtrar só por `n.data_negativacao` pode incluir
+    parcelas cujo evento foi em outro dia. Mantém fallback por `data_negativacao` quando não há
+    evento negativado_* no histórico para a parcela (legado).
+
+    Retorna (fragmento_sql, lista_params).
+    """
+    params_ex = []
+    if carteira_dn_ini and carteira_dn_fim:
+        inner_date_nh = "DATE(nh.data_evento) BETWEEN %s AND %s"
+        params_ex.extend([carteira_dn_ini, carteira_dn_fim])
+        fb_date = "DATE(n.data_negativacao) BETWEEN %s AND %s"
+        params_fb = [carteira_dn_ini, carteira_dn_fim]
+    elif carteira_dn_fim:
+        inner_date_nh = "DATE(nh.data_evento) = %s"
+        params_ex.append(carteira_dn_fim)
+        fb_date = "DATE(n.data_negativacao) = %s"
+        params_fb = [carteira_dn_fim]
+    elif carteira_dn_ini:
+        inner_date_nh = "DATE(nh.data_evento) >= %s"
+        params_ex.append(carteira_dn_ini)
+        fb_date = "DATE(n.data_negativacao) >= %s"
+        params_fb = [carteira_dn_ini]
+    else:
+        return '', []
+
+    parcela_match_nh = (
+        "nh.id_contrato = n.id_contrato "
+        "AND ("
+        "  (nh.id_parcela IS NOT NULL AND nh.id_parcela = n.id_parcela) "
+        "  OR (nh.id_parcela IS NULL AND nh.numero_parcela IS NOT NULL "
+        "      AND nh.numero_parcela <=> n.numero_parcela)"
+        ")"
+    )
+    existe_neg_hist = (
+        "EXISTS (SELECT 1 FROM negativacao_historico nh "
+        "WHERE nh.tipo_evento IN ('negativado_manual','negativado_tracker') "
+        f"AND {parcela_match_nh} AND {inner_date_nh})"
+    )
+    sem_neg_hist_parcela = (
+        "NOT EXISTS (SELECT 1 FROM negativacao_historico nh0 "
+        "WHERE nh0.tipo_evento IN ('negativado_manual','negativado_tracker') "
+        f"AND {parcela_match_nh.replace('nh.', 'nh0.')})"
+    )
+    sql = f"(({existe_neg_hist}) OR ({sem_neg_hist_parcela} AND ({fb_date})))"
+    return sql, params_ex + params_fb
+
+
 def _negativacao_apenas_cobranca_exists_clause(cursor, funcionario_id_filtro):
     """EXISTS + params alinhados ao painel `/api/cobranca` (snapshot GM + parcelas abertas).
 
@@ -8655,7 +8705,12 @@ def _split_negativacao_ativos_prioridade(rows):
 
 @app.route('/api/negativacao/listagem')
 def api_negativacao_listagem():
-    """Lista histórico global de negativações e parcelas ainda ativas (painel do módulo)."""
+    """Lista histórico global de negativações e parcelas ainda ativas (painel do módulo).
+
+    Na visão Carteira Cobrança, a lista é da tabela `negativacao`, filtrada pelo **dia do evento de
+    negativação** em `negativacao_historico` (tipos negativado_manual / negativado_tracker), ligado
+    à parcela — alinhado ao modal de contrato. Se nenhuma data for enviada, usa o dia do último GM.
+    """
     try:
         page = max(1, int(request.args.get('page', 1)))
     except (TypeError, ValueError):
@@ -8708,6 +8763,22 @@ def api_negativacao_listagem():
         params_hist = []
         where_at = []
         params_at = []
+
+        data_ref_cobranca_resp = None
+        clause_cob = None
+        params_cob = []
+        if apenas_cobranca:
+            clause_cob, params_cob, data_ref_cobranca_resp = (
+                _negativacao_apenas_cobranca_exists_clause(cursor, funcionario_id_filtro)
+            )
+
+        carteira_dn_ini = data_inicio
+        carteira_dn_fim = data_fim
+        carteira_usou_data_padrao_gm = False
+        if apenas_cobranca and not carteira_dn_ini and not carteira_dn_fim:
+            carteira_dn_fim = data_ref_cobranca_resp
+            carteira_usou_data_padrao_gm = bool(data_ref_cobranca_resp)
+
         if q:
             like = f"%{q}%"
             if tipo_busca == 'contrato':
@@ -8731,13 +8802,24 @@ def api_negativacao_listagem():
         if data_inicio:
             where_hist.append("DATE(h.data_evento) >= %s")
             params_hist.append(data_inicio)
-            where_at.append("DATE(n.data_negativacao) >= %s")
-            params_at.append(data_inicio)
         if data_fim:
             where_hist.append("DATE(h.data_evento) <= %s")
             params_hist.append(data_fim)
-            where_at.append("DATE(n.data_negativacao) <= %s")
-            params_at.append(data_fim)
+
+        if apenas_cobranca:
+            frag_dn, par_dn = _negativacao_carteira_where_data_negativacao_efetiva(
+                carteira_dn_ini, carteira_dn_fim
+            )
+            if frag_dn:
+                where_at.append(frag_dn)
+                params_at.extend(par_dn)
+        else:
+            if data_inicio:
+                where_at.append("DATE(n.data_negativacao) >= %s")
+                params_at.append(data_inicio)
+            if data_fim:
+                where_at.append("DATE(n.data_negativacao) <= %s")
+                params_at.append(data_fim)
 
         if evento not in ('', 'todos', 'all'):
             if evento == 'negativado':
@@ -8754,22 +8836,26 @@ def api_negativacao_listagem():
                 where_hist.append("h.tipo_evento = %s")
                 params_hist.append(evento)
 
-            if evento in ('positivado', 'observacao', 'removido_pagamento', 'removido_manual'):
-                where_at.append('1=0')
-            elif evento == 'negativado_tracker':
-                where_at.append("n.status = 'registrado_tracker'")
-            elif evento == 'negativado_manual':
-                where_at.append("n.status IN ('enviado', 'falhou')")
+            if apenas_cobranca:
+                if evento in ('positivado', 'observacao', 'removido_pagamento', 'removido_manual'):
+                    where_at.append('1=0')
+                elif evento == 'negativado_tracker':
+                    where_at.append("n.status = 'registrado_tracker'")
+                elif evento == 'negativado_manual':
+                    where_at.append("n.status IN ('enviado', 'falhou')")
+            else:
+                if evento in ('positivado', 'observacao', 'removido_pagamento', 'removido_manual'):
+                    where_at.append('1=0')
+                elif evento == 'negativado_tracker':
+                    where_at.append("n.status = 'registrado_tracker'")
+                elif evento == 'negativado_manual':
+                    where_at.append("n.status IN ('enviado', 'falhou')")
 
         if status_ativo:
             where_at.append('n.status = %s')
             params_at.append(status_ativo)
 
-        data_ref_cobranca_resp = None
         if apenas_cobranca:
-            clause_cob, params_cob, data_ref_cobranca_resp = (
-                _negativacao_apenas_cobranca_exists_clause(cursor, funcionario_id_filtro)
-            )
             where_hist.append(clause_cob)
             params_hist.extend(params_cob)
             where_at.append(clause_cob)
@@ -8809,17 +8895,6 @@ def api_negativacao_listagem():
             )
             historico = _clean_rows(cursor.fetchall())
 
-        cursor.execute(
-            f"""
-            SELECT COUNT(*) AS total
-            FROM negativacao n
-            JOIN contrato c ON c.id = n.id_contrato
-            {wh_at}
-            """,
-            params_at,
-        )
-        total_ativos = int((cursor.fetchone() or {}).get('total') or 0)
-
         # Visao geral + filtros padrao + preview: so as 20 parcelas ativas mais recentes.
         # Carteira cobranca ou pesquisa com filtros: todas as linhas que batem no WHERE.
         limite_ativos = None
@@ -8830,6 +8905,17 @@ def api_negativacao_listagem():
         if limite_ativos is not None:
             limit_sql_at = ' LIMIT %s'
             params_limit_at.append(limite_ativos)
+
+        cursor.execute(
+            f"""
+            SELECT COUNT(*) AS total
+            FROM negativacao n
+            JOIN contrato c ON c.id = n.id_contrato
+            {wh_at}
+            """,
+            params_at,
+        )
+        total_ativos = int((cursor.fetchone() or {}).get('total') or 0)
 
         cursor.execute(
             f"""
@@ -8858,6 +8944,12 @@ def api_negativacao_listagem():
             'modo_cobranca': bool(apenas_cobranca),
             'ativos_em_preview': bool(not apenas_cobranca and limite_ativos == 20),
         }
+        if apenas_cobranca:
+            payload['carteira_filtro_data_negativacao'] = {
+                'data_inicio': carteira_dn_ini,
+                'data_fim': carteira_dn_fim,
+                'usou_data_padrao_ultimo_gm': carteira_usou_data_padrao_gm,
+            }
         if apenas_cobranca and data_ref_cobranca_resp:
             payload['data_referencia_cobranca'] = data_ref_cobranca_resp
             ac, aa, ar = _split_negativacao_ativos_prioridade(ativos)
