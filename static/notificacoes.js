@@ -8,6 +8,24 @@
     const API_TODAS = "/api/notificacoes/todas";
     const API_LIDA = "/api/notificacoes/lida";
 
+    /**
+     * Textos do usuario via escapes \\uXXXX ÔøΩ assim o browser interpreta certo
+     * mesmo se o static/notificacoes.js for lido/servido sem UTF-8.
+     * (\u00e7=c \u00e3=a \u00f5=o \u00ed=i)
+     */
+    const TXT = {
+        nenhumaNotifPendente: "Nenhuma notifica\u00e7\u00e3o pendente.",
+        entreParaVerNotif: "Entre para ver notifica\u00e7\u00f5es.",
+        naoPossivelCarregar: "N\u00e3o foi poss\u00edvel carregar.",
+        naoPossivelCarregarLista: "N\u00e3o foi poss\u00edvel carregar a lista.",
+        naoPossivelMarcarLida: "N\u00e3o foi poss\u00edvel marcar como lida: ",
+    };
+
+    /** API pode enviar lida como boolean, numero ou string ("0"/"1") apos _serialize. */
+    function notificacaoJaLida(v) {
+        return v === true || v === 1 || v === "1";
+    }
+
     function escapeHtml(s) {
         return String(s || "")
             .replace(/&/g, "&amp;")
@@ -49,6 +67,23 @@
             </div>`;
     }
 
+    /** Modal "Todas as notificacoes": so mostra "Lido" se ainda nao foi lida. */
+    function botoesModalHtml(tipo, refId, jaLida) {
+        const t = tipo === "agenda" ? "agenda" : "aviso";
+        const r = parseInt(refId, 10);
+        if (!Number.isFinite(r)) return "";
+        const btnLido = jaLida
+            ? ""
+            : `<button type="button" class="notif-btn notif-btn-lido" data-act="lido" data-tipo="${t}" data-ref-id="${r}">Lido</button>`;
+        const wrapCls =
+            "notif-actions notif-actions-modal" + (jaLida ? " notif-actions-modal-so-ir" : "");
+        return `
+            <div class="${wrapCls}">
+                ${btnLido}
+                <button type="button" class="notif-btn notif-btn-ir" data-act="ir" data-tipo="${t}" data-ref-id="${r}">Ir</button>
+            </div>`;
+    }
+
     function renderDropdownItem(it) {
         const tipo = it.tipo === "agenda" ? "agenda" : "aviso";
         const refId = parseInt(it.ref_id, 10);
@@ -72,14 +107,15 @@
         const tipo = it.tipo === "agenda" ? "agenda" : "aviso";
         const refId = parseInt(it.ref_id, 10);
         if (!Number.isFinite(refId)) return "";
-        const lidaclass = it.lida ? "notif-row-lida" : "notif-row-nao-lida";
+        const jaLida = notificacaoJaLida(it.lida);
+        const lidaclass = jaLida ? "notif-row-lida" : "notif-row-nao-lida";
         const pri =
             tipo === "agenda" && it.prioridade
                 ? `<span class="notif-prio">${escapeHtml(it.prioridade)}</span>`
                 : "";
-        const selo = it.lida
+        const selo = jaLida
             ? '<span class="notif-selo notif-selo-lida">Lido</span>'
-            : '<span class="notif-selo notif-selo-pendente">Pendente</span>';
+            : '<span class="notif-selo notif-selo-novo">Novo</span>';
         return `
             <div class="notif-modal-row ${lidaclass}" data-tipo="${tipo}" data-ref-id="${refId}">
                 <div class="notif-modal-row-head">
@@ -88,7 +124,7 @@
                 </div>
                 <strong>${escapeHtml(it.titulo)}</strong>
                 <p>${escapeHtml(it.descricao || "")}</p>
-                ${botoesHtml(tipo, refId)}
+                ${botoesModalHtml(tipo, refId, jaLida)}
             </div>`;
     }
 
@@ -113,7 +149,9 @@
                 updateBadge(0);
                 if (ul) {
                     ul.innerHTML =
-                        '<li class="bulletin-empty"><i class="fa-regular fa-user"></i> Entre para ver notificaùùes.</li>';
+                        '<li class="bulletin-empty"><i class="fa-regular fa-user"></i> ' +
+                        TXT.entreParaVerNotif +
+                        "</li>";
                 }
                 return;
             }
@@ -124,7 +162,9 @@
             if (!ul) return;
             if (!items.length) {
                 ul.innerHTML =
-                    '<li class="bulletin-empty"><i class="fa-regular fa-bell-slash"></i> Nenhuma notificaùùo pendente.</li>';
+                    '<li class="bulletin-empty"><i class="fa-regular fa-bell-slash"></i> ' +
+                    TXT.nenhumaNotifPendente +
+                    "</li>";
                 return;
             }
             ul.innerHTML = items.map(renderDropdownItem).join("");
@@ -133,7 +173,9 @@
             updateBadge(0);
             if (ul) {
                 ul.innerHTML =
-                    '<li class="bulletin-empty"><i class="fa-regular fa-circle-xmark"></i> Nùo foi possùvel carregar.</li>';
+                    '<li class="bulletin-empty"><i class="fa-regular fa-circle-xmark"></i> ' +
+                    TXT.naoPossivelCarregar +
+                    "</li>";
             }
         }
     }
@@ -155,7 +197,7 @@
         } catch (e) {
             console.warn("[notificacoes todas]", e);
             body.innerHTML =
-                '<p class="notificacoes-todas-empty">Nùo foi possùvel carregar a lista.</p>';
+                '<p class="notificacoes-todas-empty">' + TXT.naoPossivelCarregarLista + "</p>";
         }
     }
 
@@ -199,7 +241,7 @@
                     await carregarModalBody();
                 }
             } catch (err) {
-                alert("Nùo foi possùvel marcar como lida: " + err.message);
+                alert(TXT.naoPossivelMarcarLida + err.message);
             } finally {
                 btn.disabled = false;
             }

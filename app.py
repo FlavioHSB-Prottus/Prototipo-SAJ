@@ -7473,8 +7473,46 @@ def _aviso_row_to_api_dict(row):
     return out
 
 
+def _avisos_fix_legacy_pt_br(cursor, conn):
+    """Atualiza avisos padrao antigos sem acentuacao (idempotente; nao altera textos personalizados)."""
+    fixes = (
+        (
+            "Nova Politica de Juros",
+            "Nova Política de Juros",
+            "Atualizacao nas planilhas de calculo exigidas para grupos GM.",
+            "Atualização nas planilhas de cálculo exigidas para grupos GM.",
+        ),
+        (
+            "Manutencao no Servidor",
+            "Manutenção no Servidor",
+            "Agendada uma breve pausa no servidor neste domingo, as 02h.",
+            "Agendada uma breve pausa no servidor neste domingo, às 02h.",
+        ),
+        (
+            "Fechamento Mensal",
+            "Fechamento Mensal",
+            "Lembrete: Os arquivos de repasse devem ser consolidados ate o dia 15.",
+            "Lembrete: Os arquivos de repasse devem ser consolidados até o dia 15.",
+        ),
+    )
+    changed = False
+    for old_t, new_t, old_d, new_d in fixes:
+        cursor.execute(
+            "UPDATE aviso SET titulo = %s, descricao = %s WHERE titulo = %s AND descricao = %s",
+            (new_t, new_d, old_t, old_d),
+        )
+        if cursor.rowcount:
+            changed = True
+    if changed:
+        try:
+            conn.commit()
+        except Exception:
+            app.logger.exception("avisos: _avisos_fix_legacy_pt_br commit")
+
+
 def _avisos_seed_or_migrate(cursor, conn):
     """Tabela vazia: importa data/avisos.json se existir, senao insere avisos padrao; remove o JSON apos import."""
+    _avisos_fix_legacy_pt_br(cursor, conn)
     cursor.execute("SELECT COUNT(*) AS c FROM aviso")
     c = int(cursor.fetchone().get("c") or 0)
     if c > 0:
@@ -7512,18 +7550,18 @@ def _avisos_seed_or_migrate(cursor, conn):
     hoje = datetime.date.today()
     seed = [
         (
-            "Nova Politica de Juros",
-            "Atualizacao nas planilhas de calculo exigidas para grupos GM.",
+            "Nova Política de Juros",
+            "Atualização nas planilhas de cálculo exigidas para grupos GM.",
             hoje.isoformat(),
         ),
         (
-            "Manutencao no Servidor",
-            "Agendada uma breve pausa no servidor neste domingo, as 02h.",
+            "Manutenção no Servidor",
+            "Agendada uma breve pausa no servidor neste domingo, às 02h.",
             (hoje - datetime.timedelta(days=1)).isoformat(),
         ),
         (
             "Fechamento Mensal",
-            "Lembrete: Os arquivos de repasse devem ser consolidados ate o dia 15.",
+            "Lembrete: Os arquivos de repasse devem ser consolidados até o dia 15.",
             (hoje - datetime.timedelta(days=10)).isoformat(),
         ),
     ]
@@ -7729,6 +7767,7 @@ def api_notificacoes():
     unread_count = 0
     try:
         _ensure_aviso_table(cursor)
+        _avisos_fix_legacy_pt_br(cursor, conn)
         _ensure_notificacao_usuario_table(cursor)
 
         cursor.execute(
@@ -7859,6 +7898,7 @@ def api_notificacoes_todas():
     rows_agenda = []
     try:
         _ensure_aviso_table(cursor)
+        _avisos_fix_legacy_pt_br(cursor, conn)
         _ensure_notificacao_usuario_table(cursor)
 
         cursor.execute(

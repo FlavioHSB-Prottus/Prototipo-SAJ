@@ -701,9 +701,13 @@ body {
     letter-spacing: 0.02em;
 }
 
-.notif-selo-pendente {
-    background: #dbeafe;
-    color: #1e40af;
+.notif-selo-novo {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.notif-actions-modal-so-ir .notif-btn-ir {
+    flex: 1;
 }
 
 .notif-selo-lida {
