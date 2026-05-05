@@ -433,7 +433,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 html += '<ul class="contact-list">';
                 data.emails.forEach(function (em) {
                     html += '<li><i class="fa-solid fa-envelope"></i> ' + esc(em.email || '-');
-                    html += '<button class="btn-mensagem" title="Enviar Mensagem"><i class="fa-solid fa-comment-dots"></i></button>';
+                    var _emP = ' data-email="' + esc(em.email || '') + '" data-pessoa-id="' + esc(pessoaIdStr) + '"';
+                    if (em.id != null && em.id !== '') { _emP += ' data-email-id="' + esc(String(em.id)) + '"'; }
+                    if (firstContratoSms) { _emP += ' data-contrato-id="' + esc(firstContratoSms) + '"'; }
+                    html += '<button type="button" class="btn-enviar-email-html" title="Enviar e-mail"' + _emP +
+                        '><i class="fa-solid fa-envelope"></i></button>';
                     html += '<span class="contact-meta">';
                     var _fonteEmP = (typeof window.formatContatoFonteLabel === 'function') ? window.formatContatoFonteLabel(em.fonte) : '';
                     if (_fonteEmP) html += '<span class="contact-fonte" title="Origem do cadastro">' + esc(_fonteEmP) + '</span>';
@@ -699,7 +703,13 @@ document.addEventListener('DOMContentLoaded', function () {
                 html += '<ul class="contact-list">';
                 emails.forEach(function (em) {
                     html += '<li><i class="fa-solid fa-envelope"></i> ' + esc(em.email || '-');
-                    html += '<button class="btn-mensagem" title="Enviar Mensagem"><i class="fa-solid fa-comment-dots"></i></button>';
+                    var _emC = ' data-email="' + esc(em.email || '') + '" data-pessoa-id="' + esc(_pId) + '"';
+                    if (em.id != null && em.id !== '') { _emC += ' data-email-id="' + esc(String(em.id)) + '"'; }
+                    if (idContrato != null && String(idContrato) !== '') {
+                        _emC += ' data-contrato-id="' + esc(String(idContrato)) + '"';
+                    }
+                    html += '<button type="button" class="btn-enviar-email-html" title="Enviar e-mail"' + _emC +
+                        '><i class="fa-solid fa-envelope"></i></button>';
                     html += '<span class="contact-meta">';
                     var _fonteEm = (typeof window.formatContatoFonteLabel === 'function') ? window.formatContatoFonteLabel(em.fonte) : '';
                     if (_fonteEm) html += '<span class="contact-fonte" title="Origem do cadastro">' + esc(_fonteEm) + '</span>';

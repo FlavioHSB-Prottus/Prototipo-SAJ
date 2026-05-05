@@ -117,6 +117,7 @@ _COBRANCA_API_PREFIXES_OK = (
     '/api/automacao/',
     '/api/negativacao/',
     '/api/enviar-sms',
+    '/api/enviar-email-html',
 )
 
 
@@ -244,6 +245,7 @@ def _path_ok_bradesco_em_gm(path):
         '/api/pessoa/',
         '/api/discar',
         '/api/enviar-sms',
+        '/api/enviar-email-html',
         '/api/tramitacao',
         '/api/funcionario/perfil',
         '/api/avisos',
@@ -2570,6 +2572,11 @@ SMS_MC_HEADER_VALUE = (
     'MC.cC719ae5-22B3-439b-9D63-4D544f79Fffc-788B1CE2-9af2-417F-85Ba-67d3E16a7243'
 )
 
+EMAIL_MC_URL = 'https://sistema.messagecenter.com.br/api/Integracao/EnviarEmailHtml'
+EMAIL_MC_REMETENTE = os.environ.get(
+    'EMAIL_MC_REMETENTE', 'atendimento@joaobarbosa.com.br'
+)
+
 _TELEFONE_NUMERO_DIGITS_SQL = (
     "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(IFNULL(numero,''),'+',''),'-',''),' ',''),'(',''),')',''),'.','')"
 )
@@ -2606,6 +2613,49 @@ def _parse_positive_int(val):
     except (TypeError, ValueError):
         return None
     return n if n > 0 else None
+
+
+def _primeiro_nome(nome_completo):
+    """Primeiro token do nome (ex.: remetente / cliente na integracao MessageCenter)."""
+    s = (nome_completo or '').strip()
+    if not s:
+        return ''
+    return s.split()[0]
+
+
+def _validar_contexto_envio_email_html(cursor, id_pessoa_req, id_email_req, email_str, id_contrato_req):
+    """Garante que o e-mail pertence a `id_pessoa` e opcionalmente ao contrato informado.
+
+    Retorna (row_dict|None, erro_str|None). row_dict tem email_dest, id_pessoa, nome_completo, cpf_cnpj.
+    """
+    id_pessoa = _parse_positive_int(id_pessoa_req)
+    id_email = _parse_positive_int(id_email_req)
+    if not id_pessoa or not id_email:
+        return None, 'id_pessoa e id_email sao obrigatorios.'
+    email_norm = (email_str or '').strip().lower()
+    if not email_norm:
+        return None, 'E-mail invalido.'
+    cursor.execute(
+        'SELECT e.email AS email_dest, e.id_pessoa, p.nome_completo, p.cpf_cnpj '
+        'FROM email e INNER JOIN pessoa p ON p.id = e.id_pessoa '
+        'WHERE e.id = %s AND e.id_pessoa = %s',
+        (id_email, id_pessoa),
+    )
+    row = cursor.fetchone()
+    if not row:
+        return None, 'E-mail nao encontrado para esta pessoa.'
+    if (row.get('email_dest') or '').strip().lower() != email_norm:
+        return None, 'E-mail nao confere com o cadastro.'
+    pid = int(row['id_pessoa'])
+    id_contrato_p = _parse_positive_int(id_contrato_req)
+    if id_contrato_p is not None:
+        cursor.execute(
+            'SELECT id FROM contrato WHERE id = %s AND (id_pessoa = %s OR id_avalista = %s)',
+            (id_contrato_p, pid, pid),
+        )
+        if not cursor.fetchone():
+            return None, 'Contrato informado invalido para esta pessoa.'
+    return row, None
 
 
 def _resolve_ids_registro_sms(cursor, payload, digits_destino):
@@ -2760,6 +2810,75 @@ def api_enviar_sms():
         conn.close()
 
     return jsonify({'ok': True, 'sms': data})
+
+
+@app.route('/api/enviar-email-html', methods=['POST'])
+def api_enviar_email_html():
+    """Proxy MessageCenter EnviarEmailHtml: query string + multipart CorpoHtml, header apikey igual ao SMS."""
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
+    payload = request.get_json(silent=True) or {}
+    corpo = (payload.get('corpo_html') or '').strip()
+    if not corpo:
+        return jsonify({'error': 'Corpo do e-mail vazio.'}), 400
+    if len(corpo) > 200000:
+        return jsonify({'error': 'Corpo do e-mail muito longo.'}), 400
+
+    conn = _get_db()
+    try:
+        with conn.cursor() as cursor:
+            row_ctx, err = _validar_contexto_envio_email_html(
+                cursor,
+                payload.get('id_pessoa'),
+                payload.get('id_email'),
+                payload.get('email'),
+                payload.get('id_contrato'),
+            )
+            if err:
+                return jsonify({'error': err}), 400
+    finally:
+        conn.close()
+
+    remetente_nome = _primeiro_nome(session.get('funcionario_nome'))
+    destinatario = (row_ctx.get('email_dest') or '').strip()
+    query_params = {
+        'Destinatario': destinatario,
+        'RemetenteNome': remetente_nome,
+        'RemetenteEmail': EMAIL_MC_REMETENTE,
+        'Assunto': 'Cobranca',
+        'Identificador': '',
+        'ClienteNome': _primeiro_nome(row_ctx.get('nome_completo')),
+        'ClienteDocumento': '',
+        'CentroCusto': '',
+        'CamposCustomizados1': '',
+        'CamposCustomizados2': '',
+        'CamposCustomizados3': '',
+        'CamposCustomizados4': '',
+        'CamposCustomizados5': '',
+    }
+    headers = {SMS_MC_HEADER_NAME: SMS_MC_HEADER_VALUE}
+    try:
+        resp = requests.post(
+            EMAIL_MC_URL,
+            params=query_params,
+            files={'CorpoHtml': (None, corpo, 'text/plain; charset=utf-8')},
+            headers=headers,
+            timeout=60,
+        )
+    except requests.RequestException as exc:
+        return jsonify({'error': f'Erro de rede ao enviar e-mail: {exc}'}), 502
+    try:
+        data = resp.json()
+    except Exception:
+        data = {'raw': (resp.text or '')[:500]}
+    if not resp.ok:
+        return jsonify({
+            'error': 'Falha ao enviar e-mail.',
+            'status': resp.status_code,
+            'detalhe': data,
+        }), 502
+    return jsonify({'ok': True, 'email': data})
 
 
 @app.route('/api/pessoa/<int:pessoa_id>', methods=['GET'])
