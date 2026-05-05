@@ -19,6 +19,8 @@ from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev-consorcio-gm-altere-em-producao')
+# JSON com caracteres Unicode (acentos, cedilha) sem escape \\uXXXX no fio
+app.config['JSON_AS_ASCII'] = False
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 try:
@@ -51,6 +53,7 @@ DB_CONFIG = {
     'user': os.environ.get('DB_USER', os.environ.get('MYSQL_USER', 'root')),
     'password': os.environ.get('DB_PASSWORD', os.environ.get('MYSQL_PASSWORD', 'root')),
     'database': os.environ.get('DB_NAME', os.environ.get('MYSQL_DATABASE', 'consorcio_gm')),
+    'charset': 'utf8mb4',
 }
 
 def _funcionario_esta_ativo(val):
@@ -114,6 +117,7 @@ _COBRANCA_API_PREFIXES_OK = (
     '/api/funcionarios',
     '/api/funcionario/perfil',
     '/api/avisos',
+    '/api/notificacoes',
     '/api/automacao/',
     '/api/negativacao/',
     '/api/enviar-sms',
@@ -249,6 +253,7 @@ def _path_ok_bradesco_em_gm(path):
         '/api/tramitacao',
         '/api/funcionario/perfil',
         '/api/avisos',
+        '/api/notificacoes',
         '/api/upload',
     )
     return any(path.startswith(p) for p in prefixos)
@@ -1994,7 +1999,10 @@ def _serialize(obj):
     if isinstance(obj, decimal.Decimal):
         return float(obj)
     if isinstance(obj, bytes):
-        return obj.decode('latin-1', errors='replace')
+        try:
+            return obj.decode('utf-8')
+        except UnicodeDecodeError:
+            return obj.decode('latin-1', errors='replace')
     return str(obj)
 
 
@@ -7349,11 +7357,36 @@ def api_agenda():
         cursor.close()
         conn.close()
 
-@app.route('/api/agenda/<int:id_agenda>', methods=['PATCH', 'DELETE'])
+@app.route('/api/agenda/<int:id_agenda>', methods=['GET', 'PATCH', 'DELETE'])
 def api_agenda_item(id_agenda):
     conn = _get_db()
     cursor = conn.cursor()
     try:
+        if request.method == 'GET':
+            cursor.execute(
+                """
+                SELECT a.*, f.nome AS funcionario_nome, c.numero_contrato, c.grupo, c.cota
+                FROM agenda a
+                LEFT JOIN funcionario f ON a.id_funcionario = f.id
+                LEFT JOIN contrato c ON a.id_contrato = c.id
+                WHERE a.id = %s
+                """,
+                (id_agenda,),
+            )
+            row = _clean_row(cursor.fetchone())
+            if not row:
+                return jsonify({'error': 'Agenda não encontrada.'}), 404
+            fid_sess = session.get('funcionario_id')
+            dono = int(row.get('id_funcionario') or 0)
+            pode = False
+            if fid_sess is not None:
+                pode = dono == int(fid_sess) or _nivel_normalizado(
+                    session.get('funcionario_nivel_acesso')
+                ) in ('gestor', 'administrador')
+            if not pode:
+                return jsonify({'error': 'Acesso negado.'}), 403
+            return jsonify(row)
+
         if request.method == 'PATCH':
             data = request.json
             status = data.get('status')
@@ -7362,12 +7395,12 @@ def api_agenda_item(id_agenda):
                 conn.commit()
                 return jsonify({'success': True})
             return jsonify({'error': 'status invalid'}), 400
-        
-        elif request.method == 'DELETE':
-            cursor.execute("DELETE FROM agenda WHERE id = %s", (id_agenda,))
-            conn.commit()
-            return jsonify({'success': True})
-            
+
+        # DELETE
+        cursor.execute("DELETE FROM agenda WHERE id = %s", (id_agenda,))
+        conn.commit()
+        return jsonify({'success': True})
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -7391,6 +7424,25 @@ def _ensure_aviso_table(cursor):
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             KEY idx_aviso_data_ref (data_ref)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+    )
+
+
+def _ensure_notificacao_usuario_table(cursor):
+    """Tabela de leitura de notificacoes por funcionario (mural + agenda), idempotente."""
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS notificacao_usuario (
+            id BIGINT PRIMARY KEY AUTO_INCREMENT,
+            id_funcionario INT NOT NULL,
+            tipo ENUM('aviso', 'agenda') NOT NULL,
+            ref_id BIGINT NOT NULL,
+            lida_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uk_notif_func_tipo_ref (id_funcionario, tipo, ref_id),
+            KEY idx_notif_funcionario (id_funcionario),
+            CONSTRAINT fk_notificacao_usuario_funcionario
+                FOREIGN KEY (id_funcionario) REFERENCES funcionario (id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """
     )
@@ -7633,6 +7685,328 @@ def api_avisos_item(aviso_id):
             conn.close()
         except Exception:
             pass
+
+
+# =============================================================================
+# Notificacoes (mural de avisos + agenda do operador) — tabela notificacao_usuario
+# =============================================================================
+
+
+def _notif_format_pt_br_dh(value):
+    """Formata data/hora MySQL para exibicao no dropdown (naive, fuso do servidor)."""
+    if value is None:
+        return ""
+    if hasattr(value, "strftime"):
+        if hasattr(value, "hour"):
+            return value.strftime("%d/%m/%Y %H:%M")
+        return value.strftime("%d/%m/%Y")
+    s = str(value)[:19]
+    return s
+
+
+def _notif_sort_key(value):
+    if value is None:
+        return datetime.datetime.min
+    if isinstance(value, datetime.datetime):
+        return value
+    if isinstance(value, datetime.date):
+        return datetime.datetime.combine(value, datetime.time.min)
+    return datetime.datetime.min
+
+
+@app.route("/api/notificacoes", methods=["GET"])
+def api_notificacoes():
+    """Lista notificacoes nao lidas: avisos do mural e tarefas de agenda no horario agendado."""
+    raw_fid = session.get("funcionario_id")
+    if not raw_fid:
+        return jsonify({"error": "Nao autenticado"}), 401
+    fid = int(raw_fid)
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    rows_aviso = []
+    rows_agenda = []
+    unread_count = 0
+    try:
+        _ensure_aviso_table(cursor)
+        _ensure_notificacao_usuario_table(cursor)
+
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS c
+            FROM aviso a
+            WHERE NOT EXISTS (
+                SELECT 1 FROM notificacao_usuario nu
+                WHERE nu.id_funcionario = %s AND nu.tipo = 'aviso' AND nu.ref_id = a.id
+            )
+            """,
+            (fid,),
+        )
+        count_aviso = int((_clean_row(cursor.fetchone()) or {}).get("c") or 0)
+
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS c
+            FROM agenda a
+            WHERE a.id_funcionario = %s
+              AND a.status = 'pendente'
+              AND a.data <= NOW()
+              AND NOT EXISTS (
+                SELECT 1 FROM notificacao_usuario nu
+                WHERE nu.id_funcionario = %s AND nu.tipo = 'agenda' AND nu.ref_id = a.id
+              )
+            """,
+            (fid, fid),
+        )
+        count_agenda = int((_clean_row(cursor.fetchone()) or {}).get("c") or 0)
+        unread_count = count_aviso + count_agenda
+
+        cursor.execute(
+            """
+            SELECT a.id, a.titulo, a.descricao, a.data_ref, a.created_at
+            FROM aviso a
+            WHERE NOT EXISTS (
+                SELECT 1 FROM notificacao_usuario nu
+                WHERE nu.id_funcionario = %s AND nu.tipo = 'aviso' AND nu.ref_id = a.id
+            )
+            ORDER BY COALESCE(a.created_at, CONCAT(a.data_ref, ' 00:00:00')) DESC, a.id DESC
+            LIMIT 40
+            """,
+            (fid,),
+        )
+        rows_aviso = _clean_rows(cursor.fetchall())
+
+        cursor.execute(
+            """
+            SELECT a.id, a.atividade, a.descricao, a.data, a.prioridade, a.status
+            FROM agenda a
+            WHERE a.id_funcionario = %s
+              AND a.status = 'pendente'
+              AND a.data <= NOW()
+              AND NOT EXISTS (
+                SELECT 1 FROM notificacao_usuario nu
+                WHERE nu.id_funcionario = %s AND nu.tipo = 'agenda' AND nu.ref_id = a.id
+              )
+            ORDER BY a.data DESC
+            LIMIT 40
+            """,
+            (fid, fid),
+        )
+        rows_agenda = _clean_rows(cursor.fetchall())
+    except Exception as e:
+        app.logger.exception("api/notificacoes: query")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    merged = []
+    for row in rows_aviso:
+        created = row.get("created_at")
+        data_ref = row.get("data_ref")
+        sort_at = created if created is not None else data_ref
+        merged.append(
+            {
+                "tipo": "aviso",
+                "ref_id": int(row["id"]),
+                "titulo": row.get("titulo") or "",
+                "descricao": row.get("descricao") or "",
+                "subtitulo": "Mural · %s" % (_notif_format_pt_br_dh(data_ref),),
+                "_sk": _notif_sort_key(sort_at),
+            }
+        )
+
+    for row in rows_agenda:
+        dt = row.get("data")
+        merged.append(
+            {
+                "tipo": "agenda",
+                "ref_id": int(row["id"]),
+                "titulo": row.get("atividade") or "",
+                "descricao": row.get("descricao") or "",
+                "prioridade": row.get("prioridade") or "",
+                "subtitulo": "Agenda · %s" % (_notif_format_pt_br_dh(dt),),
+                "_sk": _notif_sort_key(dt),
+            }
+        )
+
+    merged.sort(key=lambda x: x["_sk"], reverse=True)
+    items = []
+    for it in merged[:18]:
+        entry = {k: v for k, v in it.items() if k != "_sk"}
+        items.append(entry)
+
+    return jsonify({"items": items, "unread_count": unread_count})
+
+
+@app.route("/api/notificacoes/todas", methods=["GET"])
+def api_notificacoes_todas():
+    """Mural completo (avisos) + agenda elegivel do usuario, com flag `lida` por item."""
+    raw_fid = session.get("funcionario_id")
+    if not raw_fid:
+        return jsonify({"error": "Nao autenticado"}), 401
+    fid = int(raw_fid)
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    rows_aviso = []
+    rows_agenda = []
+    try:
+        _ensure_aviso_table(cursor)
+        _ensure_notificacao_usuario_table(cursor)
+
+        cursor.execute(
+            """
+            SELECT a.id, a.titulo, a.descricao, a.data_ref, a.created_at,
+                   CASE WHEN nu.id IS NOT NULL THEN 1 ELSE 0 END AS lida
+            FROM aviso a
+            LEFT JOIN notificacao_usuario nu
+              ON nu.id_funcionario = %s AND nu.tipo = 'aviso' AND nu.ref_id = a.id
+            ORDER BY COALESCE(a.created_at, CONCAT(a.data_ref, ' 00:00:00')) DESC, a.id DESC
+            LIMIT 100
+            """,
+            (fid,),
+        )
+        rows_aviso = _clean_rows(cursor.fetchall())
+
+        cursor.execute(
+            """
+            SELECT a.id, a.atividade, a.descricao, a.data, a.prioridade, a.status,
+                   CASE WHEN nu.id IS NOT NULL THEN 1 ELSE 0 END AS lida
+            FROM agenda a
+            LEFT JOIN notificacao_usuario nu
+              ON nu.id_funcionario = %s AND nu.tipo = 'agenda' AND nu.ref_id = a.id
+            WHERE a.id_funcionario = %s
+              AND a.status = 'pendente'
+              AND a.data <= NOW()
+            ORDER BY a.data DESC
+            LIMIT 100
+            """,
+            (fid, fid),
+        )
+        rows_agenda = _clean_rows(cursor.fetchall())
+    except Exception as e:
+        app.logger.exception("api/notificacoes/todas")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    merged = []
+    for row in rows_aviso:
+        created = row.get("created_at")
+        data_ref = row.get("data_ref")
+        sort_at = created if created is not None else data_ref
+        merged.append(
+            {
+                "tipo": "aviso",
+                "ref_id": int(row["id"]),
+                "titulo": row.get("titulo") or "",
+                "descricao": row.get("descricao") or "",
+                "subtitulo": "Mural · %s" % (_notif_format_pt_br_dh(data_ref),),
+                "lida": bool(int(row.get("lida") or 0)),
+                "_sk": _notif_sort_key(sort_at),
+            }
+        )
+
+    for row in rows_agenda:
+        dt = row.get("data")
+        merged.append(
+            {
+                "tipo": "agenda",
+                "ref_id": int(row["id"]),
+                "titulo": row.get("atividade") or "",
+                "descricao": row.get("descricao") or "",
+                "prioridade": row.get("prioridade") or "",
+                "subtitulo": "Agenda · %s" % (_notif_format_pt_br_dh(dt),),
+                "lida": bool(int(row.get("lida") or 0)),
+                "_sk": _notif_sort_key(dt),
+            }
+        )
+
+    merged.sort(key=lambda x: x["_sk"], reverse=True)
+    items = []
+    for it in merged:
+        entry = {k: v for k, v in it.items() if k != "_sk"}
+        items.append(entry)
+
+    return jsonify({"items": items})
+
+
+@app.route("/api/notificacoes/lida", methods=["POST"])
+def api_notificacoes_marcar_lida():
+    """Marca uma notificacao como lida (nao volta a aparecer para este usuario)."""
+    raw_fid = session.get("funcionario_id")
+    if not raw_fid:
+        return jsonify({"error": "Nao autenticado"}), 401
+    fid = int(raw_fid)
+
+    payload = request.get_json(silent=True) or {}
+    tipo = (payload.get("tipo") or "").strip().lower()
+    ref_raw = payload.get("ref_id")
+    try:
+        ref_id = int(ref_raw)
+    except (TypeError, ValueError):
+        return jsonify({"error": "ref_id invalido"}), 400
+
+    if tipo not in ("aviso", "agenda"):
+        return jsonify({"error": "tipo invalido (use aviso ou agenda)"}), 400
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        _ensure_notificacao_usuario_table(cursor)
+        if tipo == "agenda":
+            cursor.execute(
+                "SELECT id FROM agenda WHERE id = %s AND id_funcionario = %s",
+                (ref_id, fid),
+            )
+            if not cursor.fetchone():
+                return jsonify({"error": "agenda nao encontrada ou nao pertence ao usuario"}), 404
+        else:
+            cursor.execute("SELECT id FROM aviso WHERE id = %s", (ref_id,))
+            if not cursor.fetchone():
+                return jsonify({"error": "aviso nao encontrado"}), 404
+
+        cursor.execute(
+            """
+            INSERT INTO notificacao_usuario (id_funcionario, tipo, ref_id)
+            VALUES (%s, %s, %s)
+            ON DUPLICATE KEY UPDATE lida_em = CURRENT_TIMESTAMP
+            """,
+            (fid, tipo, ref_id),
+        )
+        conn.commit()
+    except Exception as e:
+        app.logger.exception("api/notificacoes/lida")
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return jsonify({"error": str(e)}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    return jsonify({"success": True})
 
 
 # =============================================================================

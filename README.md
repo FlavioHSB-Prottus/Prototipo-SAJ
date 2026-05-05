@@ -7,6 +7,7 @@ Sistema centralizado para gestão e cobrança de consórcios: importação de ar
 - Documento original: `Metodologia - Joao Barbosa.odt` (raiz).
 - **Versão adaptada** ao stack Python/Flask/MySQL deste repo: [`docs/METODOLOGIA-JOAO-BARBOSA.md`](docs/METODOLOGIA-JOAO-BARBOSA.md).
 - Regras para o agente no Cursor: `.cursor/rules/metodologia-joao-barbosa.mdc`.
+- Contexto persistente do agente: [`AGENTS.md`](AGENTS.md).
 
 ## Configuração e segredos
 

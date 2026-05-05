@@ -149,18 +149,23 @@
                     <div class="notification-area" id="notificationBtn">
                         <div class="icon-wrapper">
                             <i class="fa-regular fa-bell"></i>
-                            <span class="notification-badge" id="notificationBadge">3</span>
+                            <span class="notification-badge" id="notificationBadge" style="display: none;">0</span>
                         </div>
 
                         <!-- Dropdown Notificações -->
                         <div class="notification-dropdown" id="notificationDropdown">
                             <div class="dropdown-header">
-                                <h4>Avisos Recentes</h4>
+                                <h4>Notificações</h4>
                             </div>
-                            <div class="dropdown-body">
+                            <div class="dropdown-body notification-dropdown-scroll">
                                 <ul class="bulletin-board mini" id="bulletinBoardHeader">
                                     <li class="bulletin-empty"><i class="fa-regular fa-hourglass-half"></i> Carregando...</li>
                                 </ul>
+                            </div>
+                            <div class="notification-dropdown-footer">
+                                <button type="button" class="btn-notificacoes-todas" id="btnAbrirTodasNotificacoes">
+                                    Todas notificações
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -202,6 +207,19 @@
                 {% endwith %}
                 {% block content %}{% endblock %}
             </main>
+        </div>
+    </div>
+
+    <div id="notificacoesTodasOverlay" class="notificacoes-todas-overlay" aria-hidden="true">
+        <div class="notificacoes-todas-dialog" role="dialog" aria-modal="true" aria-labelledby="notificacoesTodasTitle">
+            <div class="notificacoes-todas-head">
+                <h3 id="notificacoesTodasTitle">Todas as notificações</h3>
+                <button type="button" class="notificacoes-todas-close" id="notificacoesTodasClose"
+                    aria-label="Fechar">&times;</button>
+            </div>
+            <div class="notificacoes-todas-body" id="notificacoesTodasBody">
+                <p class="notificacoes-todas-loading">Carregando...</p>
+            </div>
         </div>
     </div>
 
@@ -315,6 +333,7 @@
     <!-- Script para lógica de UI global -->
     <script src="{{ url_for('static', filename='home.js') }}"></script>
     <script src="{{ url_for('static', filename='avisos.js') }}"></script>
+    <script src="{{ url_for('static', filename='notificacoes.js') }}"></script>
     <script src="{{ url_for('static', filename='tramitacoes_detail.js') }}"></script>
     <script src="{{ url_for('static', filename='contrato_campos.js') }}"></script>
     <script src="{{ url_for('static', filename='contrato_detalhes_modal.js') }}"></script>
