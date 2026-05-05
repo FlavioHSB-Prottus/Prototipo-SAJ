@@ -53,7 +53,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // Lógica do Sino de Notificações
     const notificationBtn = document.getElementById('notificationBtn');
     const notificationDropdown = document.getElementById('notificationDropdown');
-    const notificationBadge = document.getElementById('notificationBadge');
 
     if (notificationBtn && notificationDropdown) {
         notificationBtn.addEventListener('click', function(e) {
@@ -66,12 +65,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             notificationDropdown.classList.toggle('show');
-            
-            // Fazer a bolinha do badge sumir na hora que visualiza
-            if (notificationBadge) {
-                notificationBadge.style.opacity = '0';
-                setTimeout(() => notificationBadge.style.display = 'none', 300);
-            }
+            /* Badge controlado por notificacoes.js (itens lidos sumem ao clicar). */
         });
 
         document.addEventListener('click', function(e) {

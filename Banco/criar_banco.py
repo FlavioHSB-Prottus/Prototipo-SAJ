@@ -16,7 +16,6 @@ DB_HOST = os.environ.get("DB_HOST", "localhost")
 DB_USER = os.environ.get("DB_USER", "root")
 DB_PASSWORD = os.environ.get("DB_PASSWORD", "root")
 DB_NAME = os.environ.get("DB_NAME", "consorcio_gm")
-
 # 2. SQL PURO E COM PONTO-E-VÍRGULA
 RAW_SQL = """
 CREATE TABLE `arquivos_gm` (
@@ -706,6 +705,18 @@ CREATE TABLE `agenda` (
   KEY `fk_agenda_funcionario` (`id_funcionario`),
   CONSTRAINT `fk_agenda_contrato` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `fk_agenda_funcionario` FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`)
+);
+
+CREATE TABLE `notificacao_usuario` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `id_funcionario` int(11) NOT NULL,
+  `tipo` enum('aviso','agenda') NOT NULL,
+  `ref_id` bigint(20) NOT NULL,
+  `lida_em` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_notif_func_tipo_ref` (`id_funcionario`,`tipo`,`ref_id`),
+  KEY `idx_notif_funcionario` (`id_funcionario`),
+  CONSTRAINT `fk_notificacao_usuario_funcionario` FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE
 );
 
 CREATE TABLE `bens` (

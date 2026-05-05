@@ -20,10 +20,44 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
-    function init() {
+    async function maybeOpenFromNotifQuery() {
+        const params = new URLSearchParams(window.location.search);
+        const nid = params.get('notif_id');
+        if (!nid) return false;
+        try {
+            const res = await fetch('/api/agenda/' + encodeURIComponent(nid));
+            if (!res.ok) return false;
+            const task = await res.json();
+            if (task.error || !task.data || typeof task.data !== 'string') return false;
+            const dt = new Date(task.data);
+            if (isNaN(dt.getTime())) return false;
+            currentDate = new Date(dt.getFullYear(), dt.getMonth(), 1);
+            currentSelectDate = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+            await renderCalendar();
+            const dateStr = task.data.substring(0, 10);
+            renderTasksForDay(dateStr);
+            requestAnimationFrame(() => {
+                const row = tasksList.querySelector('[data-task-id="' + String(nid) + '"]');
+                if (row) {
+                    row.classList.add('task-item-highlight');
+                    row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                }
+            });
+            history.replaceState(null, '', window.location.pathname);
+            return true;
+        } catch (e) {
+            console.warn('agenda notif_id', e);
+            return false;
+        }
+    }
+
+    async function init() {
         loadFuncionarios();
-        renderCalendar();
         setupEvents();
+        const handled = await maybeOpenFromNotifQuery();
+        if (!handled) {
+            await renderCalendar();
+        }
     }
 
     async function loadFuncionarios() {
@@ -146,6 +180,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const item = document.createElement('div');
             item.className = 'task-item';
+            item.dataset.taskId = String(task.id);
             
             const btnContrato = task.id_contrato ? 
                 `<button class="btn-acessar" onclick="window.openContratoModal(${task.id_contrato})"><i class="fa-solid fa-arrow-up-right-from-square"></i> Contrato ${escapeHtml(task.grupo || '')}/${escapeHtml(task.cota || '')}</button>` 
@@ -246,6 +281,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (res.ok) {
                 agendaModal.classList.remove('active');
                 renderCalendar();
+                if (typeof window.__notificacoesRecarregar === 'function') {
+                    window.__notificacoesRecarregar();
+                }
             } else {
                 const err = await res.json();
                 alert('Erro ao salvar: ' + (err.error || 'Desconhecido'));
@@ -572,5 +610,5 @@ document.addEventListener('DOMContentLoaded', () => {
         return 'status-active';
     }
 
-    init();
+    void init();
 });

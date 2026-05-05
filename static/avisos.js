@@ -1,9 +1,8 @@
 /* ==========================================================================
  * Mural de Avisos - CRUD persistido em /api/avisos (tabela MySQL `aviso`).
  *
- * Cuida de dois lugares:
  *   - #bulletinBoardHome   (card principal na home, editavel)
- *   - #bulletinBoardHeader (dropdown do sino no header, somente leitura)
+ * O dropdown do sininho é preenchido por static/notificacoes.js.
  * ========================================================================== */
 
 (function () {
@@ -105,41 +104,12 @@
             .join("");
     }
 
-    function renderListaHeader(avisos) {
-        const ul = document.getElementById("bulletinBoardHeader");
-        if (!ul) return;
-        const recent = avisos.slice(0, 5);
-        if (!recent.length) {
-            ul.innerHTML = `<li class="bulletin-empty">Nenhum aviso.</li>`;
-        } else {
-            ul.innerHTML = recent
-                .map(
-                    (a) => `
-                <li class="bulletin-item ${isRecente(a.data_iso) ? "new" : ""}">
-                    <div class="bulletin-content">
-                        <h4>${escapeHtml(a.titulo)}</h4>
-                        <p>${escapeHtml(a.descricao || "")}</p>
-                    </div>
-                </li>`,
-                )
-                .join("");
-        }
-        const badge = document.getElementById("notificationBadge");
-        if (badge) {
-            const novos = avisos.filter((a) => isRecente(a.data_iso)).length;
-            if (novos > 0) {
-                badge.textContent = String(novos);
-                badge.style.display = "";
-            } else {
-                badge.style.display = "none";
-            }
-        }
-    }
-
     async function atualizarTodosOsLugares(forcarReload = true) {
         const avisos = await fetchAvisos(forcarReload);
         renderListaHome(avisos);
-        renderListaHeader(avisos);
+        if (typeof window.__notificacoesRecarregar === "function") {
+            window.__notificacoesRecarregar();
+        }
     }
 
     /* ------------------------------------------------------------------- *
