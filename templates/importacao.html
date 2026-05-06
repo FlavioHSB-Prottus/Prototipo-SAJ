@@ -62,8 +62,14 @@
             <!-- Blocos por funcionario -->
             <div class="distribuicao-funcionarios" id="distribuicaoFuncionarios"></div>
 
-            <!-- Acoes: Negativação/Positivação / Recarregar / Restaurar / Aprovar (rodape do painel) -->
+            <!-- Rodape: Lista SMS, SMS automáticos, Negativação/Positivação, Recarregar, Restaurar, Aprovar -->
             <div class="distribuicao-actions distribuicao-actions-footer">
+                <button type="button" class="btn-secondary-dist btn-sms-excel-dist" id="btnSmsAutomatizadosExcel" disabled title="Excel: grupo, cota e dias de atraso dos contratos abertos com SMS previsto (dias 0, 16, 31, 61 ou 85)">
+                    <i class="fa-solid fa-file-excel"></i> Lista SMS
+                </button>
+                <button type="button" class="btn-secondary-dist btn-sms-automatizados-dist" id="btnSmsAutomatizadosDistribuicao" disabled title="SMS automáticos: todos os contratos abertos; envia quando a diferença hoje vs. vencimento mais antigo das parcelas em aberto for 0, 16, 31, 61 ou 85 dias">
+                    <i class="fa-solid fa-comment-sms"></i> SMS automáticos
+                </button>
                 <button type="button" class="btn-secondary-dist btn-neg-pos-dist" id="btnNegPosDistribuicao" title="Abrir módulo Negativação na Carteira Cobrança">
                     <i class="fa-solid fa-scale-balanced"></i> Negativação/Positivação
                 </button>
@@ -71,13 +77,7 @@
                     <i class="fa-solid fa-rotate"></i> Recarregar
                 </button>
                 <button type="button" class="btn-secondary-dist btn-restaurar-dist" id="btnRestaurarDistribuicao" title="Voltar à distribuição inicial da importação (desfaz todas as transferências)">
-                    <i class="fa-solid fa-clock-rotate-left"></i> Restaurar inicial
-                </button>
-                <button type="button" class="btn-secondary-dist btn-sms-excel-dist" id="btnSmsAutomatizadosExcel" disabled title="Excel: grupo, cota e dias de atraso dos contratos abertos com SMS previsto (dias 0, 16, 31, 61 ou 85)">
-                    <i class="fa-solid fa-file-excel"></i> lista sms
-                </button>
-                <button type="button" class="btn-secondary-dist btn-sms-automatizados-dist" id="btnSmsAutomatizadosDistribuicao" disabled title="SMS automáticos: todos os contratos abertos; envia quando a diferença hoje vs. vencimento mais antigo das parcelas em aberto for 0, 16, 31, 61 ou 85 dias">
-                    <i class="fa-solid fa-comment-sms"></i> SMS automáticos (cobrança)
+                    <i class="fa-solid fa-clock-rotate-left"></i> Restaurar Inicial
                 </button>
                 <button type="button" class="btn-aprovar-dist" id="btnAprovarDistribuicao">
                     <i class="fa-solid fa-check"></i> Aprovar Distribuição
