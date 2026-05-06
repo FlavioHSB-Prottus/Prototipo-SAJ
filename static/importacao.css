@@ -1006,9 +1006,22 @@
     .distribuicao-actions-footer .btn-secondary-dist,
     .distribuicao-actions-footer .btn-neg-pos-dist,
     .distribuicao-actions-footer .btn-restaurar-dist,
-    .distribuicao-actions-footer .btn-sms-automatizados-dist {
+    .distribuicao-actions-footer .btn-sms-automatizados-dist,
+    .distribuicao-actions-footer .btn-sms-excel-dist {
         flex: 1;
         justify-content: center;
     }
+}
+
+/* Lista Excel (SMS automáticos): tom verde discreto alinhado aos botões secundários */
+.distribuicao-actions-footer .btn-sms-excel-dist {
+    border-color: #15803d;
+    color: #166534;
+}
+
+.distribuicao-actions-footer .btn-sms-excel-dist:hover:not(:disabled) {
+    background: #f0fdf4;
+    border-color: #16a34a;
+    color: #14532d;
 }
 

@@ -2008,12 +2008,268 @@ def _mensagem_sms_auto_importacao(primeiro_nome, numero_contrato, parcelas_txt, 
     )
 
 
+_SMS_AUTOM_DISTRIBUICAO_SQL = """
+                SELECT c.id AS id_contrato,
+                       c.grupo,
+                       c.cota,
+                       c.id_pessoa,
+                       c.numero_contrato,
+                       p.nome_completo,
+                       (SELECT DATEDIFF(CURDATE(), MIN(p2.vencimento))
+                          FROM parcela p2
+                         WHERE p2.id_contrato = c.id AND p2.status = 'aberto') AS dias_atraso
+                FROM contrato c
+                LEFT JOIN pessoa p ON p.id = c.id_pessoa
+                WHERE c.status = 'aberto'
+                ORDER BY c.id
+                """
+
+# Export Excel (lista contratos abertos no roteiro de dias); independente da validacao de telefone do preview/POST.
+_SMS_AUTOM_EXCEL_SQL = """
+WITH MenorVencimento AS (
+    SELECT
+        id_contrato,
+        MIN(vencimento) AS data_vencimento_minima
+    FROM parcela
+    WHERE status = 'aberto'
+    GROUP BY id_contrato
+)
+SELECT
+    c.id AS contrato_id,
+    c.numero_contrato,
+    c.grupo,
+    c.cota,
+    mv.data_vencimento_minima,
+    DATEDIFF(CURRENT_DATE, mv.data_vencimento_minima) AS dias_atraso
+FROM contrato c
+JOIN MenorVencimento mv ON c.id = mv.id_contrato
+WHERE c.status = 'aberto'
+  AND DATEDIFF(CURRENT_DATE, mv.data_vencimento_minima) IN (0, 16, 31, 61, 85)
+ORDER BY dias_atraso DESC
+"""
+
+
+def _sms_automatizados_template_id_por_dias(da_int):
+    """Template SMS automaticos importacao: dias desde MIN(vencimento) parcelas abertas.
+
+    DATEDIFF(CURDATE(), vencimento): 0, 16, 31, 61 ou 85 disparam; negativos ou outros
+    valores retornam None. None (sem parcela aberta / vencimento) retorna None.
+    """
+    if da_int is None:
+        return None
+    try:
+        d = int(da_int)
+    except (TypeError, ValueError):
+        return None
+    if d < 0:
+        return None
+    if d == 0:
+        return 1
+    if d == 16:
+        return 2
+    if d == 31:
+        return 3
+    if d in (61, 85):
+        return 4
+    return None
+
+
+def _sms_automatizados_analise(conn):
+    """Mesma logica do preview (template + telefones + _resolve_ids_registro_sms).
+
+    Contratos `aberto` na base; dispara quando DATEDIFF(hoje, MIN vencimento parcelas
+    abertas) in (0, 16, 31, 61, 85). Retorna (contagens, lista vazia — Excel usa
+    `_SMS_AUTOM_EXCEL_SQL` separadamente).
+    """
+    out = {
+        'sms_previstos': 0,
+        'contratos_com_sms': 0,
+        'ignorados_sem_entrada': 0,
+        'ignorados_sem_template': 0,
+        'ignorados_sem_telefone': 0,
+        'tentativas_bloqueadas_cadastro': 0,
+        'contratos_processados': 0,
+    }
+    with conn.cursor() as cursor:
+        cursor.execute(_SMS_AUTOM_DISTRIBUICAO_SQL)
+        contratos = cursor.fetchall() or []
+
+    for row in contratos:
+        out['contratos_processados'] += 1
+        id_contrato = int(row['id_contrato'])
+        id_pessoa = row.get('id_pessoa')
+        if id_pessoa is None:
+            out['ignorados_sem_template'] += 1
+            continue
+        id_pessoa = int(id_pessoa)
+
+        dias_atraso = row.get('dias_atraso')
+        da_int = None
+        if dias_atraso is not None:
+            try:
+                da_int = int(dias_atraso)
+            except (TypeError, ValueError):
+                da_int = None
+
+        template_id = _sms_automatizados_template_id_por_dias(da_int)
+
+        if template_id is None:
+            out['ignorados_sem_template'] += 1
+            continue
+
+        with conn.cursor() as cursor:
+            cursor.execute(
+                'SELECT id, numero FROM telefone WHERE id_pessoa = %s',
+                (id_pessoa,),
+            )
+            telefones = cursor.fetchall() or []
+
+        if not telefones:
+            out['ignorados_sem_telefone'] += 1
+            continue
+
+        n_ok_contrato = 0
+        for tel in telefones:
+            digits = _sms_digits_only(tel.get('numero'))
+            if not digits:
+                out['tentativas_bloqueadas_cadastro'] += 1
+                continue
+            payload_resolve = {
+                'id_telefone': int(tel['id']),
+                'id_pessoa': id_pessoa,
+                'id_contrato': id_contrato,
+            }
+            with conn.cursor() as cursor:
+                _, err = _resolve_ids_registro_sms(cursor, payload_resolve, digits)
+            if err:
+                out['tentativas_bloqueadas_cadastro'] += 1
+                continue
+            out['sms_previstos'] += 1
+            n_ok_contrato += 1
+        if n_ok_contrato > 0:
+            out['contratos_com_sms'] += 1
+
+    return out, []
+
+
+@app.route('/api/importacao/distribuicao/sms-automatizados/preview', methods=['GET'])
+def api_distribuicao_sms_automatizados_preview():
+    """Preview do lote: contratos abertos com dias 0/16/31/61/85 desde MIN(vencimento) parcelas abertas."""
+    if not session.get('funcionario_id'):
+        return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
+    if not _pode_sms_automatizados_importacao():
+        return jsonify({'error': 'Acesso restrito a gestores ou administradores.'}), 403
+
+    conn = _get_db()
+    try:
+        out, _linhas = _sms_automatizados_analise(conn)
+    finally:
+        conn.close()
+
+    return jsonify({'ok': True, **out})
+
+
+def _xlsx_cell_str(val):
+    """Texto seguro para celula openpyxl (remove caracteres de controle ilegais)."""
+    if val is None:
+        return ''
+    if isinstance(val, (bytes, bytearray)):
+        s = bytes(val).decode('utf-8', errors='replace')
+    elif isinstance(val, memoryview):
+        s = bytes(val).decode('utf-8', errors='replace')
+    elif isinstance(val, (datetime.date, datetime.datetime)):
+        s = val.isoformat()
+    elif isinstance(val, decimal.Decimal):
+        s = format(val, 'f')
+    else:
+        s = str(val)
+    try:
+        from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+        s = ILLEGAL_CHARACTERS_RE.sub('', s)
+    except Exception:
+        pass
+    return s
+
+
+@app.route('/api/importacao/distribuicao/sms-automatizados/excel', methods=['GET'])
+def api_distribuicao_sms_automatizados_excel():
+    """Excel: grupo, cota e dias de atraso via CTE MenorVencimento (`_SMS_AUTOM_EXCEL_SQL`)."""
+    if not session.get('funcionario_id'):
+        return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
+    if not _pode_sms_automatizados_importacao():
+        return jsonify({'error': 'Acesso restrito a gestores ou administradores.'}), 403
+
+    try:
+        from openpyxl import Workbook
+    except ImportError:
+        return jsonify({
+            'error': 'Biblioteca openpyxl nao instalada. Execute: pip install openpyxl',
+        }), 503
+
+    conn = _get_db()
+    linhas = []
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(_SMS_AUTOM_EXCEL_SQL)
+            linhas = cursor.fetchall() or []
+    except Exception as exc:
+        app.logger.exception('sms-automatizados/excel: falha na query')
+        return jsonify({'error': f'Falha ao consultar dados para o Excel: {exc}'}), 500
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    try:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = 'SMS previstos'
+        hdr = ('Grupo', 'Cota', 'Dias de atraso')
+        ws.append(hdr)
+        if not linhas:
+            ws.append(
+                ('Nenhum contrato no roteiro de dias (0, 16, 31, 61, 85) neste momento.', '', '')
+            )
+        else:
+            for row in linhas:
+                da = row.get('dias_atraso')
+                try:
+                    da_cell = int(da) if da is not None else ''
+                except (TypeError, ValueError):
+                    da_cell = _xlsx_cell_str(da)
+                ws.append((
+                    _xlsx_cell_str(row.get('grupo')),
+                    _xlsx_cell_str(row.get('cota')),
+                    da_cell,
+                ))
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+    except Exception as exc:
+        app.logger.exception('sms-automatizados/excel: falha ao montar ficheiro')
+        return jsonify({'error': f'Falha ao gerar o Excel: {exc}'}), 500
+
+    fname = (
+        'sms_automatizados_distribuicao_'
+        + datetime.datetime.now().strftime('%Y%m%d_%H%M')
+        + '.xlsx'
+    )
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=fname,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+
+
 @app.route('/api/importacao/distribuicao/sms-automatizados', methods=['POST'])
 def api_distribuicao_sms_automatizados():
-    """Envia SMS em lote (MessageCenter) para devedores dos contratos abertos em cobranca.
+    """Envia SMS em lote (MessageCenter) para contratos abertos na base.
 
-    Templates por dia desde entrada (ocorrencia contrato novo/voltou) ou, com prioridade,
-    por dias de atraso 61/85 nas parcelas abertas. Registra em registro_sms apos sucesso.
+    Regra: DATEDIFF(hoje, MIN vencimento de parcelas abertas) em 0, 16, 31, 61 ou 85 dias;
+    templates 1 a 4 conforme mapeamento. Registra em registro_sms apos sucesso.
     Apenas Gestor ou Administrador.
     """
     fid = session.get('funcionario_id')
@@ -2035,27 +2291,7 @@ def api_distribuicao_sms_automatizados():
 
     try:
         with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT c.id AS id_contrato,
-                       c.id_pessoa,
-                       c.numero_contrato,
-                       p.nome_completo,
-                       (SELECT DATEDIFF(CURDATE(), MIN(p2.vencimento))
-                          FROM parcela p2
-                         WHERE p2.id_contrato = c.id AND p2.status = 'aberto') AS dias_atraso,
-                       (SELECT MAX(o.data_arquivo)
-                          FROM ocorrencia o
-                         WHERE o.id_contrato = c.id
-                           AND o.status = 'aberto'
-                           AND o.descricao IN ('contrato novo', 'contrato voltou')) AS data_entrada
-                FROM funcionario_cobranca fc
-                INNER JOIN contrato c ON c.id = fc.id_contrato
-                LEFT JOIN pessoa p ON p.id = c.id_pessoa
-                WHERE c.status = 'aberto'
-                ORDER BY c.id
-                """
-            )
+            cursor.execute(_SMS_AUTOM_DISTRIBUICAO_SQL)
             contratos = cursor.fetchall() or []
 
         for row in contratos:
@@ -2067,14 +2303,6 @@ def api_distribuicao_sms_automatizados():
                 continue
             id_pessoa = int(id_pessoa)
 
-            orig_data_entrada = row.get('data_entrada')
-            data_entrada = orig_data_entrada
-            dia_entrada = None
-            if data_entrada is not None:
-                if isinstance(data_entrada, datetime.datetime):
-                    data_entrada = data_entrada.date()
-                dia_entrada = (datetime.date.today() - data_entrada).days + 1
-
             dias_atraso = row.get('dias_atraso')
             da_int = None
             if dias_atraso is not None:
@@ -2083,23 +2311,10 @@ def api_distribuicao_sms_automatizados():
                 except (TypeError, ValueError):
                     da_int = None
 
-            template_id = None
-            if da_int is not None and da_int in (61, 85):
-                template_id = 4
-            elif dia_entrada is not None:
-                if dia_entrada == 1:
-                    template_id = 1
-                elif dia_entrada == 16:
-                    template_id = 2
-                elif dia_entrada == 31:
-                    template_id = 3
+            template_id = _sms_automatizados_template_id_por_dias(da_int)
 
             if template_id is None:
                 stats['ignorados_sem_template'] += 1
-                if orig_data_entrada is None and (
-                    da_int is None or da_int not in (61, 85)
-                ):
-                    stats['ignorados_sem_entrada'] += 1
                 continue
 
             primeiro = _primeiro_nome(row.get('nome_completo'))
@@ -2129,8 +2344,7 @@ def api_distribuicao_sms_automatizados():
                 continue
 
             for tel in telefones:
-                raw_num = (tel.get('numero') or '').strip()
-                digits = ''.join(ch for ch in raw_num if ch.isdigit())
+                digits = _sms_digits_only(tel.get('numero'))
                 if not digits:
                     stats['falhas'] += 1
                     if len(erros_amostra) < 20:
@@ -2951,7 +3165,18 @@ _TELEFONE_NUMERO_DIGITS_SQL = (
 
 
 def _sms_digits_only(s):
-    return ''.join(ch for ch in (s or '') if ch.isdigit())
+    """Extrai apenas digitos de `telefone.numero` (str, bytes ou memoryview do MySQL)."""
+    if s is None:
+        return ''
+    if isinstance(s, memoryview):
+        s = bytes(s)
+    if isinstance(s, (bytes, bytearray)):
+        s = bytes(s).decode('latin-1', errors='replace').strip()
+    elif not isinstance(s, str):
+        s = str(s).strip()
+    else:
+        s = s.strip()
+    return ''.join(ch for ch in s if ch.isdigit())
 
 
 def _sms_phone_variants(digits):
