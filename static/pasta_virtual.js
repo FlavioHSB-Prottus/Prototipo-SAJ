@@ -97,7 +97,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 telefones.forEach(function (t) {
                     html += '<li><i class="fa-solid fa-phone"></i> ' + esc(t.numero || '-');
                     if (t.ramal) html += ' (ramal ' + esc(t.ramal) + ')';
-                    html += '<button type="button" class="btn-ligar" title="Ligar" data-numero="' + esc(t.numero || '') + '"><i class="fa-solid fa-phone-volume"></i></button>';
+                    html += '<button type="button" class="btn-ligar" title="Ligar" data-numero="' + esc(t.numero || '') + '"><i class="fa-solid fa-phone-volume"></i></button>' +
+                        '<button type="button" class="btn-whatsapp" title="Enviar WhatsApp" data-numero="' + esc(t.numero || '') + '"><i class="fa-brands fa-whatsapp"></i></button>';
                     var _smsG = ' data-pessoa-id="' + esc(_pId) + '"';
                     if (t.id != null && t.id !== '') { _smsG += ' data-telefone-id="' + esc(String(t.id)) + '"'; }
                     if (idContrato != null && String(idContrato) !== '') { _smsG += ' data-contrato-id="' + esc(String(idContrato)) + '"'; }
