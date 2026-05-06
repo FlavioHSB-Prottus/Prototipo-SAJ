@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const distribuicaoSubtitle = document.getElementById('distribuicaoSubtitle');
     const btnAprovarDistribuicao = document.getElementById('btnAprovarDistribuicao');
     const btnSmsAutomatizadosDistribuicao = document.getElementById('btnSmsAutomatizadosDistribuicao');
+    const btnSmsAutomatizadosExcel = document.getElementById('btnSmsAutomatizadosExcel');
     const btnRecarregarDistribuicao = document.getElementById('btnRecarregarDistribuicao');
     const btnRestaurarDistribuicao = document.getElementById('btnRestaurarDistribuicao');
     const btnNegPosDistribuicao = document.getElementById('btnNegPosDistribuicao');
@@ -398,6 +399,15 @@ document.addEventListener('DOMContentLoaded', () => {
     let distribuicaoData = null;
     let distribuicaoAprovadaNaSessao = false;
 
+    function syncSmsDistribuicaoFooterButtons() {
+        const d = distribuicaoData;
+        const totals = d && d.totais ? d.totais : {};
+        const c = totals.count || 0;
+        const en = !!c;
+        if (btnSmsAutomatizadosDistribuicao) btnSmsAutomatizadosDistribuicao.disabled = !en;
+        if (btnSmsAutomatizadosExcel) btnSmsAutomatizadosExcel.disabled = !en;
+    }
+
     async function loadDistribuicao(scrollIntoView = false) {
         try {
             distribuicaoPanel.classList.remove('d-none');
@@ -440,9 +450,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btnAprovarDistribuicao.classList.remove('approved');
             btnAprovarDistribuicao.innerHTML = '<i class="fa-solid fa-check"></i> Aprovar Distribuição';
         }
-        if (btnSmsAutomatizadosDistribuicao) {
-            btnSmsAutomatizadosDistribuicao.disabled = !totals.count;
-        }
+        syncSmsDistribuicaoFooterButtons();
 
         distribuicaoTotais.innerHTML = `
             <div class="dist-kpi total">
@@ -626,14 +634,49 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function smsAutomatizadosDistribuicao() {
-        const msg =
-            'Enviar SMS em lote via MessageCenter para os telefones dos devedores dos contratos ' +
-            'abertos em cobrança (mesma base do painel), conforme as regras de dia de entrada ' +
-            '(contrato novo/voltou) e atraso 61/85 dias?\n\n' +
-            'Pode levar vários minutos. Deseja continuar?';
-        if (!confirm(msg)) return;
         const prevHtml = btnSmsAutomatizadosDistribuicao.innerHTML;
         btnSmsAutomatizadosDistribuicao.disabled = true;
+        if (btnSmsAutomatizadosExcel) btnSmsAutomatizadosExcel.disabled = true;
+        btnSmsAutomatizadosDistribuicao.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Calculando...';
+        let previsto = null;
+        let contratosComSms = null;
+        try {
+            const respPv = await fetch('/api/importacao/distribuicao/sms-automatizados/preview');
+            const pv = await respPv.json().catch(() => ({}));
+            if (!respPv.ok || pv.error) {
+                throw new Error(pv.error || ('HTTP ' + respPv.status));
+            }
+            previsto = pv.sms_previstos != null ? pv.sms_previstos : 0;
+            contratosComSms = pv.contratos_com_sms != null ? pv.contratos_com_sms : 0;
+        } catch (e) {
+            btnSmsAutomatizadosDistribuicao.innerHTML = prevHtml;
+            syncSmsDistribuicaoFooterButtons();
+            alert('Não foi possível calcular o preview dos SMS: ' + (e.message || e));
+            return;
+        }
+
+        if (previsto === 0) {
+            btnSmsAutomatizadosDistribuicao.innerHTML = prevHtml;
+            syncSmsDistribuicaoFooterButtons();
+            alert(
+                'Nenhum SMS será enviado no momento: nenhum contrato aberto combina com a diferença ' +
+                    '0, 16, 31, 61 ou 85 dias (hoje vs. vencimento mais antigo das parcelas em aberto), ' +
+                    'ou não há telefone válido após a validação de cadastro.'
+            );
+            return;
+        }
+
+        const msg =
+            'Serão enviados ' + previsto + ' SMS (' + contratosComSms + ' contratos com pelo menos um telefone válido).\n\n' +
+            'Envio em lote via MessageCenter: todos os contratos com status aberto na base, quando a ' +
+            'diferença entre hoje e o vencimento mais antigo das parcelas em aberto for exatamente ' +
+            '0, 16, 31, 61 ou 85 dias (templates 1 a 4).\n\n' +
+            'Pode levar vários minutos. Deseja continuar?';
+        if (!confirm(msg)) {
+            btnSmsAutomatizadosDistribuicao.innerHTML = prevHtml;
+            syncSmsDistribuicaoFooterButtons();
+            return;
+        }
         btnSmsAutomatizadosDistribuicao.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Enviando...';
         try {
             const resp = await fetch('/api/importacao/distribuicao/sms-automatizados', { method: 'POST' });
@@ -645,27 +688,69 @@ document.addEventListener('DOMContentLoaded', () => {
                 'SMS automáticos concluídos.',
                 'Enviados: ' + (data.enviados != null ? data.enviados : 0),
                 'Falhas: ' + (data.falhas != null ? data.falhas : 0),
-                'Ignorados (sem template do dia): ' + (data.ignorados_sem_template != null ? data.ignorados_sem_template : 0),
-                'Ignorados (sem entrada / sem condição): ' + (data.ignorados_sem_entrada != null ? data.ignorados_sem_entrada : 0),
+                'Ignorados (diferença de dias não é 0, 16, 31, 61 ou 85): ' + (data.ignorados_sem_template != null ? data.ignorados_sem_template : 0),
                 'Ignorados (sem telefone): ' + (data.ignorados_sem_telefone != null ? data.ignorados_sem_telefone : 0),
                 'Contratos analisados: ' + (data.contratos_processados != null ? data.contratos_processados : 0),
             ];
             if (data.erros_amostra && data.erros_amostra.length) {
                 lines.push('', 'Amostra de erros (máx. 20):');
                 data.erros_amostra.forEach(function (e) {
-                    lines.push('- contrato ' + (e.id_contrato || '?') + ': ' + (e.erro || ''));
+                    var extra = '';
+                    if (e.detalhe != null && e.detalhe !== '') {
+                        extra = typeof e.detalhe === 'object'
+                            ? ' | ' + JSON.stringify(e.detalhe).slice(0, 400)
+                            : ' | ' + String(e.detalhe).slice(0, 400);
+                    }
+                    lines.push('- contrato ' + (e.id_contrato || '?') + ': ' + (e.erro || '') + extra);
                 });
             }
             alert(lines.join('\n'));
         } catch (err) {
             alert('Falha no envio em lote: ' + (err.message || err));
         } finally {
-            btnSmsAutomatizadosDistribuicao.disabled = false;
             btnSmsAutomatizadosDistribuicao.innerHTML = prevHtml;
-            const d = distribuicaoData;
-            const totalsAfter = d && d.totais ? d.totais : {};
-            const c = totalsAfter.count || 0;
-            btnSmsAutomatizadosDistribuicao.disabled = !c;
+            syncSmsDistribuicaoFooterButtons();
+        }
+    }
+
+    async function downloadSmsAutomatizadosExcel() {
+        if (!btnSmsAutomatizadosExcel || btnSmsAutomatizadosExcel.disabled) return;
+        const prevHtml = btnSmsAutomatizadosExcel.innerHTML;
+        btnSmsAutomatizadosExcel.disabled = true;
+        if (btnSmsAutomatizadosDistribuicao) btnSmsAutomatizadosDistribuicao.disabled = true;
+        btnSmsAutomatizadosExcel.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Gerando...';
+        try {
+            const resp = await fetch('/api/importacao/distribuicao/sms-automatizados/excel', {
+                credentials: 'same-origin',
+            });
+            if (!resp.ok) {
+                let msg = 'HTTP ' + resp.status;
+                try {
+                    const errJson = await resp.json();
+                    if (errJson.error) msg = errJson.error;
+                } catch (e2) { /* ignore */ }
+                throw new Error(msg);
+            }
+            const blob = await resp.blob();
+            const cd = resp.headers.get('Content-Disposition');
+            let fname = 'sms_automatizados_distribuicao.xlsx';
+            if (cd) {
+                const m = /filename\*?=(?:UTF-8'')?([^;\n]+)/i.exec(cd);
+                if (m) fname = decodeURIComponent(m[1].replace(/['"]/g, '').trim());
+            }
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fname;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            alert('Não foi possível baixar a lista Excel: ' + (err.message || err));
+        } finally {
+            btnSmsAutomatizadosExcel.innerHTML = prevHtml;
+            syncSmsDistribuicaoFooterButtons();
         }
     }
 
@@ -689,6 +774,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnAprovarDistribuicao) btnAprovarDistribuicao.addEventListener('click', aprovarDistribuicao);
     if (btnSmsAutomatizadosDistribuicao) {
         btnSmsAutomatizadosDistribuicao.addEventListener('click', smsAutomatizadosDistribuicao);
+    }
+    if (btnSmsAutomatizadosExcel) {
+        btnSmsAutomatizadosExcel.addEventListener('click', downloadSmsAutomatizadosExcel);
     }
     if (btnRecarregarDistribuicao) btnRecarregarDistribuicao.addEventListener('click', () => loadDistribuicao(false));
     if (btnRestaurarDistribuicao) btnRestaurarDistribuicao.addEventListener('click', restaurarDistribuicao);
@@ -740,6 +828,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btnRecarregarDistribuicao) btnRecarregarDistribuicao.disabled = true;
         if (btnAprovarDistribuicao) btnAprovarDistribuicao.disabled = true;
         if (btnSmsAutomatizadosDistribuicao) btnSmsAutomatizadosDistribuicao.disabled = true;
+        if (btnSmsAutomatizadosExcel) btnSmsAutomatizadosExcel.disabled = true;
 
         try {
             const resp = await fetch('/api/importacao/distribuicao/restaurar', { method: 'POST' });

@@ -63,6 +63,25 @@ Sistema web para gestao de cobranca de consorcios, com foco em:
 - Numero de origem vem de `funcionario.ramal` do usuario logado.
 - Configuracao via `DISCADOR_URL`, `DISCADOR_USUARIO`, `DISCADOR_TOKEN`.
 
+### 4.7 SMS automáticos (importacao / distribuicao)
+Lote na pagina de importacao (preview, POST envio, export Excel): gestor/admin, rotas `/api/importacao/distribuicao/sms-automatizados/`, codigo em `app.py` (`_SMS_AUTOM_DISTRIBUICAO_SQL`, `_sms_automatizados_template_id_por_dias`, `_sms_automatizados_analise`, POST).
+
+**Universo:** todos os registos em **`contrato`** com **`status = aberto`**, com `LEFT JOIN pessoa` (telefone do devedor). **Nao** se filtra por `funcionario_cobranca`.
+
+**Metrica de dias:** `DATEDIFF(CURDATE(), MIN(p2.vencimento))` sobre **`parcela`** com `status = aberto` do contrato (vencimento mais antigo entre parcelas em aberto). Valores **negativos** (vencimento no futuro) nao disparam SMS.
+
+**Disparo (pontos fixos):** envio/preview apenas quando essa diferenca e **exactamente** **0, 16, 31, 61 ou 85** dias (sem faixas).
+
+**Templates (texto `_mensagem_sms_auto_importacao`):** mapeamento dias → `template_id`: **0→1**, **16→2**, **31→3**, **61 ou 85→4**. Templates 2 e 3 usam `_format_parcelas_sms_auto` para o texto das parcelas.
+
+**Telefones:** validacao `_resolve_ids_registro_sms` como no envio unitario; preview e Excel usam `_sms_automatizados_analise`.
+
+**Export Excel:** query dedicada `_SMS_AUTOM_EXCEL_SQL` (CTE `MenorVencimento`: `MIN(vencimento)` por contrato em parcelas `aberto`; filtro `dias_atraso IN (0,16,31,61,85)`). Folha com colunas **Grupo**, **Cota** e **Dias de atraso** (pode incluir contratos sem telefone valido — o preview/POST continuam a filtrar por telefone).
+
+**JSON:** `ignorados_sem_entrada` mantido a **0** (compatibilidade com clientes antigos); contratos fora dos dias acima contam em `ignorados_sem_template`.
+
+**Alteracoes de produto:** mudar lista de dias, universo (ex. voltar a filtrar por distribuicao), ou criterio de parcela exige actualizar esta secao e preview/POST/Excel em conjunto.
+
 ## 5) Tabelas e entidades chave
 
 - `contrato`, `pessoa`, `parcela`, `ocorrencia`
