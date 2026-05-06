@@ -506,7 +506,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 telefones.forEach(function (t) {
                     html += '<li><i class="fa-solid fa-phone"></i> ' + escapeHtml(t.numero || '-');
                     if (t.ramal) html += ' (ramal ' + escapeHtml(t.ramal) + ')';
-                    html += '<button type="button" class="btn-ligar" title="Ligar" data-numero="' + escapeHtml(t.numero || '') + '"><i class="fa-solid fa-phone-volume"></i></button>';
+                    html += '<button type="button" class="btn-ligar" title="Ligar" data-numero="' + escapeHtml(t.numero || '') + '"><i class="fa-solid fa-phone-volume"></i></button>' +
+                        '<button type="button" class="btn-whatsapp" title="Enviar WhatsApp" data-numero="' + escapeHtml(t.numero || '') + '"><i class="fa-brands fa-whatsapp"></i></button>';
                     var _smsE = ' data-pessoa-id="' + escapeHtml(_pIdA) + '"';
                     if (t.id != null && t.id !== '') { _smsE += ' data-telefone-id="' + escapeHtml(String(t.id)) + '"'; }
                     if (idContrato != null && String(idContrato) !== '') { _smsE += ' data-contrato-id="' + escapeHtml(String(idContrato)) + '"'; }

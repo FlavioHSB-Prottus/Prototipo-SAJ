@@ -122,6 +122,7 @@ _COBRANCA_API_PREFIXES_OK = (
     '/api/negativacao/',
     '/api/enviar-sms',
     '/api/enviar-email-html',
+    '/api/enviar-whatsapp',
 )
 
 
@@ -250,6 +251,7 @@ def _path_ok_bradesco_em_gm(path):
         '/api/discar',
         '/api/enviar-sms',
         '/api/enviar-email-html',
+        '/api/enviar-whatsapp',
         '/api/tramitacao',
         '/api/funcionario/perfil',
         '/api/avisos',
@@ -2571,6 +2573,70 @@ def api_discar():
             'detalhe': data,
         }), 502
     return jsonify({'ok': True, 'discador': data})
+
+
+WHATSAPP_AB_URL = 'https://joaobarbosa.atenderbem.com/int/enqueueMessageToSend'
+WHATSAPP_AB_APIKEY = '334b7c42cfca4d669200a3f5c0af452c'
+
+
+@app.route('/api/enviar-whatsapp', methods=['POST'])
+def api_enviar_whatsapp():
+    """Proxy WhatsApp: usa fila do usuario logado e encaminha para AtenderBem."""
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
+    payload = request.get_json(silent=True) or {}
+    raw = (payload.get('numero') or '').strip()
+    msg = (payload.get('mensagem') or '').strip()
+    if not raw:
+        return jsonify({'error': 'Numero invalido.'}), 400
+    if not msg:
+        return jsonify({'error': 'Mensagem vazia.'}), 400
+    if len(msg) > 3000:
+        return jsonify({'error': 'Mensagem muito longa (max. 3000 caracteres).'}), 400
+
+    conn = _get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT fila FROM funcionario WHERE id = %s', (int(fid),))
+            row = cur.fetchone()
+    finally:
+        conn.close()
+
+    fila = (row or {}).get('fila') if row else None
+    if fila in (None, ''):
+        return jsonify({'error': 'Seu usuario nao tem fila cadastrada para envio de WhatsApp.'}), 400
+    try:
+        fila_int = int(fila)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Fila invalida no cadastro do funcionario.'}), 400
+
+    body = {
+        'queueId': fila_int,
+        'apiKey': WHATSAPP_AB_APIKEY,
+        'number': raw,
+        'text': msg,
+    }
+    try:
+        resp = requests.post(
+            WHATSAPP_AB_URL,
+            json=body,
+            headers={'Content-Type': 'application/json'},
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        return jsonify({'error': f'Erro de rede ao enviar WhatsApp: {exc}'}), 502
+    try:
+        data = resp.json()
+    except Exception:
+        data = {'raw': (resp.text or '')[:500]}
+    if not resp.ok:
+        return jsonify({
+            'error': 'Falha ao enviar WhatsApp.',
+            'status': resp.status_code,
+            'detalhe': data,
+        }), 502
+    return jsonify({'ok': True, 'whatsapp': data})
 
 
 # MessageCenter SMS (integracao enviarsms) — credenciais fixas conforme integracao.
