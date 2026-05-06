@@ -72,7 +72,8 @@ CREATE TABLE `funcionario` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `cpf_cnpj` (`cpf_cnpj`),
   UNIQUE KEY `funcionario_login_IDX` (`login`) USING BTREE,
-  UNIQUE KEY `ramal` (`ramal`)
+  UNIQUE KEY `ramal` (`ramal`),
+  UNIQUE KEY `funcionario_fila_IDX` (`fila`) USING BTREE
 );
 
 CREATE TABLE `grupo` (

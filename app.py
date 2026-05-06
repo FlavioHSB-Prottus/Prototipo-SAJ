@@ -2621,7 +2621,11 @@ def api_enviar_whatsapp():
         resp = requests.post(
             WHATSAPP_AB_URL,
             json=body,
-            headers={'Content-Type': 'application/json'},
+            headers={
+                'Content-Type': 'application/json',
+                'Accept': '*/*',
+                'User-Agent': 'PostmanRuntime/7.53.0',
+            },
             timeout=30,
         )
     except requests.RequestException as exc:
@@ -2635,7 +2639,7 @@ def api_enviar_whatsapp():
             'error': 'Falha ao enviar WhatsApp.',
             'status': resp.status_code,
             'detalhe': data,
-        }), 502
+        }), resp.status_code
     return jsonify({'ok': True, 'whatsapp': data})
 
 
