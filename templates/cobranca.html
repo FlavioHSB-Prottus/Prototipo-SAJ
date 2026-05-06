@@ -39,15 +39,6 @@
                     <!-- Preenchido dinamicamente via JS -->
                 </select>
             </div>
-            <div class="operador-filter negativacao-filter">
-                <label for="negativacaoSelect"><i class="fa-solid fa-ban"></i> Negativação:</label>
-                <select id="negativacaoSelect" class="form-control-sm">
-                    <option value="">Todos</option>
-                    <option value="pendente">Falta negativar</option>
-                    <option value="negativado">Já negativados</option>
-                    <option value="ativo">Ativo</option>
-                </select>
-            </div>
         </div>
         <div class="toolbar-right-tools">
             <div class="view-toggle" role="group" aria-label="Alternar layout">
@@ -90,7 +81,7 @@
             <i class="fa-solid fa-calculator"></i>
             Total de Contratos: <span class="total-num" id="totalDisplay">—</span>
         </div>
-        <div class="footer-bulk-actions" id="footerBulkActions" title="Ações aplicadas a todos os contratos da lista (respeitando filtro de operador e busca).">
+        <div class="footer-bulk-actions" id="footerBulkActions" title="Ações aplicadas a todos os contratos da lista visível (operador e busca).">
             <button type="button" class="bulk-btn bulk-btn-negativacao" id="footerBulkNegativacao" title="Abrir módulo Negativação na Carteira Cobrança (mesmo operador e lista já pesquisada)">
                 <i class="fa-solid fa-gavel"></i><span>Negativação</span>
             </button>

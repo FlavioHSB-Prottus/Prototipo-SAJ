@@ -184,28 +184,7 @@
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
 }
 
-/* Filtro de negativação - mais compacto que o de operador e com destaque
-   vermelho quando uma opção diferente de "Todos" está ativa. */
-.negativacao-filter select {
-    min-width: 160px;
-}
-.negativacao-filter label i {
-    color: #b91c1c;
-}
-.negativacao-filter.filter-active select {
-    border-color: rgba(185, 28, 28, 0.45);
-    background-color: #fff7f7;
-    color: #991b1b;
-    font-weight: 600;
-}
-/* Filtro "Ativo" (fora da fila de negativacao): destaque verde */
-.negativacao-filter.filter-active.neg-filtro-ativo select {
-    border-color: rgba(22, 101, 52, 0.4);
-    background-color: #f0fdf4;
-    color: #166534;
-}
-
-/* Filtro Parcelas Desordenadas (toggle ao lado de Negativação) */
+/* Filtro Parcelas Desordenadas (toolbar) */
 .btn-parcelas-desordenadas {
     display: inline-flex;
     align-items: center;
@@ -1738,7 +1717,7 @@
     padding: 6px 12px;
 }
 
-/* Separador visual entre "Negativação" e o par SMS / E-mail ------------------ */
+/* Separador visual entre o botão Negativação e SMS / E-mail ------------------ */
 .footer-bulk-sep {
     display: inline-block;
     width: 1px;
@@ -1765,73 +1744,6 @@
     background: rgba(59, 130, 246, 0.12);
     color: #1d4ed8;
     border-color: rgba(59, 130, 246, 0.25);
-}
-
-/* =====================================================================
-   NEGATIVAÇÃO - visual dos contratos já enviados ao Serasa
-   --------------------------------------------------------------------- */
-
-/* Linha na visão analítica */
-.contract-row.contract-negativado {
-    background: #f3f4f6 !important;
-    color: #6b7280;
-}
-.contract-row.contract-negativado td {
-    background: inherit;
-}
-.contract-row.contract-negativado:hover {
-    background: #e5e7eb !important;
-}
-.contract-row.contract-negativado.selected {
-    background: #e5e7eb !important;
-}
-.contract-row.contract-negativado .fw-bold {
-    color: #4b5563;
-}
-
-/* Badge "Negativado" dentro da célula grupo/cota */
-.neg-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
-    margin-left: 6px;
-    background: #6b7280;
-    color: #fff;
-    border-radius: 50%;
-    font-size: 10px;
-    vertical-align: middle;
-}
-
-/* Card no Kanban */
-.kanban-card.kanban-card-negativado {
-    background: #f3f4f6 !important;
-    border-color: #d1d5db !important;
-    opacity: 0.85;
-}
-.kanban-card.kanban-card-negativado .kanban-card-nome,
-.kanban-card.kanban-card-negativado .kanban-card-cpf,
-.kanban-card.kanban-card-negativado .kanban-grupo {
-    color: #4b5563;
-}
-.kanban-card.kanban-card-negativado:hover {
-    opacity: 1;
-    background: #e5e7eb !important;
-}
-
-/* Pill "Negativado" no topo do card kanban */
-.kanban-card-pill.pill-negativado {
-    background: #6b7280 !important;
-    color: #fff !important;
-    border-color: #6b7280 !important;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    margin-left: 4px;
-}
-.kanban-card-pill.pill-negativado i {
-    font-size: 10px;
 }
 
 /* Ajuste do grid de resultado quando a negativação retorna 4 colunas */

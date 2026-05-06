@@ -8545,12 +8545,6 @@ def api_negativacao_enviar():
     })
 
 
-_NEG_LISTAGEM_TIPOS_EVENTO = frozenset({
-    'negativado_manual', 'negativado_tracker', 'removido_pagamento',
-    'removido_manual', 'observacao',
-})
-
-
 def _negativacao_listagem_data_iso(val):
     """Aceita YYYY-MM-DD; retorna None se invalido."""
     if val is None:
@@ -8565,21 +8559,6 @@ def _negativacao_listagem_data_iso(val):
         return None
 
 
-def _negativacao_listagem_order_hist(sort_col, order_dir):
-    order_dir = 'DESC' if str(order_dir or '').lower() == 'desc' else 'ASC'
-    sort_col = (sort_col or 'data').lower()
-    # Somente identificadores fixos (evita injecao SQL).
-    clauses = {
-        'data': f'h.data_evento {order_dir}, h.id {order_dir}',
-        'contrato': f'c.grupo {order_dir}, c.cota {order_dir}, h.id {order_dir}',
-        'parcela': f'h.numero_parcela {order_dir}, h.id {order_dir}',
-        'tipo': f'h.tipo_evento {order_dir}, h.id {order_dir}',
-        'detalhe': f'h.detalhe {order_dir}, h.id {order_dir}',
-        'operador': f'COALESCE(f.nome, "") {order_dir}, h.id {order_dir}',
-    }
-    return 'ORDER BY ' + clauses.get(sort_col, clauses['data'])
-
-
 def _negativacao_listagem_order_at(sort_col, order_dir):
     order_dir = 'DESC' if str(order_dir or '').lower() == 'desc' else 'ASC'
     sort_col = (sort_col or 'data').lower()
@@ -8592,6 +8571,236 @@ def _negativacao_listagem_order_at(sort_col, order_dir):
         'operador': f'COALESCE(f.nome, "") {order_dir}, n.id {order_dir}',
     }
     return 'ORDER BY ' + clauses.get(sort_col, clauses['data'])
+
+
+def _negativacao_carteira_where_data_negativacao_efetiva(carteira_dn_ini, carteira_dn_fim):
+    """Restringe linhas de `negativacao` ao dia (ou intervalo) da negativação no histórico.
+
+    O modal do contrato usa `negativacao_historico`; filtrar só por `n.data_negativacao` pode incluir
+    parcelas cujo evento foi em outro dia. Mantém fallback por `data_negativacao` quando não há
+    evento negativado_* no histórico para a parcela (legado).
+
+    Retorna (fragmento_sql, lista_params).
+    """
+    params_ex = []
+    if carteira_dn_ini and carteira_dn_fim:
+        inner_date_nh = "DATE(nh.data_evento) BETWEEN %s AND %s"
+        params_ex.extend([carteira_dn_ini, carteira_dn_fim])
+        fb_date = "DATE(n.data_negativacao) BETWEEN %s AND %s"
+        params_fb = [carteira_dn_ini, carteira_dn_fim]
+    elif carteira_dn_fim:
+        inner_date_nh = "DATE(nh.data_evento) = %s"
+        params_ex.append(carteira_dn_fim)
+        fb_date = "DATE(n.data_negativacao) = %s"
+        params_fb = [carteira_dn_fim]
+    elif carteira_dn_ini:
+        inner_date_nh = "DATE(nh.data_evento) >= %s"
+        params_ex.append(carteira_dn_ini)
+        fb_date = "DATE(n.data_negativacao) >= %s"
+        params_fb = [carteira_dn_ini]
+    else:
+        return '', []
+
+    parcela_match_nh = (
+        "nh.id_contrato = n.id_contrato "
+        "AND ("
+        "  (nh.id_parcela IS NOT NULL AND nh.id_parcela = n.id_parcela) "
+        "  OR (nh.id_parcela IS NULL AND nh.numero_parcela IS NOT NULL "
+        "      AND nh.numero_parcela <=> n.numero_parcela)"
+        ")"
+    )
+    existe_neg_hist = (
+        "EXISTS (SELECT 1 FROM negativacao_historico nh "
+        "WHERE nh.tipo_evento IN ('negativado_manual','negativado_tracker') "
+        f"AND {parcela_match_nh} AND {inner_date_nh})"
+    )
+    sem_neg_hist_parcela = (
+        "NOT EXISTS (SELECT 1 FROM negativacao_historico nh0 "
+        "WHERE nh0.tipo_evento IN ('negativado_manual','negativado_tracker') "
+        f"AND {parcela_match_nh.replace('nh.', 'nh0.')})"
+    )
+    sql = f"(({existe_neg_hist}) OR ({sem_neg_hist_parcela} AND ({fb_date})))"
+    return sql, params_ex + params_fb
+
+
+def _negativacao_carteira_sql_date_evento(alias, carteira_dn_ini, carteira_dn_fim):
+    """Fragmento DATE(...) sobre data_evento do histórico + params (Carteira)."""
+    a = alias
+    if carteira_dn_ini and carteira_dn_fim:
+        return f"DATE({a}.data_evento) BETWEEN %s AND %s", [carteira_dn_ini, carteira_dn_fim]
+    if carteira_dn_fim:
+        return f"DATE({a}.data_evento) = %s", [carteira_dn_fim]
+    if carteira_dn_ini:
+        return f"DATE({a}.data_evento) >= %s", [carteira_dn_ini]
+    return '', []
+
+
+def _negativacao_carteira_deve_incluir_positivas(evento):
+    """Mescla positivações do histórico na Carteira (exceto quando o filtro é só negativação)."""
+    ev = (evento or '').strip().lower()
+    if ev in ('observacao',):
+        return False
+    if ev in ('negativado', 'negativado_tracker', 'negativado_manual'):
+        return False
+    return True
+
+
+def _negativacao_positivacao_sql_filtro_operador_carteira(fid_op, data_ref_iso):
+    """Restringe positivações por operador na visão Carteira (alias de contrato = `c`).
+
+    - Contrato no snapshot GM da data de referência (com parcelas em aberto): deve estar em
+      `funcionario_cobranca` com o operador — igual ao painel Cobrança.
+
+    - Contrato **sem** essa correspondência no snapshot (ex.: saiu da carteira mas há positivação
+      no histórico): usa-se o **último** `tramitacao.id_funcionario` do contrato (`created_at`,
+      depois `id`) como operador “histórico” para o filtro.
+    """
+    sql = (
+        "("
+        "EXISTS ("
+        "SELECT 1 FROM cobranca cob "
+        "INNER JOIN contrato cc ON cc.id = cob.id_contrato AND cc.status = 'aberto' "
+        "INNER JOIN parcela par ON par.id_contrato = cc.id AND par.status = 'aberto' "
+        "INNER JOIN funcionario_cobranca fc ON fc.id_contrato = cc.id "
+        "AND fc.id_funcionario = %s "
+        "WHERE cob.data_arquivo = %s AND cob.id_contrato = c.id"
+        ") OR ("
+        "NOT EXISTS ("
+        "SELECT 1 FROM cobranca cob "
+        "INNER JOIN contrato cc ON cc.id = cob.id_contrato AND cc.status = 'aberto' "
+        "INNER JOIN parcela par ON par.id_contrato = cc.id AND par.status = 'aberto' "
+        "WHERE cob.data_arquivo = %s AND cob.id_contrato = c.id"
+        ") AND ("
+        "SELECT t.id_funcionario FROM tramitacao t "
+        "WHERE t.id_contrato = c.id "
+        "ORDER BY t.created_at DESC, t.id DESC LIMIT 1"
+        ") = %s"
+        ")"
+        ")"
+    )
+    return sql, [fid_op, data_ref_iso, data_ref_iso, fid_op]
+
+
+def _negativacao_sem_operador_cobranca_contrato_fragment(data_ref_iso):
+    """Contratos sem vínculo em `funcionario_cobranca` no snapshot GM e sem `tramitacao` (alias `c`)."""
+    d_iso = str(data_ref_iso or '')[:10]
+    if len(d_iso) != 10:
+        return '1=0', []
+    sql = (
+        "NOT EXISTS ("
+        "SELECT 1 FROM cobranca cob "
+        "INNER JOIN contrato cc ON cc.id = cob.id_contrato AND cc.status = 'aberto' "
+        "INNER JOIN parcela par ON par.id_contrato = cc.id AND par.status = 'aberto' "
+        "INNER JOIN funcionario_cobranca fc ON fc.id_contrato = cc.id "
+        "WHERE cob.data_arquivo = %s AND cob.id_contrato = c.id"
+        ") AND NOT EXISTS (SELECT 1 FROM tramitacao t WHERE t.id_contrato = c.id)"
+    )
+    return sql, [d_iso]
+
+
+def _negativacao_listagem_fetch_positivacao_rows(
+    cursor,
+    dn_ini,
+    dn_fim,
+    q,
+    tipo_busca,
+    evento,
+    status_ativo,
+    clause_cob=None,
+    params_cob=None,
+    filtro_operador_carteira=None,
+    filtro_sem_operador_cobranca=None,
+):
+    """Eventos removido_* no histórico filtrados por data_evento.
+
+    `clause_cob` + `params_cob`: opcional; na Carteira Cobrança a listagem chama sem esse filtro
+    para positivações (mesmo conjunto da visão Geral), pois o contrato pode já ter saído do snapshot.
+
+    `filtro_operador_carteira`: tupla (id_funcionario, data_ref_iso) para filtrar positivações na
+    Carteira por operador (snapshot + fc OU fora do snapshot: último operador em tramitacao).
+
+    `filtro_sem_operador_cobranca`: data_ref_iso (YYYY-MM-DD) — positivações cujo contrato não tem
+    operador em cobrança no snapshot da data e não possui tramitação (complemento do filtro por operador).
+    """
+    date_sql, date_params = _negativacao_carteira_sql_date_evento('h', dn_ini, dn_fim)
+    if not date_sql:
+        return []
+
+    where = [
+        "h.tipo_evento IN ('removido_pagamento','removido_manual')",
+        date_sql,
+    ]
+    params = list(date_params)
+    if clause_cob:
+        where.append(clause_cob)
+        params.extend(list(params_cob or []))
+    if filtro_sem_operador_cobranca:
+        frag_s, par_s = _negativacao_sem_operador_cobranca_contrato_fragment(
+            filtro_sem_operador_cobranca
+        )
+        where.append(frag_s)
+        params.extend(par_s)
+    elif filtro_operador_carteira:
+        try:
+            fid_op = int(filtro_operador_carteira[0])
+            d_iso = str(filtro_operador_carteira[1] or '')[:10]
+        except (TypeError, ValueError, IndexError):
+            fid_op = None
+            d_iso = ''
+        if fid_op and len(d_iso) == 10:
+            frag_op, par_op = _negativacao_positivacao_sql_filtro_operador_carteira(fid_op, d_iso)
+            where.append(frag_op)
+            params.extend(par_op)
+
+    if q:
+        like = f"%{q}%"
+        if tipo_busca == 'contrato':
+            clause = (
+                "(CAST(c.grupo AS CHAR) LIKE %s OR CAST(c.cota AS CHAR) LIKE %s "
+                "OR CONCAT(c.grupo, '/', c.cota) LIKE %s OR CAST(c.numero_contrato AS CHAR) LIKE %s)"
+            )
+            where.append(clause)
+            params.extend([like, like, like, like])
+        else:
+            where.append("(h.detalhe LIKE %s OR h.tipo_evento LIKE %s)")
+            params.extend([like, like])
+
+    ev = (evento or '').strip().lower()
+    if status_ativo:
+        where.append('h.status_snapshot = %s')
+        params.append(status_ativo)
+    if ev == 'removido_pagamento':
+        where.append("h.tipo_evento = 'removido_pagamento'")
+    elif ev == 'removido_manual':
+        where.append("h.tipo_evento = 'removido_manual'")
+
+    wh = 'WHERE ' + ' AND '.join(where)
+    cursor.execute(
+        f"""
+        SELECT h.id AS id_historico, h.id_contrato, h.id_parcela, h.numero_parcela,
+               h.tipo_evento, h.data_evento, h.dias_atraso, h.status_snapshot,
+               c.grupo, c.cota, c.numero_contrato, c.status AS contrato_status,
+               f.nome AS funcionario_nome
+        FROM negativacao_historico h
+        JOIN contrato c ON c.id = h.id_contrato
+        LEFT JOIN funcionario f ON h.id_funcionario = f.id
+        {wh}
+        ORDER BY h.data_evento DESC, h.id DESC
+        """,
+        params,
+    )
+    out = []
+    for raw in _clean_rows(cursor.fetchall()):
+        row = dict(raw)
+        hid = row.pop('id_historico', None)
+        if hid is not None:
+            row['id'] = hid
+        row['data_negativacao'] = row.pop('data_evento', None)
+        row['status'] = ''
+        row.pop('status_snapshot', None)
+        _negativacao_row_serasa_flags(row)
+        out.append(row)
+    return out
 
 
 def _negativacao_apenas_cobranca_exists_clause(cursor, funcionario_id_filtro):
@@ -8653,19 +8862,32 @@ def _split_negativacao_ativos_prioridade(rows):
     return critico, atencao, recente
 
 
+def _split_negativacao_ativos_negativados_positivados(rows):
+    """Carteira Negativação: negativados (sem evento removido_* na linha) vs positivados (removido_*)."""
+    negativados, positivados = [], []
+    for r in rows:
+        t = str((r.get('tipo_evento') or '')).strip().lower()
+        if t.startswith('removido'):
+            positivados.append(r)
+        else:
+            negativados.append(r)
+    return negativados, positivados
+
+
 @app.route('/api/negativacao/listagem')
 def api_negativacao_listagem():
-    """Lista histórico global de negativações e parcelas ainda ativas (painel do módulo)."""
-    try:
-        page = max(1, int(request.args.get('page', 1)))
-    except (TypeError, ValueError):
-        page = 1
-    try:
-        per_page = int(request.args.get('per_page', 40))
-    except (TypeError, ValueError):
-        per_page = 40
-    per_page = min(100, max(5, per_page))
-    offset = (page - 1) * per_page
+    """Lista parcelas negativadas / positivações no período (painel do módulo).
+
+    Carteira: linhas em `negativacao` no universo snapshot GM (e operador, se filtrado); positivações
+    `removido_*` no período ampliam o conjunto como na visão Geral. Com filtro de operador,
+    positivações de contratos fora do snapshot usam o último operador em `tramitacao`.
+    Com `sem_operador_cobranca=1`, lista apenas contratos sem `funcionario_cobranca` no snapshot da
+    data GM e sem tramitação (lacuna entre “todos os operadores” e a soma por operador).
+
+    Geral: com Data início e/ou Data fim, a tabela usa o mesmo critério de evento no histórico
+    (negativação + fallback `data_negativacao`) e acrescenta positivações (`removido_*`) no intervalo.
+    A resposta inclui `historico` e `total_historico` vazios (compatibilidade; UI unificada na lista).
+    """
     q = (request.args.get('q') or '').strip()
     tipo_busca = (request.args.get('tipo_busca') or 'contrato').strip().lower()
     if tipo_busca not in ('contrato', 'texto'):
@@ -8676,26 +8898,33 @@ def api_negativacao_listagem():
     data_inicio = _negativacao_listagem_data_iso(request.args.get('data_inicio'))
     data_fim = _negativacao_listagem_data_iso(request.args.get('data_fim'))
 
-    sort_hist = (request.args.get('sort_hist') or 'data').strip().lower()
-    order_hist = (request.args.get('order_hist') or 'desc').strip().lower()
     sort_at = (request.args.get('sort_ativos') or 'data').strip().lower()
     order_at = (request.args.get('order_ativos') or 'desc').strip().lower()
 
     _ac = (request.args.get('apenas_cobranca') or '').strip().lower()
     apenas_cobranca = _ac in ('1', 'true', 'yes', 'sim', 'on')
 
+    _so = (request.args.get('sem_operador_cobranca') or '').strip().lower()
+    sem_operador_cobranca = bool(apenas_cobranca) and _so in (
+        '1',
+        'true',
+        'yes',
+        'sim',
+        'on',
+    )
+
     _pv = (request.args.get('preview_ativos') or '').strip().lower()
     preview_ativos = _pv in ('1', 'true', 'yes', 'sim', 'on')
 
     funcionario_id_filtro = None
-    fid_raw = (request.args.get('funcionario_id') or '').strip()
-    if fid_raw:
-        try:
-            funcionario_id_filtro = int(fid_raw)
-        except (TypeError, ValueError):
-            funcionario_id_filtro = None
+    if not sem_operador_cobranca:
+        fid_raw = (request.args.get('funcionario_id') or '').strip()
+        if fid_raw:
+            try:
+                funcionario_id_filtro = int(fid_raw)
+            except (TypeError, ValueError):
+                funcionario_id_filtro = None
 
-    order_hist_sql = _negativacao_listagem_order_hist(sort_hist, order_hist)
     order_at_sql = _negativacao_listagem_order_at(sort_at, order_at)
 
     conn = _get_db()
@@ -8704,10 +8933,27 @@ def api_negativacao_listagem():
         _ensure_negativacao_table(cursor)
         _ensure_negativacao_historico_table(cursor)
 
-        where_hist = []
-        params_hist = []
         where_at = []
         params_at = []
+
+        data_ref_cobranca_resp = None
+        clause_cob = None
+        params_cob = []
+        if apenas_cobranca:
+            fid_clause = None if sem_operador_cobranca else funcionario_id_filtro
+            clause_cob, params_cob, data_ref_cobranca_resp = (
+                _negativacao_apenas_cobranca_exists_clause(cursor, fid_clause)
+            )
+            if sem_operador_cobranca:
+                clause_cob, params_cob = None, []
+
+        carteira_dn_ini = data_inicio
+        carteira_dn_fim = data_fim
+        carteira_usou_data_padrao_gm = False
+        if apenas_cobranca and not carteira_dn_ini and not carteira_dn_fim:
+            carteira_dn_fim = data_ref_cobranca_resp
+            carteira_usou_data_padrao_gm = bool(data_ref_cobranca_resp)
+
         if q:
             like = f"%{q}%"
             if tipo_busca == 'contrato':
@@ -8715,110 +8961,67 @@ def api_negativacao_listagem():
                     "(CAST(c.grupo AS CHAR) LIKE %s OR CAST(c.cota AS CHAR) LIKE %s "
                     "OR CONCAT(c.grupo, '/', c.cota) LIKE %s OR CAST(c.numero_contrato AS CHAR) LIKE %s)"
                 )
-                where_hist.append(clause)
-                params_hist.extend([like, like, like, like])
                 where_at.append(clause)
                 params_at.extend([like, like, like, like])
             else:
-                where_hist.append("(h.detalhe LIKE %s OR h.tipo_evento LIKE %s)")
-                params_hist.extend([like, like])
                 where_at.append(
                     "EXISTS (SELECT 1 FROM negativacao_historico h2 WHERE h2.id_contrato = n.id_contrato "
                     "AND (h2.detalhe LIKE %s OR h2.tipo_evento LIKE %s))"
                 )
                 params_at.extend([like, like])
 
-        if data_inicio:
-            where_hist.append("DATE(h.data_evento) >= %s")
-            params_hist.append(data_inicio)
-            where_at.append("DATE(n.data_negativacao) >= %s")
-            params_at.append(data_inicio)
-        if data_fim:
-            where_hist.append("DATE(h.data_evento) <= %s")
-            params_hist.append(data_fim)
-            where_at.append("DATE(n.data_negativacao) <= %s")
-            params_at.append(data_fim)
+        frag_dn_carteira = ''
+        frag_geral_dn = ''
+        if apenas_cobranca:
+            frag_dn_carteira, par_dn = _negativacao_carteira_where_data_negativacao_efetiva(
+                carteira_dn_ini, carteira_dn_fim
+            )
+            if frag_dn_carteira:
+                where_at.append(frag_dn_carteira)
+                params_at.extend(par_dn)
+        elif data_inicio or data_fim:
+            frag_geral_dn, par_g = _negativacao_carteira_where_data_negativacao_efetiva(
+                data_inicio, data_fim
+            )
+            if frag_geral_dn:
+                where_at.append(frag_geral_dn)
+                params_at.extend(par_g)
 
         if evento not in ('', 'todos', 'all'):
-            if evento == 'negativado':
-                where_hist.append(
-                    "h.tipo_evento IN ('negativado_manual','negativado_tracker')"
-                )
-            elif evento == 'positivado':
-                where_hist.append(
-                    "h.tipo_evento IN ('removido_pagamento','removido_manual')"
-                )
-            elif evento == 'observacao':
-                where_hist.append("h.tipo_evento = 'observacao'")
-            elif evento in _NEG_LISTAGEM_TIPOS_EVENTO:
-                where_hist.append("h.tipo_evento = %s")
-                params_hist.append(evento)
-
-            if evento in ('positivado', 'observacao', 'removido_pagamento', 'removido_manual'):
-                where_at.append('1=0')
-            elif evento == 'negativado_tracker':
-                where_at.append("n.status = 'registrado_tracker'")
-            elif evento == 'negativado_manual':
-                where_at.append("n.status IN ('enviado', 'falhou')")
+            if apenas_cobranca:
+                if evento in ('positivado', 'observacao', 'removido_pagamento', 'removido_manual'):
+                    where_at.append('1=0')
+                elif evento == 'negativado_tracker':
+                    where_at.append("n.status = 'registrado_tracker'")
+                elif evento == 'negativado_manual':
+                    where_at.append("n.status IN ('enviado', 'falhou')")
+            else:
+                if evento in ('positivado', 'observacao', 'removido_pagamento', 'removido_manual'):
+                    where_at.append('1=0')
+                elif evento == 'negativado_tracker':
+                    where_at.append("n.status = 'registrado_tracker'")
+                elif evento == 'negativado_manual':
+                    where_at.append("n.status IN ('enviado', 'falhou')")
 
         if status_ativo:
             where_at.append('n.status = %s')
             params_at.append(status_ativo)
 
-        data_ref_cobranca_resp = None
         if apenas_cobranca:
-            clause_cob, params_cob, data_ref_cobranca_resp = (
-                _negativacao_apenas_cobranca_exists_clause(cursor, funcionario_id_filtro)
-            )
-            where_hist.append(clause_cob)
-            params_hist.extend(params_cob)
-            where_at.append(clause_cob)
-            params_at.extend(params_cob)
+            if sem_operador_cobranca and data_ref_cobranca_resp:
+                frag_sem, par_sem = _negativacao_sem_operador_cobranca_contrato_fragment(
+                    data_ref_cobranca_resp
+                )
+                where_at.append(frag_sem)
+                params_at.extend(par_sem)
+            elif clause_cob:
+                where_at.append(clause_cob)
+                params_at.extend(params_cob)
 
-        wh = ("WHERE " + " AND ".join(where_hist)) if where_hist else ""
         wh_at = ("WHERE " + " AND ".join(where_at)) if where_at else ""
 
-        # Carteira Cobrança: não carrega histórico (UI só usa blocos Crítico/Atenção).
-        if apenas_cobranca:
-            total_hist = 0
-            historico = []
-        else:
-            cursor.execute(
-                f"""
-                SELECT COUNT(*) AS total
-                FROM negativacao_historico h
-                JOIN contrato c ON c.id = h.id_contrato
-                {wh}
-                """,
-                params_hist,
-            )
-            total_hist = int((cursor.fetchone() or {}).get('total') or 0)
-
-            cursor.execute(
-                f"""
-                SELECT h.*, c.grupo, c.cota, c.numero_contrato, c.status AS contrato_status,
-                       f.nome AS funcionario_nome
-                FROM negativacao_historico h
-                JOIN contrato c ON c.id = h.id_contrato
-                LEFT JOIN funcionario f ON h.id_funcionario = f.id
-                {wh}
-                {order_hist_sql}
-                LIMIT %s OFFSET %s
-                """,
-                params_hist + [per_page, offset],
-            )
-            historico = _clean_rows(cursor.fetchall())
-
-        cursor.execute(
-            f"""
-            SELECT COUNT(*) AS total
-            FROM negativacao n
-            JOIN contrato c ON c.id = n.id_contrato
-            {wh_at}
-            """,
-            params_at,
-        )
-        total_ativos = int((cursor.fetchone() or {}).get('total') or 0)
+        total_hist = 0
+        historico = []
 
         # Visao geral + filtros padrao + preview: so as 20 parcelas ativas mais recentes.
         # Carteira cobranca ou pesquisa com filtros: todas as linhas que batem no WHERE.
@@ -8830,6 +9033,17 @@ def api_negativacao_listagem():
         if limite_ativos is not None:
             limit_sql_at = ' LIMIT %s'
             params_limit_at.append(limite_ativos)
+
+        cursor.execute(
+            f"""
+            SELECT COUNT(*) AS total
+            FROM negativacao n
+            JOIN contrato c ON c.id = n.id_contrato
+            {wh_at}
+            """,
+            params_at,
+        )
+        total_ativos = int((cursor.fetchone() or {}).get('total') or 0)
 
         cursor.execute(
             f"""
@@ -8848,25 +9062,68 @@ def api_negativacao_listagem():
         for r in ativos:
             _negativacao_row_serasa_flags(r)
 
+        frag_dn_para_posit = frag_dn_carteira if apenas_cobranca else frag_geral_dn
+        dn_ini_posit = carteira_dn_ini if apenas_cobranca else data_inicio
+        dn_fim_posit = carteira_dn_fim if apenas_cobranca else data_fim
+        if frag_dn_para_posit and _negativacao_carteira_deve_incluir_positivas(evento):
+            if apenas_cobranca:
+                posit_kwargs = {}
+                if sem_operador_cobranca and data_ref_cobranca_resp:
+                    posit_kwargs['filtro_sem_operador_cobranca'] = data_ref_cobranca_resp
+                elif funcionario_id_filtro is not None and data_ref_cobranca_resp:
+                    posit_kwargs['filtro_operador_carteira'] = (
+                        funcionario_id_filtro,
+                        data_ref_cobranca_resp,
+                    )
+                ativos.extend(
+                    _negativacao_listagem_fetch_positivacao_rows(
+                        cursor,
+                        dn_ini_posit,
+                        dn_fim_posit,
+                        q,
+                        tipo_busca,
+                        evento,
+                        status_ativo,
+                        **posit_kwargs,
+                    )
+                )
+            else:
+                ativos.extend(
+                    _negativacao_listagem_fetch_positivacao_rows(
+                        cursor,
+                        dn_ini_posit,
+                        dn_fim_posit,
+                        q,
+                        tipo_busca,
+                        evento,
+                        status_ativo,
+                    )
+                )
+
+        if apenas_cobranca or frag_geral_dn:
+            total_ativos = len(ativos)
+
         payload = {
             'historico': historico,
             'total_historico': total_hist,
             'ativos': ativos,
             'total_ativos': total_ativos,
-            'page': page,
-            'per_page': per_page,
             'modo_cobranca': bool(apenas_cobranca),
             'ativos_em_preview': bool(not apenas_cobranca and limite_ativos == 20),
         }
+        if apenas_cobranca:
+            payload['carteira_filtro_data_negativacao'] = {
+                'data_inicio': carteira_dn_ini,
+                'data_fim': carteira_dn_fim,
+                'usou_data_padrao_ultimo_gm': carteira_usou_data_padrao_gm,
+            }
         if apenas_cobranca and data_ref_cobranca_resp:
             payload['data_referencia_cobranca'] = data_ref_cobranca_resp
-            ac, aa, ar = _split_negativacao_ativos_prioridade(ativos)
-            payload['ativos_critico'] = ac
-            payload['ativos_atencao'] = aa
-            payload['ativos_recente'] = ar
-            payload['total_ativos_critico'] = len(ac)
-            payload['total_ativos_atencao'] = len(aa)
-            payload['total_ativos_recente'] = len(ar)
+            neg_n, pos_n = _split_negativacao_ativos_negativados_positivados(ativos)
+            payload['ativos_negativados'] = neg_n
+            payload['ativos_positivados'] = pos_n
+            payload['total_ativos_negativados'] = len(neg_n)
+            payload['total_ativos_positivados'] = len(pos_n)
             try:
                 cursor.execute(
                     "SELECT id, nome FROM funcionario WHERE "
@@ -8895,16 +9152,21 @@ def api_negativacao_listagem():
 def api_negativacao_positivar_lote_serasa_placeholder():
     """Envio em lote ao Serasa (placeholder): positivar ou negativar parcelas do bloco.
 
-    Só aceita parcelas no estado interno correspondente (negativar: tracker/falha;
-    positivar: aguardando_positivacao_serasa após registro interno de positivação).
+    Negativar: todas as parcelas devem ter linha em `negativacao` com status tracker ou falha.
+
+    Positivar: parcelas sem linha em `negativacao` são aceitas (ex.: positivação já refletida pelo GM
+    na lista da carteira); parcelas com linha só se status for aguardando_positivacao_serasa.
+    Demais estados com linha ativa são rejeitados.
+
+    Campo opcional `faixa`: `negativados` ou `positivados` (apenas rastreio; elegibilidade usa ids).
     """
     payload = request.get_json(silent=True) or {}
     tipo = (payload.get('tipo_operacao') or '').strip().lower()
     if tipo not in ('positivar', 'negativar'):
         return jsonify({'error': 'tipo_operacao deve ser "positivar" ou "negativar".'}), 400
     faixa = (payload.get('faixa') or '').strip().lower()
-    if faixa and faixa not in ('critico', 'atencao'):
-        return jsonify({'error': 'faixa inválida (use critico ou atencao).'}), 400
+    if faixa and faixa not in ('negativados', 'positivados'):
+        return jsonify({'error': 'faixa inválida (use negativados ou positivados).'}), 400
     raw_ids = payload.get('ids_parcela')
     if not isinstance(raw_ids, list) or len(raw_ids) == 0:
         return jsonify({'error': 'ids_parcela deve ser uma lista não vazia.'}), 400
@@ -8935,26 +9197,30 @@ def api_negativacao_positivar_lote_serasa_placeholder():
                 continue
             por_parcela[ip] = (r.get('status') or '').strip().lower()
 
-        if len(por_parcela) != len(ids):
-            return jsonify({
-                'error': 'Uma ou mais parcelas não possuem negativação ativa no cadastro.'
-            }), 400
-
         invalidas = []
-        for ip in ids:
-            st = por_parcela.get(ip, '')
-            if tipo == 'negativar':
+        if tipo == 'negativar':
+            if len(por_parcela) != len(ids):
+                return jsonify({
+                    'error': 'Uma ou mais parcelas não possuem negativação ativa no cadastro.'
+                }), 400
+            for ip in ids:
+                st = por_parcela.get(ip, '')
                 if st not in _NEG_STATUS_SERASA_ELEGIVEL_NEGATIVAR:
                     invalidas.append(ip)
-            else:
-                if st != _NEG_STATUS_AGUARDANDO_POS_SERASA:
-                    invalidas.append(ip)
+        else:
+            for ip in ids:
+                st = por_parcela.get(ip)
+                if st is None:
+                    continue
+                if st == _NEG_STATUS_AGUARDANDO_POS_SERASA:
+                    continue
+                invalidas.append(ip)
 
         if invalidas:
             msg = (
-                'Nenhuma parcela elegível para esta operação no estado atual '
-                '(negativar: apenas status interno pendente de envio; '
-                'positivar: apenas após positivação interna registrada — botão Positivar na linha).'
+                'Uma ou mais parcelas não estão elegíveis '
+                '(negativar: apenas tracker ou falha de envio; '
+                'positivar: sem cadastro ativo ou apenas aguardando envio Serasa).'
             )
             return jsonify({'error': msg}), 400
 
@@ -8970,11 +9236,16 @@ def api_negativacao_positivar_lote_serasa_placeholder():
                 [resposta_mock] + ids,
             )
         else:
-            cursor.execute(
-                f'DELETE FROM negativacao WHERE id_parcela IN ({ph}) '
-                f"AND LOWER(COALESCE(status, '')) = %s",
-                ids + [_NEG_STATUS_AGUARDANDO_POS_SERASA],
-            )
+            ids_aguardando = [
+                ip for ip in ids if por_parcela.get(ip) == _NEG_STATUS_AGUARDANDO_POS_SERASA
+            ]
+            if ids_aguardando:
+                ph2 = ','.join(['%s'] * len(ids_aguardando))
+                cursor.execute(
+                    f'DELETE FROM negativacao WHERE id_parcela IN ({ph2}) '
+                    f"AND LOWER(COALESCE(status, '')) = %s",
+                    ids_aguardando + [_NEG_STATUS_AGUARDANDO_POS_SERASA],
+                )
 
         conn.commit()
     except Exception as exc:
