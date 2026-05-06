@@ -2736,6 +2736,29 @@ def _validar_contexto_envio_email_html(cursor, id_pessoa_req, id_email_req, emai
     return row, None
 
 
+def _resolve_ids_registro_email(cursor, id_pessoa, id_email, id_contrato_req):
+    """Resolve id_contrato para INSERT em registro_email (contrato obrigatorio no schema).
+
+    Se `id_contrato` vier no payload, ja foi validado em `_validar_contexto_envio_email_html`.
+    Caso contrario, usa o primeiro contrato da pessoa (devedor ou avalista), como no SMS.
+    """
+    pid = int(id_pessoa)
+    eid = int(id_email)
+    id_contrato_p = _parse_positive_int(id_contrato_req)
+    if id_contrato_p is not None:
+        return {'id_pessoa': pid, 'id_email': eid, 'id_contrato': id_contrato_p}, None
+    cursor.execute(
+        'SELECT id FROM contrato WHERE id_pessoa = %s OR id_avalista = %s ORDER BY id ASC LIMIT 1',
+        (pid, pid),
+    )
+    crow = cursor.fetchone()
+    if not crow:
+        return None, (
+            'Esta pessoa nao possui contrato cadastrado; nao e possivel registrar o envio do e-mail.'
+        )
+    return {'id_pessoa': pid, 'id_email': eid, 'id_contrato': int(crow['id'])}, None
+
+
 def _resolve_ids_registro_sms(cursor, payload, digits_destino):
     """Resolve id_telefone, id_pessoa e id_contrato para INSERT em registro_sms.
 
@@ -2892,7 +2915,11 @@ def api_enviar_sms():
 
 @app.route('/api/enviar-email-html', methods=['POST'])
 def api_enviar_email_html():
-    """Proxy MessageCenter EnviarEmailHtml: query string + multipart CorpoHtml, header apikey igual ao SMS."""
+    """Proxy MessageCenter EnviarEmailHtml: query string + multipart CorpoHtml, header apikey igual ao SMS.
+
+    Apos sucesso, insere em `registro_email` (id_funcionario, mensagem truncada a 1600 chars,
+    id_pessoa, id_email, id_contrato), no mesmo espirito de `registro_sms`.
+    """
     fid = session.get('funcionario_id')
     if not fid:
         return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
@@ -2904,6 +2931,7 @@ def api_enviar_email_html():
         return jsonify({'error': 'Corpo do e-mail muito longo.'}), 400
 
     conn = _get_db()
+    ids_reg = None
     try:
         with conn.cursor() as cursor:
             row_ctx, err = _validar_contexto_envio_email_html(
@@ -2915,6 +2943,14 @@ def api_enviar_email_html():
             )
             if err:
                 return jsonify({'error': err}), 400
+            ids_reg, err_reg = _resolve_ids_registro_email(
+                cursor,
+                row_ctx['id_pessoa'],
+                payload.get('id_email'),
+                payload.get('id_contrato'),
+            )
+            if err_reg:
+                return jsonify({'error': err_reg}), 400
     finally:
         conn.close()
 
@@ -2956,6 +2992,32 @@ def api_enviar_email_html():
             'status': resp.status_code,
             'detalhe': data,
         }), 502
+
+    msg_reg = corpo[:1600]
+    conn = _get_db()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                'INSERT INTO registro_email (id_contrato, id_pessoa, id_email, id_funcionario, mensagem) '
+                'VALUES (%s, %s, %s, %s, %s)',
+                (
+                    ids_reg['id_contrato'],
+                    ids_reg['id_pessoa'],
+                    ids_reg['id_email'],
+                    int(fid),
+                    msg_reg,
+                ),
+            )
+            conn.commit()
+    except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        app.logger.warning('registro_email insert falhou apos e-mail ok: %s', exc)
+    finally:
+        conn.close()
+
     return jsonify({'ok': True, 'email': data})
 
 
