@@ -414,6 +414,19 @@
     border-color: rgba(245, 158, 11, 0.35);
 }
 
+/* SMS automáticos na distribuição (MessageCenter em lote) */
+.btn-sms-automatizados-dist {
+    background: rgba(16, 185, 129, 0.12);
+    color: #047857;
+    border-color: rgba(16, 185, 129, 0.35);
+}
+
+.btn-sms-automatizados-dist:hover:not(:disabled) {
+    background: #10b981;
+    color: #fff;
+    border-color: #10b981;
+}
+
 .btn-restaurar-dist:hover:not(:disabled) {
     background: #f59e0b;
     color: #fff;
@@ -992,7 +1005,8 @@
     .distribuicao-actions-footer .btn-aprovar-dist,
     .distribuicao-actions-footer .btn-secondary-dist,
     .distribuicao-actions-footer .btn-neg-pos-dist,
-    .distribuicao-actions-footer .btn-restaurar-dist {
+    .distribuicao-actions-footer .btn-restaurar-dist,
+    .distribuicao-actions-footer .btn-sms-automatizados-dist {
         flex: 1;
         justify-content: center;
     }

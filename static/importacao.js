@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const distribuicaoFuncionarios = document.getElementById('distribuicaoFuncionarios');
     const distribuicaoSubtitle = document.getElementById('distribuicaoSubtitle');
     const btnAprovarDistribuicao = document.getElementById('btnAprovarDistribuicao');
+    const btnSmsAutomatizadosDistribuicao = document.getElementById('btnSmsAutomatizadosDistribuicao');
     const btnRecarregarDistribuicao = document.getElementById('btnRecarregarDistribuicao');
     const btnRestaurarDistribuicao = document.getElementById('btnRestaurarDistribuicao');
     const btnNegPosDistribuicao = document.getElementById('btnNegPosDistribuicao');
@@ -439,6 +440,9 @@ document.addEventListener('DOMContentLoaded', () => {
             btnAprovarDistribuicao.classList.remove('approved');
             btnAprovarDistribuicao.innerHTML = '<i class="fa-solid fa-check"></i> Aprovar Distribuição';
         }
+        if (btnSmsAutomatizadosDistribuicao) {
+            btnSmsAutomatizadosDistribuicao.disabled = !totals.count;
+        }
 
         distribuicaoTotais.innerHTML = `
             <div class="dist-kpi total">
@@ -621,6 +625,50 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    async function smsAutomatizadosDistribuicao() {
+        const msg =
+            'Enviar SMS em lote via MessageCenter para os telefones dos devedores dos contratos ' +
+            'abertos em cobrança (mesma base do painel), conforme as regras de dia de entrada ' +
+            '(contrato novo/voltou) e atraso 61/85 dias?\n\n' +
+            'Pode levar vários minutos. Deseja continuar?';
+        if (!confirm(msg)) return;
+        const prevHtml = btnSmsAutomatizadosDistribuicao.innerHTML;
+        btnSmsAutomatizadosDistribuicao.disabled = true;
+        btnSmsAutomatizadosDistribuicao.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Enviando...';
+        try {
+            const resp = await fetch('/api/importacao/distribuicao/sms-automatizados', { method: 'POST' });
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok || data.error) {
+                throw new Error(data.error || ('HTTP ' + resp.status));
+            }
+            const lines = [
+                'SMS automáticos concluídos.',
+                'Enviados: ' + (data.enviados != null ? data.enviados : 0),
+                'Falhas: ' + (data.falhas != null ? data.falhas : 0),
+                'Ignorados (sem template do dia): ' + (data.ignorados_sem_template != null ? data.ignorados_sem_template : 0),
+                'Ignorados (sem entrada / sem condição): ' + (data.ignorados_sem_entrada != null ? data.ignorados_sem_entrada : 0),
+                'Ignorados (sem telefone): ' + (data.ignorados_sem_telefone != null ? data.ignorados_sem_telefone : 0),
+                'Contratos analisados: ' + (data.contratos_processados != null ? data.contratos_processados : 0),
+            ];
+            if (data.erros_amostra && data.erros_amostra.length) {
+                lines.push('', 'Amostra de erros (máx. 20):');
+                data.erros_amostra.forEach(function (e) {
+                    lines.push('- contrato ' + (e.id_contrato || '?') + ': ' + (e.erro || ''));
+                });
+            }
+            alert(lines.join('\n'));
+        } catch (err) {
+            alert('Falha no envio em lote: ' + (err.message || err));
+        } finally {
+            btnSmsAutomatizadosDistribuicao.disabled = false;
+            btnSmsAutomatizadosDistribuicao.innerHTML = prevHtml;
+            const d = distribuicaoData;
+            const totalsAfter = d && d.totais ? d.totais : {};
+            const c = totalsAfter.count || 0;
+            btnSmsAutomatizadosDistribuicao.disabled = !c;
+        }
+    }
+
     async function aprovarDistribuicao() {
         if (!confirm('Confirmar a distribuição atual?')) return;
         btnAprovarDistribuicao.disabled = true;
@@ -639,6 +687,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (btnAprovarDistribuicao) btnAprovarDistribuicao.addEventListener('click', aprovarDistribuicao);
+    if (btnSmsAutomatizadosDistribuicao) {
+        btnSmsAutomatizadosDistribuicao.addEventListener('click', smsAutomatizadosDistribuicao);
+    }
     if (btnRecarregarDistribuicao) btnRecarregarDistribuicao.addEventListener('click', () => loadDistribuicao(false));
     if (btnRestaurarDistribuicao) btnRestaurarDistribuicao.addEventListener('click', restaurarDistribuicao);
 
@@ -688,6 +739,7 @@ document.addEventListener('DOMContentLoaded', () => {
         btnRestaurarDistribuicao.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Restaurando...';
         if (btnRecarregarDistribuicao) btnRecarregarDistribuicao.disabled = true;
         if (btnAprovarDistribuicao) btnAprovarDistribuicao.disabled = true;
+        if (btnSmsAutomatizadosDistribuicao) btnSmsAutomatizadosDistribuicao.disabled = true;
 
         try {
             const resp = await fetch('/api/importacao/distribuicao/restaurar', { method: 'POST' });
