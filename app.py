@@ -1944,6 +1944,296 @@ def api_distribuicao_aprovar():
     return jsonify({'ok': True, 'total': total})
 
 
+def _pode_sms_automatizados_importacao():
+    """Gestor ou Administrador (alinhado ao menu Importacao)."""
+    return _nivel_normalizado(session.get('funcionario_nivel_acesso')) in (
+        'gestor',
+        'administrador',
+    )
+
+
+def _format_parcelas_sms_auto(cursor, id_contrato):
+    """Parcelas em aberto: prioriza vencidas; senao todas em aberto; senao '-'."""
+    cursor.execute(
+        """
+        SELECT numero_parcela FROM parcela
+        WHERE id_contrato = %s AND status = 'aberto' AND vencimento < CURDATE()
+        ORDER BY numero_parcela
+        """,
+        (int(id_contrato),),
+    )
+    rows = cursor.fetchall() or []
+    if not rows:
+        cursor.execute(
+            """
+            SELECT numero_parcela FROM parcela
+            WHERE id_contrato = %s AND status = 'aberto'
+            ORDER BY numero_parcela
+            """,
+            (int(id_contrato),),
+        )
+        rows = cursor.fetchall() or []
+    if not rows:
+        return '-'
+    parts = []
+    for r in rows:
+        np = r.get('numero_parcela')
+        if np is None:
+            continue
+        try:
+            parts.append(str(int(np)))
+        except (TypeError, ValueError):
+            parts.append(str(np))
+    return ', '.join(parts) if parts else '-'
+
+
+def _mensagem_sms_auto_importacao(primeiro_nome, numero_contrato, parcelas_txt, template_id):
+    """Monta texto do SMS conforme templates da distribuicao (importacao)."""
+    nc = (numero_contrato or '').strip() or '-'
+    pn = (primeiro_nome or '').strip() or 'Cliente'
+    parcelas_txt = (parcelas_txt or '-').strip() or '-'
+    if template_id == 4:
+        return (
+            f'{pn}, seu contrato com o Consórcio Nacional Chevrolet Ltda encontra-se em atraso. '
+            f'Evite medidas judiciais. Ligue 08000012323 e renegocie seu acordo!'
+        )
+    if template_id == 1:
+        return (
+            f'{pn}: sua cota foi encaminhada à João Barbosa Assessoria. '
+            f'Para regularização, ligue 08000012323.'
+        )
+    return (
+        f'{pn}, não identificamos o pagamento da(s) parcela(s) {parcelas_txt}, referente(s) '
+        f'ao contrato {nc}. Entre em contato conosco JOAO BARBOSA ASSESSORIA, 08000012323.'
+    )
+
+
+@app.route('/api/importacao/distribuicao/sms-automatizados', methods=['POST'])
+def api_distribuicao_sms_automatizados():
+    """Envia SMS em lote (MessageCenter) para devedores dos contratos abertos em cobranca.
+
+    Templates por dia desde entrada (ocorrencia contrato novo/voltou) ou, com prioridade,
+    por dias de atraso 61/85 nas parcelas abertas. Registra em registro_sms apos sucesso.
+    Apenas Gestor ou Administrador.
+    """
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
+    if not _pode_sms_automatizados_importacao():
+        return jsonify({'error': 'Acesso restrito a gestores ou administradores.'}), 403
+
+    conn = _get_db()
+    stats = {
+        'enviados': 0,
+        'falhas': 0,
+        'ignorados_sem_entrada': 0,
+        'ignorados_sem_template': 0,
+        'ignorados_sem_telefone': 0,
+        'contratos_processados': 0,
+    }
+    erros_amostra = []
+
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT c.id AS id_contrato,
+                       c.id_pessoa,
+                       c.numero_contrato,
+                       p.nome_completo,
+                       (SELECT DATEDIFF(CURDATE(), MIN(p2.vencimento))
+                          FROM parcela p2
+                         WHERE p2.id_contrato = c.id AND p2.status = 'aberto') AS dias_atraso,
+                       (SELECT MAX(o.data_arquivo)
+                          FROM ocorrencia o
+                         WHERE o.id_contrato = c.id
+                           AND o.status = 'aberto'
+                           AND o.descricao IN ('contrato novo', 'contrato voltou')) AS data_entrada
+                FROM funcionario_cobranca fc
+                INNER JOIN contrato c ON c.id = fc.id_contrato
+                LEFT JOIN pessoa p ON p.id = c.id_pessoa
+                WHERE c.status = 'aberto'
+                ORDER BY c.id
+                """
+            )
+            contratos = cursor.fetchall() or []
+
+        for row in contratos:
+            stats['contratos_processados'] += 1
+            id_contrato = int(row['id_contrato'])
+            id_pessoa = row.get('id_pessoa')
+            if id_pessoa is None:
+                stats['ignorados_sem_template'] += 1
+                continue
+            id_pessoa = int(id_pessoa)
+
+            orig_data_entrada = row.get('data_entrada')
+            data_entrada = orig_data_entrada
+            dia_entrada = None
+            if data_entrada is not None:
+                if isinstance(data_entrada, datetime.datetime):
+                    data_entrada = data_entrada.date()
+                dia_entrada = (datetime.date.today() - data_entrada).days + 1
+
+            dias_atraso = row.get('dias_atraso')
+            da_int = None
+            if dias_atraso is not None:
+                try:
+                    da_int = int(dias_atraso)
+                except (TypeError, ValueError):
+                    da_int = None
+
+            template_id = None
+            if da_int is not None and da_int in (61, 85):
+                template_id = 4
+            elif dia_entrada is not None:
+                if dia_entrada == 1:
+                    template_id = 1
+                elif dia_entrada == 16:
+                    template_id = 2
+                elif dia_entrada == 31:
+                    template_id = 3
+
+            if template_id is None:
+                stats['ignorados_sem_template'] += 1
+                if orig_data_entrada is None and (
+                    da_int is None or da_int not in (61, 85)
+                ):
+                    stats['ignorados_sem_entrada'] += 1
+                continue
+
+            primeiro = _primeiro_nome(row.get('nome_completo'))
+            parcelas_txt = '-'
+            if template_id in (2, 3):
+                with conn.cursor() as cursor:
+                    parcelas_txt = _format_parcelas_sms_auto(cursor, id_contrato)
+
+            msg = _mensagem_sms_auto_importacao(
+                primeiro,
+                row.get('numero_contrato'),
+                parcelas_txt,
+                template_id,
+            )
+            if len(msg) > 1600:
+                msg = msg[:1600]
+
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    'SELECT id, numero FROM telefone WHERE id_pessoa = %s',
+                    (id_pessoa,),
+                )
+                telefones = cursor.fetchall() or []
+
+            if not telefones:
+                stats['ignorados_sem_telefone'] += 1
+                continue
+
+            for tel in telefones:
+                raw_num = (tel.get('numero') or '').strip()
+                digits = ''.join(ch for ch in raw_num if ch.isdigit())
+                if not digits:
+                    stats['falhas'] += 1
+                    if len(erros_amostra) < 20:
+                        erros_amostra.append(
+                            {'id_contrato': id_contrato, 'erro': 'Numero invalido.'}
+                        )
+                    continue
+
+                payload_resolve = {
+                    'id_telefone': int(tel['id']),
+                    'id_pessoa': id_pessoa,
+                    'id_contrato': id_contrato,
+                }
+                with conn.cursor() as cursor:
+                    ids, err = _resolve_ids_registro_sms(cursor, payload_resolve, digits)
+                    if err:
+                        stats['falhas'] += 1
+                        if len(erros_amostra) < 20:
+                            erros_amostra.append({
+                                'id_contrato': id_contrato,
+                                'erro': err,
+                            })
+                        continue
+
+                params = {'Phone': digits, 'Msgtext': msg}
+                headers = {SMS_MC_HEADER_NAME: SMS_MC_HEADER_VALUE}
+                try:
+                    resp = requests.get(
+                        SMS_MC_URL,
+                        params=params,
+                        headers=headers,
+                        timeout=30,
+                    )
+                except requests.RequestException as exc:
+                    stats['falhas'] += 1
+                    if len(erros_amostra) < 20:
+                        erros_amostra.append({
+                            'id_contrato': id_contrato,
+                            'erro': f'Rede: {exc}',
+                        })
+                    continue
+
+                if not resp.ok:
+                    stats['falhas'] += 1
+                    if len(erros_amostra) < 20:
+                        try:
+                            det = resp.json()
+                        except Exception:
+                            det = (resp.text or '')[:200]
+                        erros_amostra.append({
+                            'id_contrato': id_contrato,
+                            'erro': f'API SMS HTTP {resp.status_code}',
+                            'detalhe': det,
+                        })
+                    continue
+
+                try:
+                    with conn.cursor() as cursor:
+                        cursor.execute(
+                            'INSERT INTO registro_sms (id_contrato, id_pessoa, id_telefone, id_funcionario, mensagem) '
+                            'VALUES (%s, %s, %s, %s, %s)',
+                            (
+                                ids['id_contrato'],
+                                ids['id_pessoa'],
+                                ids['id_telefone'],
+                                int(fid),
+                                msg,
+                            ),
+                        )
+                        conn.commit()
+                except Exception as exc:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                    stats['falhas'] += 1
+                    app.logger.warning(
+                        'registro_sms insert falhou apos SMS ok (lote importacao): %s', exc
+                    )
+                    if len(erros_amostra) < 20:
+                        erros_amostra.append({
+                            'id_contrato': id_contrato,
+                            'erro': f'Falha ao registrar SMS: {exc}',
+                        })
+                    continue
+
+                stats['enviados'] += 1
+
+    finally:
+        conn.close()
+
+    return jsonify({
+        'ok': True,
+        'enviados': stats['enviados'],
+        'falhas': stats['falhas'],
+        'ignorados_sem_entrada': stats['ignorados_sem_entrada'],
+        'ignorados_sem_template': stats['ignorados_sem_template'],
+        'ignorados_sem_telefone': stats['ignorados_sem_telefone'],
+        'contratos_processados': stats['contratos_processados'],
+        'erros_amostra': erros_amostra,
+    })
+
+
 # ---------------------------------------------------------------------------
 # Helpers para API de Busca
 # ---------------------------------------------------------------------------
