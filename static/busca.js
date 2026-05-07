@@ -690,8 +690,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 telefones.forEach(function (t) {
                     html += '<li><i class="fa-solid fa-phone"></i> ' + esc(t.numero || '-');
                     if (t.ramal) html += ' (ramal ' + esc(t.ramal) + ')';
+                    var _waExtra = '';
+                    if (idContrato != null && String(idContrato) !== '') {
+                        _waExtra = ' data-wa-auto-contrato="1" data-primeiro-nome="' + esc(_pnSms) + '"';
+                    }
                     html += '<button type="button" class="btn-ligar" title="Ligar" data-numero="' + esc(t.numero || '') + '"><i class="fa-solid fa-phone-volume"></i></button>' +
-                        '<button type="button" class="btn-whatsapp" title="Enviar WhatsApp" data-numero="' + esc(t.numero || '') + '"><i class="fa-brands fa-whatsapp"></i></button>';
+                        '<button type="button" class="btn-whatsapp" title="Enviar WhatsApp" data-numero="' + esc(t.numero || '') + '"' + _waExtra + '><i class="fa-brands fa-whatsapp"></i></button>';
                     var _smsB = ' data-pessoa-id="' + esc(_pId) + '"';
                     if (t.id != null && t.id !== '') { _smsB += ' data-telefone-id="' + esc(String(t.id)) + '"'; }
                     if (idContrato != null && String(idContrato) !== '') {

@@ -5,6 +5,15 @@
 (function () {
     'use strict';
 
+    /* Igual a sms_messagecenter.js / email_html_busca.js (detalhe contrato na Busca). */
+    function montarMensagemAutomaticaContrato(primeiroNome) {
+        var pn = String(primeiroNome || '').trim();
+        if (!pn) {
+            pn = 'Cliente';
+        }
+        return pn + ': sua cota do Cons\u00f3rcio Chevrolet encontra-se em atraso e foi encaminhada \u00e0 Jo\u00e3o Barbosa Assessoria. Para regulariza\u00e7\u00e3o, ligue 08000012323.';
+    }
+
     document.addEventListener('click', function (e) {
         var btn = e.target.closest('.btn-whatsapp');
         if (!btn) {
@@ -23,14 +32,20 @@
             window.alert('Numero nao identificado.');
             return;
         }
-        var mensagem = window.prompt('Mensagem WhatsApp para ' + numero + ':', '');
-        if (mensagem === null) {
-            return;
-        }
-        mensagem = String(mensagem).trim();
-        if (!mensagem) {
-            window.alert('Mensagem vazia.');
-            return;
+        var isWaAutoContrato = String(btn.getAttribute('data-wa-auto-contrato') || '').trim() === '1';
+        var mensagem = '';
+        if (isWaAutoContrato) {
+            mensagem = montarMensagemAutomaticaContrato(btn.getAttribute('data-primeiro-nome'));
+        } else {
+            mensagem = window.prompt('Mensagem WhatsApp para ' + numero + ':', '');
+            if (mensagem === null) {
+                return;
+            }
+            mensagem = String(mensagem).trim();
+            if (!mensagem) {
+                window.alert('Mensagem vazia.');
+                return;
+            }
         }
         if (!window.confirm('Enviar WhatsApp para ' + numero + '?')) {
             return;
