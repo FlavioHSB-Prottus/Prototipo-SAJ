@@ -2,7 +2,8 @@
  * Tutoriais do sistema SAJ - passo a passo por modulo.
  *
  * Para adicionar/editar um tutorial, mexa no array TUTORIAIS abaixo.
- * Cada item representa um modulo e contem um resumo + lista de passos.
+ * Ordem alinhada ao menu lateral (layout) na visao completa do sistema.
+ * Alguns modulos aparecem no menu apenas para certos perfis (gestor/admin).
  * ========================================================================== */
 
 const TUTORIAIS = [
@@ -13,38 +14,39 @@ const TUTORIAIS = [
         cor: "#3b82f6",
         bg: "#eff6ff",
         rota: "/importacao",
-        descricaoCurta: "Envie arquivos da GM e distribua contratos entre os cobradores.",
+        descricaoCurta:
+            "Suba TXT da GM (varios arquivos ou pasta), processe e distribua a carteira entre cobradores.",
         paraQueServe:
-            "Este módulo é a porta de entrada dos dados no sistema. É aqui que você carrega os arquivos TXT enviados pela GM, processa o conteúdo e organiza a carteira, distribuindo os contratos entre os funcionários de cobrança de forma equilibrada.",
+            "É a porta de entrada dos dados: você envia os retornos TXT da GM, o sistema classifica e grava contratos, parcelas e pessoas. Depois revisa a distribuição automática entre funcionários de cobrança, pode usar SMS automáticos na faixa de dias definida pelo produto, exportar lista para Excel e só então aprovar para liberar a carteira.",
         passos: [
             {
-                titulo: "Fazer upload do arquivo",
+                titulo: "Enviar arquivos ou uma pasta inteira",
                 texto:
-                    "No topo da página, arraste o arquivo TXT enviado pela GM para a área de upload ou clique em \"Selecionar arquivo\". O sistema identifica o arquivo, valida o formato e inicia o processamento.",
+                    "Arraste um ou vários .txt para a área de upload ou use \"Arquivos TXT\". Para varrer subpastas, use \"Pasta com TXT\" — o sistema inclui todos os .txt encontrados. Depois clique em \"Iniciar Processamento e Classificação\".",
                 icone: "fa-solid fa-cloud-arrow-up",
             },
             {
-                titulo: "Acompanhar o processamento",
+                titulo: "Acompanhar processamento em tempo real",
                 texto:
-                    "A barra de progresso mostra o status em tempo real. Os logs detalhados aparecem abaixo, indicando cada etapa: leitura do arquivo, gravação de pessoas, contratos, parcelas e bens.",
+                    "Logs aparecem na sequência (leitura, gravação de cadastros, contratos e parcelas). Aguarde concluir antes de revisar a distribuição.",
                 icone: "fa-solid fa-gauge-high",
             },
             {
-                titulo: "Revisar a distribuição automática",
+                titulo: "Abrir o painel de distribuição",
                 texto:
-                    "Quando o processamento termina, o painel \"Distribuição entre funcionários\" é aberto automaticamente. Cada cartão mostra a quantidade de contratos e o valor total recebido por cada cobrador, separado por criticidade (Crítico, Atenção, Recente).",
-                icone: "fa-solid fa-users-line",
+                    "O bloco \"Distribuição por Funcionário de Cobrança\" fica disponível após o fluxo; expanda-o para ver totais por funcionário e criticidade (Crítico, Atenção, Recente). Use \"Recarregar\" só para reler do banco ou \"Restaurar Inicial\" para desfazer transferências da sessão.",
+                icone: "fa-solid fa-users-gear",
             },
             {
-                titulo: "Ajustar ou transferir contratos",
+                titulo: "SMS e atalho para negativação",
                 texto:
-                    "Se precisar rebalancear, use o botão \"Transferir\" no cartão do funcionário. Você pode passar todos os contratos dele para um colega específico ou redistribuí-los igualmente entre os demais ativos.",
-                icone: "fa-solid fa-arrow-right-arrow-left",
+                    "\"Lista SMS\" gera Excel com grupo, cota e dias de atraso nos pontos previstos. \"SMS automáticos\" envia em lote conforme a regra do sistema (contratos abertos, dias fixos de atraso). \"Negativação/Positivação\" abre o módulo correspondente.",
+                icone: "fa-solid fa-comment-sms",
             },
             {
-                titulo: "Aprovar a distribuição",
+                titulo: "Transferir e aprovar",
                 texto:
-                    "Depois de confirmar que a divisão está boa, clique em \"Aprovar distribuição\". A partir desse momento, os contratos passam a aparecer para cada cobrador no módulo de Cobrança.",
+                    "Use \"Transferir\" no cartão do funcionário para mover contratos para outro cobrador ou redistribuir. Quando estiver correto, clique em \"Aprovar Distribuição\" para que os contratos apareçam na Cobrança.",
                 icone: "fa-solid fa-circle-check",
             },
         ],
@@ -56,39 +58,40 @@ const TUTORIAIS = [
         cor: "#10b981",
         bg: "#ecfdf5",
         rota: "/cobranca",
-        descricaoCurta: "Trabalhe a carteira de cada operador e registre tramitações.",
+        descricaoCurta:
+            "Carteira por operador, busca integrada, Kanban e ações em massa (SMS, e-mail, negativação).",
         paraQueServe:
-            "É o módulo de operação do dia-a-dia. Aqui cada cobrador acessa a própria carteira, prioriza contratos por criticidade, registra ligações/WhatsApp/e-mails (tramitações) e acompanha o andamento das negociações.",
+            "É o dia a dia do cobrador: visualizar contratos em cobrança por operador, priorizar por faixa de atraso, registrar tramitações no detalhe do contrato e usar atalhos para SMS, e-mail ou abrir a negativação para a lista filtrada.",
         passos: [
             {
-                titulo: "Selecionar o operador",
+                titulo: "Filtrar por operador",
                 texto:
-                    "No filtro superior, escolha o \"Operador\" para ver apenas os contratos atribuídos a ele. Administradores podem ver todos selecionando \"Todos\".",
+                    "No topo, escolha o operador em \"Operador:\" (ou \"Todos os Operadores\" para visão gerencial).",
                 icone: "fa-solid fa-user-tie",
             },
             {
-                titulo: "Escolher a visualização",
+                titulo: "Buscar na carteira",
                 texto:
-                    "Use o botão de alternância \"Analítico / Quadro Kanban\". A visão analítica é uma lista detalhada; o Kanban separa em colunas (Contato Inicial, Em Negociação, Risco Crítico).",
+                    "Use a barra de pesquisa: tipo \"Todos os campos\", CPF/CNPJ, Nome, Grupo & Cota ou Bem. Limpe com o X quando precisar voltar à lista inteira.",
+                icone: "fa-solid fa-magnifying-glass",
+            },
+            {
+                titulo: "Alternar Analítico e Kanban",
+                texto:
+                    "\"Analítico\" agrupa contratos em blocos por criticidade; \"Kanban\" organiza em colunas de estágio. O botão \"Parcelas Desordenadas\" destaca contratos com inconsistência de ordem de parcelas.",
                 icone: "fa-solid fa-table-columns",
             },
             {
-                titulo: "Filtrar por criticidade",
+                titulo: "Abrir detalhe e tramitar",
                 texto:
-                    "Os chips \"Crítico\", \"Atenção\" e \"Recente\" filtram contratos por tempo em atraso. Clique em um para focar só naquele grupo.",
-                icone: "fa-solid fa-triangle-exclamation",
-            },
-            {
-                titulo: "Abrir o detalhe do contrato",
-                texto:
-                    "Clique em qualquer cartão para abrir o modal de detalhes, com dados do consorciado, telefones, e-mails, parcelas, bens, avalista e histórico de tramitações.",
+                    "Clique no cartão para o modal com devedor, avalista, parcelas, contatos e histórico. Registre ligações, WhatsApp ou e-mail como tramitação.",
                 icone: "fa-solid fa-folder-open",
             },
             {
-                titulo: "Registrar uma tramitação",
+                titulo: "Ações em massa no rodapé",
                 texto:
-                    "Dentro do modal, use o formulário de nova tramitação: escolha o tipo (ligação, WhatsApp, e-mail), informe CPC, adicione uma descrição e salve. A interação fica registrada no histórico.",
-                icone: "fa-solid fa-phone-volume",
+                    "\"Negativação\" abre o módulo já focado na carteira cobrança com o mesmo operador e filtros. \"SMS\" e \"E-mail\" disparam para todos os contratos visíveis na lista — use com atenção ao escopo.",
+                icone: "fa-solid fa-bolt",
             },
         ],
     },
@@ -99,33 +102,104 @@ const TUTORIAIS = [
         cor: "#8b5cf6",
         bg: "#f5f3ff",
         rota: "/busca",
-        descricaoCurta: "Localize rapidamente qualquer contrato, pessoa ou bem.",
+        descricaoCurta:
+            "Pesquise por pessoa (nome/CPF), grupo/cota ou bem; filtre por status e exporte a lista.",
         paraQueServe:
-            "Central de busca avançada. Serve para encontrar contratos por qualquer informação conhecida: CPF, nome, número de contrato, grupo/cota, avalista ou até pelo bem (chassi, placa, modelo).",
+            "Localização rápida no cadastro importado: consorciado ou documento, contrato por grupo/cota ou busca estruturada por campos do bem. Os resultados aparecem em tabela; você abre o mesmo modal de detalhes usado na Cobrança.",
         passos: [
             {
                 titulo: "Escolher o tipo de busca",
                 texto:
-                    "No seletor \"Buscar por\", selecione se a pesquisa é por Contrato, Consorciado, Avalista ou Bem. O placeholder do campo ajusta automaticamente.",
+                    "Em \"Tipo de Busca\": \"Nome ou CPF/CNPJ\", \"Grupo / Cota\" ou \"Bem / Descrição\". No modo bem, preencha os campos exibidos — só entram contratos que atendem a todos os campos preenchidos.",
                 icone: "fa-solid fa-sliders",
             },
             {
-                titulo: "Digitar o termo",
+                titulo: "Status do contrato",
                 texto:
-                    "Informe o texto (ex.: CPF com ou sem pontuação, nome parcial, \"028000/0271\", placa, chassi). A busca aceita correspondência parcial.",
-                icone: "fa-solid fa-keyboard",
+                    "Use \"Status\" para limitar a Aberto, Fechado ou Indenizado, ou deixe \"Todos\".",
+                icone: "fa-solid fa-filter",
             },
             {
-                titulo: "Ler os resultados",
+                titulo: "Pesquisar e revisar a tabela",
                 texto:
-                    "Os contratos aparecem em cartões com Grupo/Cota, status, valor, consorciado e descrição do bem, se houver.",
-                icone: "fa-solid fa-list-ul",
+                    "Clique em \"Pesquisar\". A grade mostra os dados principais; ordene ou exporte quando disponível.",
+                icone: "fa-solid fa-table",
             },
             {
-                titulo: "Abrir detalhes",
+                titulo: "Exportar e abrir detalhes",
                 texto:
-                    "Clique em um cartão para ver o modal completo com parcelas, tramitações e contatos — o mesmo do módulo de Cobrança.",
-                icone: "fa-solid fa-arrow-up-right-from-square",
+                    "\"Exportar lista (Excel)\" gera a visão atual. Clique na linha/ação de detalhes para ver parcelas, contatos e tramitações.",
+                icone: "fa-solid fa-file-excel",
+            },
+        ],
+    },
+    {
+        id: "negativacao",
+        nome: "Negativações",
+        icone: "fa-solid fa-ban",
+        cor: "#dc2626",
+        bg: "#fef2f2",
+        rota: "/negativacao",
+        descricaoCurta:
+            "Acompanhe negativação e positivação: visão geral ou só a carteira de cobrança.",
+        paraQueServe:
+            "Central para consultar histórico de negativação/positivação, filtrar por tipo de evento e status na parcela ativa, e executar ações unitárias ou em lote. A visão \"Carteira Cobrança\" replica o recorte do painel de Cobrança (último snapshot GM), com operador e datas de referência.",
+        passos: [
+            {
+                titulo: "Escolher Geral ou Carteira Cobrança",
+                texto:
+                    "Em \"Visão\", \"Geral\" usa filtros amplos (inclui intervalo de datas início). \"Carteira Cobrança\" foca nos contratos do painel de cobrança e permite escolher operador e data fim.",
+                icone: "fa-solid fa-eye",
+            },
+            {
+                titulo: "Montar filtros de busca",
+                texto:
+                    "Tipo: grupo/cota/número ou texto no histórico. \"Tipo de ocorrência\" restringe negativados, positivados, observações etc. \"Status na parcela ativa\" filtra a lista de parcelas com negativação ativa.",
+                icone: "fa-solid fa-filter",
+            },
+            {
+                titulo: "Parcelas ativas e painéis",
+                texto:
+                    "Os resultados separam parcelas com negativação ativa (com totais na visão carteira) e painéis recolhíveis para filas de negativação e histórico positivados.",
+                icone: "fa-solid fa-layer-group",
+            },
+            {
+                titulo: "Ações por linha ou em lote",
+                texto:
+                    "Use os botões de positivar/negativar conforme a regra do escritório. Na visão geral há ações em massa nos cabeçalhos dos painéis quando aplicável.",
+                icone: "fa-solid fa-scale-balanced",
+            },
+        ],
+    },
+    {
+        id: "pasta_virtual",
+        nome: "Pasta Virtual",
+        icone: "fa-solid fa-folder-open",
+        cor: "#0d9488",
+        bg: "#f0fdfa",
+        rota: "/pasta-virtual",
+        descricaoCurta:
+            "Anexe e organize arquivos por contrato e funcionário, com consulta e download.",
+        paraQueServe:
+            "Repositório de documentos ligados à cobrança: cada registro associa contrato, devedor e responsável. Serve para protocolar comprovantes, cartas ou PDFs sem sair do sistema.",
+        passos: [
+            {
+                titulo: "Filtrar a lista",
+                texto:
+                    "Informe grupo/cota (ou parte) e, se quiser, restrinja ao funcionário. \"Filtrar\" atualiza a tabela.",
+                icone: "fa-solid fa-filter",
+            },
+            {
+                titulo: "Novo registro",
+                texto:
+                    "Em \"Novo registro\", informe os dados solicitados e o arquivo. Campos extras podem aparecer conforme configuração da tabela no banco.",
+                icone: "fa-solid fa-plus",
+            },
+            {
+                titulo: "Baixar ou revisar",
+                texto:
+                    "Na grade, use as ações para baixar o arquivo ou revisar descrição e metadados.",
+                icone: "fa-solid fa-download",
             },
         ],
     },
@@ -136,32 +210,33 @@ const TUTORIAIS = [
         cor: "#f59e0b",
         bg: "#fffbeb",
         rota: "/relatorios",
-        descricaoCurta: "Extraia relatórios gerenciais em XLS, PDF ou CSV.",
+        descricaoCurta:
+            "Contratos abertos, pagos, parciais, indenizados, novos e que voltaram — visualize ou exporte Excel/PDF.",
         paraQueServe:
-            "Permite gerar relatórios consolidados para análise ou envio ao cliente: contratos abertos, pagos, indenizados, visão por safra e outros recortes, com exportação para planilha ou PDF.",
+            "Extrai listagens gerenciais com filtros de período e prioridade (faixas de atraso), alinhadas às regras de cada tipo de relatório. Ideal para auditoria e envio ao cliente.",
         passos: [
             {
-                titulo: "Escolher o tipo de relatório",
+                titulo: "Tipo de contrato",
                 texto:
-                    "Selecione entre \"Contratos Abertos\", \"Pagos\", \"Indenizados\", \"Por Safra\" etc. Cada opção exibe os filtros compatíveis.",
+                    "Selecione entre Contratos Abertos, Pagos/Fechados, Pagos parcialmente, Indenizados, Novos ou Que Voltaram. Os campos de data habilitam conforme o tipo.",
                 icone: "fa-solid fa-list-check",
             },
             {
-                titulo: "Definir o intervalo",
+                titulo: "Prioridade e datas",
                 texto:
-                    "Informe Data Inicial e Final. Para \"Contratos Abertos\" a Data Final é automaticamente bloqueada na data de hoje (o status é sempre atual).",
+                    "Refine por Crítico, Atenção ou Recente quando fizer sentido. Ajuste Data Inicial/Final — em alguns relatórios a data final pode ficar fixa na lógica do sistema.",
                 icone: "fa-regular fa-calendar",
             },
             {
-                titulo: "Aplicar filtros adicionais",
+                titulo: "Visualizar na tela",
                 texto:
-                    "Se disponível, refine por operador, criticidade ou safra para reduzir o escopo do relatório.",
-                icone: "fa-solid fa-filter",
+                    "Use \"Visualizar na Tela\" para conferir antes de exportar. Ordene colunas clicando nos cabeçalhos.",
+                icone: "fa-solid fa-desktop",
             },
             {
-                titulo: "Gerar e exportar",
+                titulo: "Exportar",
                 texto:
-                    "Clique em \"Gerar Relatório\". Quando pronto, escolha o formato de exportação (XLS, PDF, CSV PowerBI) no topo da tabela.",
+                    "\"Exportar Excel\" ou \"Exportar PDF\" geram o arquivo com o mesmo filtro aplicado.",
                 icone: "fa-solid fa-file-export",
             },
         ],
@@ -173,32 +248,33 @@ const TUTORIAIS = [
         cor: "#ef4444",
         bg: "#fef2f2",
         rota: "/agenda",
-        descricaoCurta: "Organize compromissos e retornos de negociação.",
+        descricaoCurta:
+            "Calendário de tarefas com prioridade e vínculo opcional a contrato e responsável.",
         paraQueServe:
-            "Gestão de atividades do operador. Cadastre retornos, reuniões, cobranças agendadas e vincule-as a contratos e funcionários responsáveis, com nível de prioridade.",
+            "Organiza retornos de negociação e compromissos do time. As tarefas aparecem no mês selecionado e na lista do dia.",
         passos: [
             {
-                titulo: "Criar uma atividade",
+                titulo: "Navegar no calendário",
                 texto:
-                    "Clique em \"+ Nova Atividade\". Informe título, descrição, data/hora e prioridade (baixa, média, alta).",
+                    "Use as setas para mudar o mês e clique em um dia para focar as tarefas daquela data.",
+                icone: "fa-regular fa-calendar",
+            },
+            {
+                titulo: "Nova tarefa",
+                texto:
+                    "Em \"Nova Tarefa\", preencha título, descrição opcional, data/hora e prioridade.",
                 icone: "fa-solid fa-calendar-plus",
             },
             {
-                titulo: "Vincular a um contrato",
+                titulo: "Vincular contrato e responsável",
                 texto:
-                    "Se a atividade for ligada a uma cobrança, pesquise e selecione o contrato no campo \"Contrato relacionado\".",
+                    "Associe um contrato quando a atividade for de cobrança e escolha o funcionário responsável.",
                 icone: "fa-solid fa-link",
             },
             {
-                titulo: "Atribuir ao responsável",
+                titulo: "Concluir",
                 texto:
-                    "Escolha o funcionário responsável pela execução. A atividade aparecerá na agenda dele.",
-                icone: "fa-solid fa-user-check",
-            },
-            {
-                titulo: "Concluir ou reagendar",
-                texto:
-                    "Quando realizar a atividade, marque como concluída. Atividades atrasadas são destacadas para follow-up.",
+                    "Marque tarefas realizadas e acompanhe as pendentes ou atrasadas na lista do dia.",
                 icone: "fa-solid fa-check-double",
             },
         ],
@@ -210,32 +286,33 @@ const TUTORIAIS = [
         cor: "#0ea5e9",
         bg: "#f0f9ff",
         rota: "/dashboard",
-        descricaoCurta: "Visão estratégica da carteira em cobrança.",
+        descricaoCurta:
+            "KPIs da carteira, gráficos de evolução e exportação XLS/PDF (gestor/admin).",
         paraQueServe:
-            "Painel gerencial com KPIs de contratos abertos, distribuição por criticidade e tabela de prioridades. Ideal para acompanhar a saúde geral da carteira e agir rápido nos contratos mais críticos.",
+            "Visão estratégica: contratos em cobrança hoje, pagos, parciais, indenizados, novos e retomados no período; gráfico de linhas configurável e pizza da distribuição da carteira. O painel de controle permite séries, intervalo de meses e exportação com dados e imagens.",
         passos: [
             {
-                titulo: "Interpretar os cards principais",
+                titulo: "Ler os cartões de KPI",
                 texto:
-                    "No topo, estão os indicadores consolidados: total de contratos, valor sob cobrança, quantidade crítica, atenção e recente.",
+                    "Os indicadores superiores refletem o período selecionado no painel (exceto \"Em Cobrança\", focado na situação atual).",
                 icone: "fa-solid fa-square-poll-vertical",
             },
             {
-                titulo: "Usar o painel de controle",
+                titulo: "Gráfico de evolução",
                 texto:
-                    "O bloco \"Painel de Controle\" permite ajustar mês e aplicar filtros dinâmicos que recalculam todos os indicadores da página.",
-                icone: "fa-solid fa-sliders",
+                    "Marque quais séries comparar (pagos, indenizados, novos, voltou, parciais, entradas safra). O texto de ajuda no painel explica sobreposições entre séries.",
+                icone: "fa-solid fa-chart-line",
             },
             {
-                titulo: "Ordenar a tabela de prioridades",
+                titulo: "Período e pizza",
                 texto:
-                    "Clique nos cabeçalhos da tabela para ordenar por qualquer coluna (dias em atraso, valor, operador). Ajuda a priorizar contatos.",
-                icone: "fa-solid fa-arrow-down-wide-short",
+                    "Defina mês inicial/final ou use atalhos 3/6/12 meses. Ajuste quais fatias entram no gráfico de distribuição da carteira.",
+                icone: "fa-solid fa-chart-pie",
             },
             {
-                titulo: "Exportar os dados",
+                titulo: "Exportar",
                 texto:
-                    "No canto do painel, use o botão de exportação para baixar a visão em XLS, PDF ou CSV pronto para PowerBI.",
+                    "Na área de exportação, baixe XLS ou PDF com dados e gráficos conforme a seleção atual.",
                 icone: "fa-solid fa-download",
             },
         ],
@@ -247,33 +324,34 @@ const TUTORIAIS = [
         cor: "#6366f1",
         bg: "#eef2ff",
         rota: "/performance",
-        descricaoCurta: "Acompanhe a evolução dos resultados por safra.",
+        descricaoCurta:
+            "Performance por safra: performado x não performado, faixas 30/60/90 dias e exportação (gestor).",
         paraQueServe:
-            "Análise de performance do escritório. Mostra a evolução de contratos pagos, indenizados e novos ao longo das safras, com comparativos e gráficos interativos.",
+            "Mede resultado por safra (entrada na cobrança no mês da data_arquivo GM), com contratos distribuídos, barras de desempenho e recorte por faixa do mês. Permite alternar visão por quantidade ou valor (R$) e exportar XLS, PDF ou CSV para Power BI.",
         passos: [
             {
-                titulo: "Selecionar a safra",
+                titulo: "Safra e faixa do calendário",
                 texto:
-                    "Escolha uma safra específica no seletor para ver o detalhamento diário, ou deixe em \"Visão geral\" para comparar as 4 safras mais recentes.",
+                    "Escolha o mês/ano analisado e a faixa do mês (ou visão geral das quatro faixas). Leia o texto do painel sobre o critério de entrada na safra.",
                 icone: "fa-solid fa-layer-group",
             },
             {
-                titulo: "Ler os blocos de KPI",
+                titulo: "Teto de atraso",
                 texto:
-                    "Os cartões separam Contratos Pagos, Contratos Indenizados e Contratos Novos, com totais e percentuais no período.",
-                icone: "fa-solid fa-chart-simple",
+                    "Selecione até 30, 60 ou 90 dias para o gráfico de performado versus não performado (regra cumulativa descrita na tela).",
+                icone: "fa-solid fa-sliders",
             },
             {
-                titulo: "Explorar o gráfico",
+                titulo: "Quantidade ou valor",
                 texto:
-                    "Passe o mouse sobre as barras para ver os valores exatos de cada dia/safra. A cor indica a categoria (pago, indenizado, novo).",
-                icone: "fa-solid fa-chart-column",
+                    "Alterne entre modo quantidade e valor em R$; a classificação performado/não performado permanece, mudando apenas o que soma no gráfico.",
+                icone: "fa-solid fa-coins",
             },
             {
-                titulo: "Exportar para apresentação",
+                titulo: "Exportar e lista de contratos",
                 texto:
-                    "Use os botões do painel para gerar XLS, PDF ou CSV — úteis para reuniões gerenciais ou envio ao cliente.",
-                icone: "fa-solid fa-file-arrow-down",
+                    "Use XLS, PDF ou Power BI conforme necessidade. Abaixo do painel há detalhamento dos contratos quando disponível.",
+                icone: "fa-solid fa-file-export",
             },
         ],
     },
@@ -284,26 +362,33 @@ const TUTORIAIS = [
         cor: "#14b8a6",
         bg: "#f0fdfa",
         rota: "/cadastro",
-        descricaoCurta: "Consulte e gerencie o cadastro de pessoas.",
+        descricaoCurta:
+            "Duas grades: consorciados e avalistas, com busca por nome, documento, grupo/cota ou bem.",
         paraQueServe:
-            "Base cadastral de todas as pessoas (consorciados e avalistas) já importadas. Permite buscar uma pessoa, ver os contratos em que ela aparece e conferir dados de contato.",
+            "Consulta cadastral das pessoas já importadas: localiza quem é devedor ou avalista, quantos contratos possui e abre o painel completo de contatos igual ao usado na Busca e na Cobrança.",
         passos: [
             {
-                titulo: "Buscar uma pessoa",
+                titulo: "Escolher o bloco",
                 texto:
-                    "Use o filtro para pesquisar por CPF/CNPJ, nome completo ou parcial. A lista é paginada.",
-                icone: "fa-solid fa-user-magnifying-glass",
+                    "A página tem seções separadas \"Gestão de Consorciados\" e \"Gestão de Avalistas\", cada uma com contagem e busca própria.",
+                icone: "fa-solid fa-users",
             },
             {
-                titulo: "Separar por papel",
+                titulo: "Tipo de filtro",
                 texto:
-                    "Escolha se quer ver apenas \"Consorciados\", \"Avalistas\" ou ambos. O sistema mostra em qual papel a pessoa aparece em cada contrato.",
-                icone: "fa-solid fa-user-tag",
+                    "Em cada bloco, selecione Nome, CPF/CNPJ, Grupo & Cota ou Bem (Descrição) e informe o termo antes de pesquisar.",
+                icone: "fa-solid fa-sliders",
             },
             {
-                titulo: "Abrir detalhes da pessoa",
+                titulo: "Ordenar e paginar",
                 texto:
-                    "Clique em um registro para ver todos os telefones, e-mails, endereços e contratos vinculados — o mesmo detalhe exibido na Busca e na Cobrança.",
+                    "Clique nos cabeçalhos para ordenar nome, documento ou quantidade de contratos.",
+                icone: "fa-solid fa-arrow-down-wide-short",
+            },
+            {
+                titulo: "Abrir detalhes",
+                texto:
+                    "Use a ação na linha para ver telefones, e-mails, endereços e contratos vinculados.",
                 icone: "fa-solid fa-address-card",
             },
         ],
@@ -315,33 +400,112 @@ const TUTORIAIS = [
         cor: "#64748b",
         bg: "#f1f5f9",
         rota: "/operadores",
-        descricaoCurta: "Cadastre e gerencie os funcionários de cobrança.",
+        descricaoCurta:
+            "Gerencie cobradores, situação da carteira, KPIs e cadastro (perfil administrativo).",
         paraQueServe:
-            "Gestão dos cobradores do escritório. Define quem está ativo, afastado ou em férias, controla acessos e permite inspecionar a carteira e performance de cada operador.",
+            "Painel gerencial dos funcionários de cobrança: filtros por operador, criticidade da carteira (faixa de atraso), status laboral (ativo, inativo, afastado, férias) e busca textual. Permite criar operador e inspecionar desempenho agregado.",
         passos: [
             {
-                titulo: "Filtrar por status",
+                titulo: "Combinar filtros",
                 texto:
-                    "Use os chips para alternar entre Ativos, Inativos, Afastados e Férias. A lista é filtrada em tempo real.",
-                icone: "fa-solid fa-circle-half-stroke",
+                    "Use Operador, Situação (crítico/atenção/recente da carteira), Status do funcionário e a caixa de busca por nome, CPF ou grupo/cota.",
+                icone: "fa-solid fa-filter",
             },
             {
-                titulo: "Expandir um operador",
+                titulo: "Ler os KPIs",
                 texto:
-                    "Clique no cartão de um funcionário para ver os contratos sob sua responsabilidade, contatos e indicadores de performance.",
-                icone: "fa-solid fa-chevron-down",
+                    "Os cartões resumem totais e distribuição conforme o recorte aplicado — útil para equilibrar carga.",
+                icone: "fa-solid fa-chart-simple",
             },
             {
-                titulo: "Cadastrar ou editar",
+                titulo: "Novo operador",
                 texto:
-                    "Use \"+ Novo Operador\" para cadastrar um funcionário (nome, CPF, login, senha). Para editar, abra o cartão e clique em \"Editar\".",
+                    "Em \"Novo operador\", cadastre dados de acesso e vínculo; edite pelo fluxo de detalhe/expansão do cartão quando o sistema permitir.",
                 icone: "fa-solid fa-user-plus",
             },
             {
-                titulo: "Controlar acesso externo",
+                titulo: "Ramal e discador",
                 texto:
-                    "A flag \"Acesso externo\" permite que o operador entre pelo login próprio e veja somente a carteira dele.",
-                icone: "fa-solid fa-key",
+                    "Mantenha o ramal correto no cadastro do funcionário quando o escritório usar integração de discagem (ligação a partir dos telefones nas telas de contato).",
+                icone: "fa-solid fa-phone",
+            },
+        ],
+    },
+    {
+        id: "protocolo",
+        nome: "Protocolo",
+        icone: "fa-solid fa-file-signature",
+        cor: "#2563eb",
+        bg: "#eff6ff",
+        rota: "/protocolo",
+        descricaoCurta:
+            "Lista de protocolos enviados com status (pendente, aceito, recusado) e vínculo a contrato.",
+        paraQueServe:
+            "Acompanhe comunicações formais entre remetente e destinatário dentro do sistema: título, datas, aceite e contrato associado quando houver.",
+        passos: [
+            {
+                titulo: "Consultar a tabela",
+                texto:
+                    "A grade mostra ID, título, partes, data de envio, status e contrato. O total de registros aparece no cabeçalho.",
+                icone: "fa-solid fa-table-list",
+            },
+            {
+                titulo: "Abrir detalhes",
+                texto:
+                    "Use a coluna de ações para ver o conteúdo completo e o histórico do protocolo escolhido.",
+                icone: "fa-solid fa-eye",
+            },
+        ],
+    },
+    {
+        id: "solicitacao",
+        nome: "Solicitação",
+        icone: "fa-solid fa-file-circle-question",
+        cor: "#7c3aed",
+        bg: "#f5f3ff",
+        rota: "/solicitacao",
+        descricaoCurta:
+            "Abra solicitações internas com destinatário, assunto, data a aguardar e contrato opcional.",
+        paraQueServe:
+            "Canal para pedidos entre equipes (documentos, análises, retornos): registra quem enviou, para quem, prazo de espera e descrição curta.",
+        passos: [
+            {
+                titulo: "Nova solicitação",
+                texto:
+                    "Clique em \"Nova solicitação\", escolha o destinatário, assunto, data a aguardar e opcionalmente o ID do contrato.",
+                icone: "fa-solid fa-plus",
+            },
+            {
+                titulo: "Acompanhar",
+                texto:
+                    "A lista centraliza envios com remetente, destinatário e data; abra o detalhe pela ação correspondente.",
+                icone: "fa-solid fa-inbox",
+            },
+        ],
+    },
+    {
+        id: "mensagem",
+        nome: "Mensagem",
+        icone: "fa-solid fa-envelope",
+        cor: "#ea580c",
+        bg: "#fff7ed",
+        rota: "/mensagem",
+        descricaoCurta:
+            "Mensagens internas entre usuários, com resposta em conversa.",
+        paraQueServe:
+            "Comunicação rápida no estilo caixa de mensagens: assunto, corpo opcional, destinatário e thread de respostas no detalhe.",
+        passos: [
+            {
+                titulo: "Enviar mensagem",
+                texto:
+                    "Em \"Nova mensagem\", selecione o destinatário e preencha assunto e texto.",
+                icone: "fa-solid fa-paper-plane",
+            },
+            {
+                titulo: "Ler e responder",
+                texto:
+                    "Abra o registro na lista para ver o conteúdo e usar responder quando disponível.",
+                icone: "fa-solid fa-comments",
             },
         ],
     },
