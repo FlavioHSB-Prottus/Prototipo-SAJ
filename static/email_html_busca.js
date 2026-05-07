@@ -13,6 +13,14 @@
             .replace(/"/g, '&quot;');
     }
 
+    function montarMensagemAutomaticaContrato(primeiroNome) {
+        var pn = String(primeiroNome || '').trim();
+        if (!pn) {
+            pn = 'Cliente';
+        }
+        return pn + ': sua cota do Cons\u00f3rcio Chevrolet encontra-se em atraso e foi encaminhada \u00e0 Jo\u00e3o Barbosa Assessoria. Para regulariza\u00e7\u00e3o, ligue 08000012323.';
+    }
+
     document.addEventListener('click', function (e) {
         var btn = e.target.closest('.btn-enviar-email-html');
         if (!btn) {
@@ -28,14 +36,20 @@
             window.alert('Dados do e-mail incompletos.');
             return;
         }
-        var texto = window.prompt('Mensagem do e-mail (texto simples) para ' + email + ':', '');
-        if (texto === null) {
-            return;
-        }
-        texto = String(texto).trim();
-        if (!texto) {
-            window.alert('Mensagem vazia.');
-            return;
+        var isEmailAutoContrato = String(btn.getAttribute('data-email-auto-contrato') || '').trim() === '1';
+        var texto = '';
+        if (isEmailAutoContrato) {
+            texto = montarMensagemAutomaticaContrato(btn.getAttribute('data-primeiro-nome'));
+        } else {
+            texto = window.prompt('Mensagem do e-mail (texto simples) para ' + email + ':', '');
+            if (texto === null) {
+                return;
+            }
+            texto = String(texto).trim();
+            if (!texto) {
+                window.alert('Mensagem vazia.');
+                return;
+            }
         }
         var corpoHtml = '<p>' + escapeHtml(texto).replace(/\r\n|\r|\n/g, '<br>') + '</p>';
         if (!window.confirm('Enviar e-mail para ' + email + '?')) {

@@ -676,6 +676,12 @@ document.addEventListener('DOMContentLoaded', function () {
         if (pessoa && pessoa.id) {
             var _pEnc = encodeURIComponent(pessoa.nome_completo || '');
             var _pId = String(pessoa.id);
+            var _pnSms = String((pessoa && pessoa.nome_completo) || '').trim();
+            if (_pnSms) {
+                _pnSms = _pnSms.split(/\s+/)[0];
+            } else {
+                _pnSms = 'Cliente';
+            }
             html += '<div class="contact-grid" style="margin-top:12px">';
             html += '<div><div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px"><h4 style="font-size:0.85rem;color:var(--text-muted);margin:0">Telefones</h4>';
             html += '<div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="action-btn btn-add-telefone-pessoa" data-pessoa-id="' + _pId + '" data-pessoa-nome="' + _pEnc + '" data-recurso="telefone"><i class="fa-solid fa-plus"></i> Telefone</button></div></div>';
@@ -688,7 +694,11 @@ document.addEventListener('DOMContentLoaded', function () {
                         '<button type="button" class="btn-whatsapp" title="Enviar WhatsApp" data-numero="' + esc(t.numero || '') + '"><i class="fa-brands fa-whatsapp"></i></button>';
                     var _smsB = ' data-pessoa-id="' + esc(_pId) + '"';
                     if (t.id != null && t.id !== '') { _smsB += ' data-telefone-id="' + esc(String(t.id)) + '"'; }
-                    if (idContrato != null && String(idContrato) !== '') { _smsB += ' data-contrato-id="' + esc(String(idContrato)) + '"'; }
+                    if (idContrato != null && String(idContrato) !== '') {
+                        _smsB += ' data-contrato-id="' + esc(String(idContrato)) + '"';
+                        _smsB += ' data-sms-auto-contrato="1"';
+                        _smsB += ' data-primeiro-nome="' + esc(_pnSms) + '"';
+                    }
                     html += '<button type="button" class="btn-mensagem" title="Enviar SMS" data-numero="' + esc(t.numero || '') + '"' + _smsB + '"><i class="fa-solid fa-comment-dots"></i></button>';
                     html += '<span class="contact-meta">';
                     var _fonteTel = (typeof window.formatContatoFonteLabel === 'function') ? window.formatContatoFonteLabel(t.fonte) : '';
@@ -709,6 +719,8 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (em.id != null && em.id !== '') { _emC += ' data-email-id="' + esc(String(em.id)) + '"'; }
                     if (idContrato != null && String(idContrato) !== '') {
                         _emC += ' data-contrato-id="' + esc(String(idContrato)) + '"';
+                        _emC += ' data-email-auto-contrato="1"';
+                        _emC += ' data-primeiro-nome="' + esc(_pnSms) + '"';
                     }
                     html += '<button type="button" class="btn-enviar-email-html" title="Enviar e-mail"' + _emC +
                         '><i class="fa-solid fa-envelope"></i></button>';
