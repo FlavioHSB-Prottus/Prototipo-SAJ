@@ -4,6 +4,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='busca.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='cobranca.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='importacao.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -86,7 +87,7 @@
                 <i class="fa-solid fa-gavel"></i><span>Negativação</span>
             </button>
             <span class="footer-bulk-sep" aria-hidden="true"></span>
-            <button type="button" class="bulk-btn bulk-btn-sms-email" id="footerBulkSmsEmail" title="SMS e e-mail automáticos no roteiro (dias 0, 16, 31, 61 e 85), sem duplicar envio no mesmo dia — confira o resumo antes de disparar">
+            <button type="button" class="bulk-btn bulk-btn-sms-email" id="footerBulkSmsEmail" title="Abre o resumo antes do envio (mesma regra da Lista SMS/E-mail na Importação)">
                 <i class="fa-solid fa-comments"></i><span>SMS / E-mail</span>
             </button>
         </div>
@@ -145,6 +146,26 @@
                 <i class="fa-solid fa-paper-plane"></i>
                 <span class="auto-confirm-go-label">Confirmar e disparar</span>
             </button>
+        </footer>
+    </div>
+</div>
+
+<!-- Modal SMS/E-mail carteira (mesmo estilo da Importação) -->
+<div class="transfer-modal-overlay d-none" id="cobrancaSmsCarteiraOverlay" role="dialog" aria-modal="true" aria-labelledby="cobrancaSmsCarteiraTitle">
+    <div class="transfer-modal sms-autom-preview-modal">
+        <header class="transfer-modal-header">
+            <div>
+                <h3 id="cobrancaSmsCarteiraTitle"><i class="fa-solid fa-comment-sms"></i> SMS / E-mail automáticos</h3>
+                <p class="transfer-modal-sub">Resumo da lista visível (operador e busca). Contratos fora do roteiro ou já contactados hoje são ignorados.</p>
+            </div>
+            <button type="button" class="transfer-close" id="cobrancaSmsCarteiraFecharX" aria-label="Fechar">&times;</button>
+        </header>
+        <div class="transfer-modal-body" id="cobrancaSmsCarteiraBody"></div>
+        <footer class="transfer-modal-footer sms-autom-preview-footer">
+            <button type="button" class="btn-secondary-dist sms-autom-fechar" id="cobrancaSmsCarteiraFechar">Fechar</button>
+            <button type="button" class="btn-sms-autom-sms sms-autom-envio-btn" id="cobrancaSmsCarteiraEnvioSms"><i class="fa-solid fa-comment-sms"></i> Enviar só SMS</button>
+            <button type="button" class="btn-sms-autom-email sms-autom-envio-btn" id="cobrancaSmsCarteiraEnvioEmail"><i class="fa-solid fa-envelope"></i> Enviar só E-mail</button>
+            <button type="button" class="btn-aprovar-dist sms-autom-envio-btn" id="cobrancaSmsCarteiraEnvioAmbos"><i class="fa-solid fa-paper-plane"></i> SMS e E-mail</button>
         </footer>
     </div>
 </div>

@@ -110,6 +110,7 @@ _COBRANCA_API_PREFIXES_OK = (
     '/api/relatorios',
     '/api/agenda',
     '/api/protocolos',
+    '/api/protocolo',
     '/api/solicitacoes',
     '/api/solicitacao',
     '/api/mensagens',
@@ -2072,99 +2073,127 @@ def _contrato_row_auto_envio(cursor, id_contrato):
     return cursor.fetchone()
 
 
-def _contratos_rows_auto_envio_batch(cursor, contrato_ids):
+def _contratos_rows_auto_envio_batch(cursor, contrato_ids, chunk_size=450):
     """Mesmo formato de `_contrato_row_auto_envio`, em lote (contratos abertos)."""
     if not contrato_ids:
         return {}
-    ph = ','.join(['%s'] * len(contrato_ids))
-    cursor.execute(
-        f"""
-        SELECT c.id AS id_contrato,
-               c.grupo,
-               c.cota,
-               c.id_pessoa,
-               c.numero_contrato,
-               p.nome_completo,
-               (SELECT DATEDIFF(CURDATE(), MIN(p2.vencimento))
-                  FROM parcela p2
-                 WHERE p2.id_contrato = c.id AND p2.status = 'aberto') AS dias_atraso
-        FROM contrato c
-        LEFT JOIN pessoa p ON p.id = c.id_pessoa
-        WHERE c.id IN ({ph}) AND c.status = 'aberto'
-        """,
-        list(contrato_ids),
-    )
-    return {int(r['id_contrato']): r for r in (cursor.fetchall() or [])}
+    ids = list(contrato_ids)
+    merged = {}
+    for i in range(0, len(ids), chunk_size):
+        chunk = ids[i : i + chunk_size]
+        ph = ','.join(['%s'] * len(chunk))
+        cursor.execute(
+            f"""
+            SELECT c.id AS id_contrato,
+                   c.grupo,
+                   c.cota,
+                   c.id_pessoa,
+                   c.numero_contrato,
+                   p.nome_completo,
+                   (SELECT DATEDIFF(CURDATE(), MIN(p2.vencimento))
+                      FROM parcela p2
+                     WHERE p2.id_contrato = c.id AND p2.status = 'aberto') AS dias_atraso
+            FROM contrato c
+            LEFT JOIN pessoa p ON p.id = c.id_pessoa
+            WHERE c.id IN ({ph}) AND c.status = 'aberto'
+            """,
+            chunk,
+        )
+        for r in cursor.fetchall() or []:
+            merged[int(r['id_contrato'])] = r
+    return merged
 
 
-def _contratos_teve_envio_cobranca_hoje_batch(cursor, contrato_ids):
-    """Conjunto de ids de contrato que já têm SMS ou e-mail registrados hoje."""
+def _contratos_teve_envio_cobranca_hoje_batch(cursor, contrato_ids, chunk_size=450):
+    """Conjunto de ids de contrato que já têm SMS ou e-mail registrados hoje.
+
+    Consultas fatiadas para não estourar limite de placeholders/pacote em bases grandes.
+    """
     if not contrato_ids:
         return set()
-    ph = ','.join(['%s'] * len(contrato_ids))
     ids = list(contrato_ids)
-    cursor.execute(
-        f"""
-        SELECT DISTINCT id_contrato FROM (
-            SELECT id_contrato FROM registro_sms
-            WHERE id_contrato IN ({ph}) AND DATE(created_at) = CURDATE()
-            UNION ALL
-            SELECT id_contrato FROM registro_email
-            WHERE id_contrato IN ({ph}) AND DATE(created_at) = CURDATE()
-        ) t
-        """,
-        ids + ids,
-    )
-    return {int(r['id_contrato']) for r in (cursor.fetchall() or [])}
+    found = set()
+    for i in range(0, len(ids), chunk_size):
+        chunk = ids[i : i + chunk_size]
+        ph = ','.join(['%s'] * len(chunk))
+        cursor.execute(
+            f"""
+            SELECT DISTINCT id_contrato FROM (
+                SELECT id_contrato FROM registro_sms
+                WHERE id_contrato IN ({ph}) AND DATE(created_at) = CURDATE()
+                UNION ALL
+                SELECT id_contrato FROM registro_email
+                WHERE id_contrato IN ({ph}) AND DATE(created_at) = CURDATE()
+            ) t
+            """,
+            chunk + chunk,
+        )
+        for r in cursor.fetchall() or []:
+            found.add(int(r['id_contrato']))
+    return found
 
 
-def _telefones_por_pessoas(cursor, pessoa_ids):
+def _telefones_por_pessoas(cursor, pessoa_ids, chunk_size=450):
     """{id_pessoa: [rows telefone]} preservando ordem estável por id."""
     if not pessoa_ids:
         return {}
-    ph = ','.join(['%s'] * len(pessoa_ids))
-    cursor.execute(
-        f'SELECT id, id_pessoa, numero FROM telefone WHERE id_pessoa IN ({ph}) ORDER BY id ASC',
-        list(pessoa_ids),
-    )
+    ids = list(pessoa_ids)
     out = {}
-    for r in cursor.fetchall() or []:
-        pid = int(r['id_pessoa'])
-        out.setdefault(pid, []).append(r)
+    for i in range(0, len(ids), chunk_size):
+        chunk = ids[i : i + chunk_size]
+        ph = ','.join(['%s'] * len(chunk))
+        cursor.execute(
+            f'SELECT id, id_pessoa, numero FROM telefone WHERE id_pessoa IN ({ph}) ORDER BY id ASC',
+            chunk,
+        )
+        for r in cursor.fetchall() or []:
+            pid = int(r['id_pessoa'])
+            out.setdefault(pid, []).append(r)
     return out
 
 
-def _emails_por_pessoas(cursor, pessoa_ids):
+def _emails_por_pessoas(cursor, pessoa_ids, chunk_size=450):
     """{id_pessoa: [rows email]} preservando ordem estável por id."""
     if not pessoa_ids:
         return {}
-    ph = ','.join(['%s'] * len(pessoa_ids))
-    cursor.execute(
-        f'SELECT id, id_pessoa, email FROM email WHERE id_pessoa IN ({ph}) ORDER BY id ASC',
-        list(pessoa_ids),
-    )
+    ids = list(pessoa_ids)
     out = {}
-    for r in cursor.fetchall() or []:
-        pid = int(r['id_pessoa'])
-        out.setdefault(pid, []).append(r)
+    for i in range(0, len(ids), chunk_size):
+        chunk = ids[i : i + chunk_size]
+        ph = ','.join(['%s'] * len(chunk))
+        cursor.execute(
+            f'SELECT id, id_pessoa, email FROM email WHERE id_pessoa IN ({ph}) ORDER BY id ASC',
+            chunk,
+        )
+        for r in cursor.fetchall() or []:
+            pid = int(r['id_pessoa'])
+            out.setdefault(pid, []).append(r)
     return out
 
 
+# Lista todos os contratos abertos com dias desde MIN(vencimento) das parcelas em aberto.
+# Usa a mesma CTE `MenorVencimento` que o Excel (sem subconsulta correlacionada por linha),
+# para o mesmo resultado numérico e desempenho aceitável em bases grandes.
 _SMS_AUTOM_DISTRIBUICAO_SQL = """
-                SELECT c.id AS id_contrato,
-                       c.grupo,
-                       c.cota,
-                       c.id_pessoa,
-                       c.numero_contrato,
-                       p.nome_completo,
-                       (SELECT DATEDIFF(CURDATE(), MIN(p2.vencimento))
-                          FROM parcela p2
-                         WHERE p2.id_contrato = c.id AND p2.status = 'aberto') AS dias_atraso
-                FROM contrato c
-                LEFT JOIN pessoa p ON p.id = c.id_pessoa
-                WHERE c.status = 'aberto'
-                ORDER BY c.id
-                """
+WITH MenorVencimento AS (
+    SELECT id_contrato, MIN(vencimento) AS data_vencimento_minima
+    FROM parcela
+    WHERE status = 'aberto'
+    GROUP BY id_contrato
+)
+SELECT c.id AS id_contrato,
+       c.grupo,
+       c.cota,
+       c.id_pessoa,
+       c.numero_contrato,
+       p.nome_completo,
+       DATEDIFF(CURRENT_DATE, mv.data_vencimento_minima) AS dias_atraso
+FROM contrato c
+LEFT JOIN MenorVencimento mv ON c.id = mv.id_contrato
+LEFT JOIN pessoa p ON p.id = c.id_pessoa
+WHERE c.status = 'aberto'
+ORDER BY c.id
+"""
 
 # Export Excel (lista contratos abertos no roteiro de dias); independente da validacao de telefone do preview/POST.
 _SMS_AUTOM_EXCEL_SQL = """
@@ -2182,6 +2211,30 @@ SELECT
     c.grupo,
     c.cota,
     mv.data_vencimento_minima,
+    DATEDIFF(CURRENT_DATE, mv.data_vencimento_minima) AS dias_atraso
+FROM contrato c
+JOIN MenorVencimento mv ON c.id = mv.id_contrato
+WHERE c.status = 'aberto'
+  AND DATEDIFF(CURRENT_DATE, mv.data_vencimento_minima) IN (0, 16, 31, 61, 85)
+ORDER BY dias_atraso DESC
+"""
+
+# Mesmo filtro que `_SMS_AUTOM_EXCEL_SQL`, com `id_pessoa` para o preview (resumo = mesma lista).
+_SMS_AUTOM_PREVIEW_ROTEIRO_SQL = """
+WITH MenorVencimento AS (
+    SELECT
+        id_contrato,
+        MIN(vencimento) AS data_vencimento_minima
+    FROM parcela
+    WHERE status = 'aberto'
+    GROUP BY id_contrato
+)
+SELECT
+    c.id AS id_contrato,
+    c.id_pessoa,
+    c.grupo,
+    c.cota,
+    c.numero_contrato,
     DATEDIFF(CURRENT_DATE, mv.data_vencimento_minima) AS dias_atraso
 FROM contrato c
 JOIN MenorVencimento mv ON c.id = mv.id_contrato
@@ -2217,11 +2270,11 @@ def _sms_automatizados_template_id_por_dias(da_int):
 
 
 def _sms_automatizados_analise(conn):
-    """Mesma logica do preview (template + telefones/emails + anti-duplicidade do dia).
+    """Contagens para o modal de preview (importação): mesma lista que o Excel / Lista SMS-E-mail.
 
-    Contratos `aberto` na base; roteiro quando DATEDIFF(hoje, MIN vencimento parcelas
-    abertas) in (0, 16, 31, 61, 85). Contratos que já tiveram SMS ou e-mail hoje
-    entram em `ignorados_ja_enviados_hoje` e não contam como previstos.
+    Usa `_SMS_AUTOM_PREVIEW_ROTEIRO_SQL` (filtro identico a `_SMS_AUTOM_EXCEL_SQL`) e depois
+    telefones/e-mails em memoria. Contratos abertos fora dessa lista entram em
+    `ignorados_sem_template`. O POST em lote continua a iterar `_SMS_AUTOM_DISTRIBUICAO_SQL`.
     """
     out = {
         'sms_previstos': 0,
@@ -2237,43 +2290,48 @@ def _sms_automatizados_analise(conn):
         'contratos_processados': 0,
     }
     with conn.cursor() as cursor:
-        cursor.execute(_SMS_AUTOM_DISTRIBUICAO_SQL)
-        contratos = cursor.fetchall() or []
+        cursor.execute(
+            "SELECT COUNT(*) AS n FROM contrato WHERE status = %s",
+            ('aberto',),
+        )
+        crow = cursor.fetchone() or {}
+        total_abertos = int(crow.get('n') or 0)
+    out['contratos_processados'] = total_abertos
 
-    for row in contratos:
-        out['contratos_processados'] += 1
+    with conn.cursor() as cursor:
+        cursor.execute(_SMS_AUTOM_PREVIEW_ROTEIRO_SQL)
+        roteiro_rows = cursor.fetchall() or []
+
+    n_na_lista = len(roteiro_rows)
+    out['ignorados_sem_template'] = max(0, total_abertos - n_na_lista)
+
+    pending = []
+    for row in roteiro_rows:
         id_contrato = int(row['id_contrato'])
         id_pessoa = row.get('id_pessoa')
         if id_pessoa is None:
             out['ignorados_sem_template'] += 1
             continue
-        id_pessoa = int(id_pessoa)
+        pending.append((id_contrato, row, int(id_pessoa)))
 
-        dias_atraso = row.get('dias_atraso')
-        da_int = None
-        if dias_atraso is not None:
-            try:
-                da_int = int(dias_atraso)
-            except (TypeError, ValueError):
-                da_int = None
+    if not pending:
+        return out, []
 
-        template_id = _sms_automatizados_template_id_por_dias(da_int)
+    ids = [p[0] for p in pending]
+    with conn.cursor() as cursor:
+        envio_hoje = _contratos_teve_envio_cobranca_hoje_batch(cursor, ids)
 
-        if template_id is None:
-            out['ignorados_sem_template'] += 1
+    pessoa_ids = list({p[2] for p in pending})
+    with conn.cursor() as cursor:
+        tel_map = _telefones_por_pessoas(cursor, pessoa_ids)
+        email_map = _emails_por_pessoas(cursor, pessoa_ids)
+
+    for id_contrato, row, id_pessoa in pending:
+        if id_contrato in envio_hoje:
+            out['ignorados_ja_enviados_hoje'] += 1
             continue
 
-        with conn.cursor() as cursor:
-            if _contrato_teve_envio_cobranca_hoje(cursor, id_contrato):
-                out['ignorados_ja_enviados_hoje'] += 1
-                continue
-
-        with conn.cursor() as cursor:
-            cursor.execute(
-                'SELECT id, numero FROM telefone WHERE id_pessoa = %s',
-                (id_pessoa,),
-            )
-            telefones = cursor.fetchall() or []
+        telefones = tel_map.get(id_pessoa, [])
 
         n_ok_sms = 0
         for tel in telefones:
@@ -2281,14 +2339,7 @@ def _sms_automatizados_analise(conn):
             if not digits:
                 out['tentativas_bloqueadas_cadastro'] += 1
                 continue
-            payload_resolve = {
-                'id_telefone': int(tel['id']),
-                'id_pessoa': id_pessoa,
-                'id_contrato': id_contrato,
-            }
-            with conn.cursor() as cursor:
-                _, err = _resolve_ids_registro_sms(cursor, payload_resolve, digits)
-            if err:
+            if not _sms_numero_variant_sets_overlap(tel.get('numero'), digits):
                 out['tentativas_bloqueadas_cadastro'] += 1
                 continue
             out['sms_previstos'] += 1
@@ -2298,28 +2349,11 @@ def _sms_automatizados_analise(conn):
         elif not telefones:
             out['ignorados_sem_telefone'] += 1
 
-        with conn.cursor() as cursor:
-            cursor.execute(
-                'SELECT id, email FROM email WHERE id_pessoa = %s',
-                (id_pessoa,),
-            )
-            emails_rows = cursor.fetchall() or []
+        emails_rows = email_map.get(id_pessoa, [])
 
         n_ok_mail = 0
         for em in emails_rows:
             if not _email_basico_valido(em.get('email')):
-                out['tentativas_bloqueadas_cadastro'] += 1
-                continue
-            payload_resolve = {
-                'id_email': int(em['id']),
-                'id_pessoa': id_pessoa,
-                'id_contrato': id_contrato,
-            }
-            with conn.cursor() as cursor:
-                _, err = _resolve_ids_registro_email(
-                    cursor, id_pessoa, int(em['id']), id_contrato,
-                )
-            if err:
                 out['tentativas_bloqueadas_cadastro'] += 1
                 continue
             out['emails_previstos'] += 1
@@ -2336,7 +2370,7 @@ def _analise_automacao_carteira(conn, contrato_ids):
     """Igual à análise da Lista SMS/E-mail (distribuição), restrita aos IDs da carteira visível.
 
     Usado pelo modal de confirmação em Cobrança para mostrar contagens e contratos reais.
-    Consultas em lote para suportar milhares de IDs sem timeout.
+    Validação de telefone/e-mail em memória (como o preview de importação); consultas fatiadas.
     """
     uniq = []
     seen = set()
@@ -2421,14 +2455,7 @@ def _analise_automacao_carteira(conn, contrato_ids):
             if not digits:
                 out['tentativas_bloqueadas_cadastro'] += 1
                 continue
-            payload_resolve = {
-                'id_telefone': int(tel['id']),
-                'id_pessoa': id_pessoa,
-                'id_contrato': id_contrato,
-            }
-            with conn.cursor() as cursor:
-                _, err = _resolve_ids_registro_sms(cursor, payload_resolve, digits)
-            if err:
+            if not _sms_numero_variant_sets_overlap(tel.get('numero'), digits):
                 out['tentativas_bloqueadas_cadastro'] += 1
                 continue
             out['sms_previstos'] += 1
@@ -2443,13 +2470,6 @@ def _analise_automacao_carteira(conn, contrato_ids):
         n_ok_mail = 0
         for em in emails_rows:
             if not _email_basico_valido(em.get('email')):
-                out['tentativas_bloqueadas_cadastro'] += 1
-                continue
-            with conn.cursor() as cursor:
-                _, err = _resolve_ids_registro_email(
-                    cursor, id_pessoa, int(em['id']), id_contrato,
-                )
-            if err:
                 out['tentativas_bloqueadas_cadastro'] += 1
                 continue
             out['emails_previstos'] += 1
@@ -2488,6 +2508,11 @@ def api_distribuicao_sms_automatizados_preview():
     conn = _get_db()
     try:
         out, _linhas = _sms_automatizados_analise(conn)
+    except Exception:
+        app.logger.exception('sms-automatizados/preview')
+        return jsonify({
+            'error': 'Falha ao calcular o preview. Tente novamente; se persistir, verifique os logs do servidor.',
+        }), 500
     finally:
         conn.close()
 
@@ -2595,6 +2620,8 @@ def api_distribuicao_sms_automatizados():
 
     Regra: DATEDIFF(hoje, MIN vencimento de parcelas abertas) em 0, 16, 31, 61 ou 85 dias;
     mesmo texto nos dois canais. Contratos que já tiveram SMS ou e-mail no dia são ignorados.
+    Body JSON opcional: ``{"canais": ["sms"]}``, ``["email"]`` ou ambos (padrao: ambos).
+
     Apenas Gestor ou Administrador.
     """
     fid = session.get('funcionario_id')
@@ -2602,6 +2629,21 @@ def api_distribuicao_sms_automatizados():
         return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
     if not _pode_sms_automatizados_importacao():
         return jsonify({'error': 'Acesso restrito a gestores ou administradores.'}), 403
+
+    payload = request.get_json(silent=True) or {}
+    canais = {'sms', 'email'}
+    raw_canais = payload.get('canais')
+    if raw_canais is not None:
+        canais = set()
+        if isinstance(raw_canais, list):
+            for x in raw_canais:
+                xl = str(x).strip().lower()
+                if xl == 'sms':
+                    canais.add('sms')
+                elif xl in ('email', 'e-mail', 'mail'):
+                    canais.add('email')
+        if not canais:
+            return jsonify({'error': 'canais deve ser uma lista com "sms" e/ou "email".'}), 400
 
     remetente_nome = _primeiro_nome(session.get('funcionario_nome'))
     conn = _get_db()
@@ -2633,7 +2675,7 @@ def api_distribuicao_sms_automatizados():
                 remetente_nome,
                 stats,
                 erros_amostra,
-                {'sms', 'email'},
+                canais,
             )
 
     finally:
@@ -2642,6 +2684,7 @@ def api_distribuicao_sms_automatizados():
     stats['enviados'] = stats['envios_sms'] + stats['envios_email']
     return jsonify({
         'ok': True,
+        'canais': sorted(canais),
         'enviados': stats['enviados'],
         'envios_sms': stats['envios_sms'],
         'envios_email': stats['envios_email'],
@@ -8566,13 +8609,16 @@ def _ensure_aviso_table(cursor):
 
 
 def _ensure_notificacao_usuario_table(cursor):
-    """Tabela de leitura de notificacoes por funcionario (mural + agenda), idempotente."""
+    """Tabela de leitura de notificacoes por funcionario (mural + agenda + modulos), idempotente."""
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS notificacao_usuario (
             id BIGINT PRIMARY KEY AUTO_INCREMENT,
             id_funcionario INT NOT NULL,
-            tipo ENUM('aviso', 'agenda') NOT NULL,
+            tipo ENUM(
+                'aviso', 'agenda',
+                'mensagem', 'solicitacao', 'protocolo'
+            ) NOT NULL,
             ref_id BIGINT NOT NULL,
             lida_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE KEY uk_notif_func_tipo_ref (id_funcionario, tipo, ref_id),
@@ -8582,6 +8628,38 @@ def _ensure_notificacao_usuario_table(cursor):
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """
     )
+
+
+def _migrate_notificacao_usuario_enum_modulos(cursor, conn):
+    """Bancos antigos: amplia ENUM `tipo` para mensagem/solicitacao/protocolo."""
+    try:
+        cursor.execute(
+            """
+            SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'notificacao_usuario'
+              AND COLUMN_NAME = 'tipo'
+            """
+        )
+        row = cursor.fetchone()
+        if not row:
+            return
+        ct = row.get('COLUMN_TYPE') if isinstance(row, dict) else row[0]
+        ct = (ct or '').lower()
+        if 'mensagem' in ct:
+            return
+        cursor.execute(
+            """
+            ALTER TABLE notificacao_usuario
+            MODIFY COLUMN tipo ENUM(
+                'aviso', 'agenda',
+                'mensagem', 'solicitacao', 'protocolo'
+            ) NOT NULL
+            """
+        )
+        conn.commit()
+    except Exception:
+        app.logger.exception('_migrate_notificacao_usuario_enum_modulos')
 
 
 def _aviso_row_to_api_dict(row):
@@ -8890,7 +8968,7 @@ def _notif_sort_key(value):
 
 @app.route("/api/notificacoes", methods=["GET"])
 def api_notificacoes():
-    """Lista notificacoes nao lidas: avisos do mural e tarefas de agenda no horario agendado."""
+    """Lista notificacoes nao lidas: mural, agenda e registros onde o usuario e destinatario (mensagem/solicitacao/protocolo)."""
     raw_fid = session.get("funcionario_id")
     if not raw_fid:
         return jsonify({"error": "Nao autenticado"}), 401
@@ -8901,10 +8979,14 @@ def api_notificacoes():
     rows_aviso = []
     rows_agenda = []
     unread_count = 0
+    rows_msg = []
+    rows_sol = []
+    rows_prot = []
     try:
         _ensure_aviso_table(cursor)
         _avisos_fix_legacy_pt_br(cursor, conn)
         _ensure_notificacao_usuario_table(cursor)
+        _migrate_notificacao_usuario_enum_modulos(cursor, conn)
 
         cursor.execute(
             """
@@ -8934,7 +9016,47 @@ def api_notificacoes():
             (fid, fid),
         )
         count_agenda = int((_clean_row(cursor.fetchone()) or {}).get("c") or 0)
-        unread_count = count_aviso + count_agenda
+
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS c FROM mensagem m
+            WHERE m.id_destinatario = %s
+              AND NOT EXISTS (
+                SELECT 1 FROM notificacao_usuario nu
+                WHERE nu.id_funcionario = %s AND nu.tipo = 'mensagem' AND nu.ref_id = m.id
+              )
+            """,
+            (fid, fid),
+        )
+        count_msg = int((_clean_row(cursor.fetchone()) or {}).get("c") or 0)
+
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS c FROM solicitacao s
+            WHERE s.id_destinatario = %s
+              AND NOT EXISTS (
+                SELECT 1 FROM notificacao_usuario nu
+                WHERE nu.id_funcionario = %s AND nu.tipo = 'solicitacao' AND nu.ref_id = s.id
+              )
+            """,
+            (fid, fid),
+        )
+        count_sol = int((_clean_row(cursor.fetchone()) or {}).get("c") or 0)
+
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS c FROM protocolo p
+            WHERE p.id_destinatario = %s
+              AND NOT EXISTS (
+                SELECT 1 FROM notificacao_usuario nu
+                WHERE nu.id_funcionario = %s AND nu.tipo = 'protocolo' AND nu.ref_id = p.id
+              )
+            """,
+            (fid, fid),
+        )
+        count_prot = int((_clean_row(cursor.fetchone()) or {}).get("c") or 0)
+
+        unread_count = count_aviso + count_agenda + count_msg + count_sol + count_prot
 
         cursor.execute(
             """
@@ -8968,6 +9090,57 @@ def api_notificacoes():
             (fid, fid),
         )
         rows_agenda = _clean_rows(cursor.fetchall())
+
+        cursor.execute(
+            """
+            SELECT m.id, m.assunto, m.descricao, m.data_envio, fr.nome AS remetente_nome
+            FROM mensagem m
+            JOIN funcionario fr ON fr.id = m.id_remetente
+            WHERE m.id_destinatario = %s
+              AND NOT EXISTS (
+                SELECT 1 FROM notificacao_usuario nu
+                WHERE nu.id_funcionario = %s AND nu.tipo = 'mensagem' AND nu.ref_id = m.id
+              )
+            ORDER BY m.data_envio DESC, m.id DESC
+            LIMIT 40
+            """,
+            (fid, fid),
+        )
+        rows_msg = _clean_rows(cursor.fetchall())
+
+        cursor.execute(
+            """
+            SELECT s.id, s.assunto, s.descricao, s.data_envio, fr.nome AS remetente_nome
+            FROM solicitacao s
+            JOIN funcionario fr ON fr.id = s.id_remetente
+            WHERE s.id_destinatario = %s
+              AND NOT EXISTS (
+                SELECT 1 FROM notificacao_usuario nu
+                WHERE nu.id_funcionario = %s AND nu.tipo = 'solicitacao' AND nu.ref_id = s.id
+              )
+            ORDER BY s.data_envio DESC, s.id DESC
+            LIMIT 40
+            """,
+            (fid, fid),
+        )
+        rows_sol = _clean_rows(cursor.fetchall())
+
+        cursor.execute(
+            """
+            SELECT p.id, p.titulo, p.descricao, p.data_envio, p.created_at, fr.nome AS remetente_nome
+            FROM protocolo p
+            JOIN funcionario fr ON fr.id = p.id_remetente
+            WHERE p.id_destinatario = %s
+              AND NOT EXISTS (
+                SELECT 1 FROM notificacao_usuario nu
+                WHERE nu.id_funcionario = %s AND nu.tipo = 'protocolo' AND nu.ref_id = p.id
+              )
+            ORDER BY COALESCE(p.created_at, CONCAT(p.data_envio, ' 00:00:00')) DESC, p.id DESC
+            LIMIT 40
+            """,
+            (fid, fid),
+        )
+        rows_prot = _clean_rows(cursor.fetchall())
     except Exception as e:
         app.logger.exception("api/notificacoes: query")
         return jsonify({"error": str(e)}), 500
@@ -9011,6 +9184,51 @@ def api_notificacoes():
             }
         )
 
+    for row in rows_msg:
+        dt = row.get("data_envio")
+        rn = (row.get("remetente_nome") or "").strip()
+        merged.append(
+            {
+                "tipo": "mensagem",
+                "ref_id": int(row["id"]),
+                "titulo": row.get("assunto") or "",
+                "descricao": (row.get("descricao") or "")[:500],
+                "subtitulo": "Mensagem · %s%s"
+                % (_notif_format_pt_br_dh(dt), (" · " + rn) if rn else ""),
+                "_sk": _notif_sort_key(dt),
+            }
+        )
+
+    for row in rows_sol:
+        dt = row.get("data_envio")
+        rn = (row.get("remetente_nome") or "").strip()
+        merged.append(
+            {
+                "tipo": "solicitacao",
+                "ref_id": int(row["id"]),
+                "titulo": row.get("assunto") or "",
+                "descricao": (row.get("descricao") or "")[:500],
+                "subtitulo": "Solicitação · %s%s"
+                % (_notif_format_pt_br_dh(dt), (" · " + rn) if rn else ""),
+                "_sk": _notif_sort_key(dt),
+            }
+        )
+
+    for row in rows_prot:
+        dt = row.get("created_at") or row.get("data_envio")
+        rn = (row.get("remetente_nome") or "").strip()
+        merged.append(
+            {
+                "tipo": "protocolo",
+                "ref_id": int(row["id"]),
+                "titulo": row.get("titulo") or "",
+                "descricao": (row.get("descricao") or "")[:500],
+                "subtitulo": "Protocolo · %s%s"
+                % (_notif_format_pt_br_dh(dt), (" · " + rn) if rn else ""),
+                "_sk": _notif_sort_key(dt),
+            }
+        )
+
     merged.sort(key=lambda x: x["_sk"], reverse=True)
     items = []
     for it in merged[:18]:
@@ -9022,7 +9240,7 @@ def api_notificacoes():
 
 @app.route("/api/notificacoes/todas", methods=["GET"])
 def api_notificacoes_todas():
-    """Mural completo (avisos) + agenda elegivel do usuario, com flag `lida` por item."""
+    """Mural, agenda e mensagens/solicitações/protocolos recebidos pelo usuario, com flag `lida`."""
     raw_fid = session.get("funcionario_id")
     if not raw_fid:
         return jsonify({"error": "Nao autenticado"}), 401
@@ -9032,10 +9250,14 @@ def api_notificacoes_todas():
     cursor = conn.cursor()
     rows_aviso = []
     rows_agenda = []
+    rows_msg = []
+    rows_sol = []
+    rows_prot = []
     try:
         _ensure_aviso_table(cursor)
         _avisos_fix_legacy_pt_br(cursor, conn)
         _ensure_notificacao_usuario_table(cursor)
+        _migrate_notificacao_usuario_enum_modulos(cursor, conn)
 
         cursor.execute(
             """
@@ -9067,6 +9289,54 @@ def api_notificacoes_todas():
             (fid, fid),
         )
         rows_agenda = _clean_rows(cursor.fetchall())
+
+        cursor.execute(
+            """
+            SELECT m.id, m.assunto, m.descricao, m.data_envio, fr.nome AS remetente_nome,
+                   CASE WHEN nu.id IS NOT NULL THEN 1 ELSE 0 END AS lida
+            FROM mensagem m
+            JOIN funcionario fr ON fr.id = m.id_remetente
+            LEFT JOIN notificacao_usuario nu
+              ON nu.id_funcionario = %s AND nu.tipo = 'mensagem' AND nu.ref_id = m.id
+            WHERE m.id_destinatario = %s
+            ORDER BY m.data_envio DESC, m.id DESC
+            LIMIT 100
+            """,
+            (fid, fid),
+        )
+        rows_msg = _clean_rows(cursor.fetchall())
+
+        cursor.execute(
+            """
+            SELECT s.id, s.assunto, s.descricao, s.data_envio, fr.nome AS remetente_nome,
+                   CASE WHEN nu.id IS NOT NULL THEN 1 ELSE 0 END AS lida
+            FROM solicitacao s
+            JOIN funcionario fr ON fr.id = s.id_remetente
+            LEFT JOIN notificacao_usuario nu
+              ON nu.id_funcionario = %s AND nu.tipo = 'solicitacao' AND nu.ref_id = s.id
+            WHERE s.id_destinatario = %s
+            ORDER BY s.data_envio DESC, s.id DESC
+            LIMIT 100
+            """,
+            (fid, fid),
+        )
+        rows_sol = _clean_rows(cursor.fetchall())
+
+        cursor.execute(
+            """
+            SELECT p.id, p.titulo, p.descricao, p.data_envio, p.created_at, fr.nome AS remetente_nome,
+                   CASE WHEN nu.id IS NOT NULL THEN 1 ELSE 0 END AS lida
+            FROM protocolo p
+            JOIN funcionario fr ON fr.id = p.id_remetente
+            LEFT JOIN notificacao_usuario nu
+              ON nu.id_funcionario = %s AND nu.tipo = 'protocolo' AND nu.ref_id = p.id
+            WHERE p.id_destinatario = %s
+            ORDER BY COALESCE(p.created_at, CONCAT(p.data_envio, ' 00:00:00')) DESC, p.id DESC
+            LIMIT 100
+            """,
+            (fid, fid),
+        )
+        rows_prot = _clean_rows(cursor.fetchall())
     except Exception as e:
         app.logger.exception("api/notificacoes/todas")
         return jsonify({"error": str(e)}), 500
@@ -9112,6 +9382,54 @@ def api_notificacoes_todas():
             }
         )
 
+    for row in rows_msg:
+        dt = row.get("data_envio")
+        rn = (row.get("remetente_nome") or "").strip()
+        merged.append(
+            {
+                "tipo": "mensagem",
+                "ref_id": int(row["id"]),
+                "titulo": row.get("assunto") or "",
+                "descricao": (row.get("descricao") or "")[:500],
+                "subtitulo": "Mensagem · %s%s"
+                % (_notif_format_pt_br_dh(dt), (" · " + rn) if rn else ""),
+                "lida": bool(int(row.get("lida") or 0)),
+                "_sk": _notif_sort_key(dt),
+            }
+        )
+
+    for row in rows_sol:
+        dt = row.get("data_envio")
+        rn = (row.get("remetente_nome") or "").strip()
+        merged.append(
+            {
+                "tipo": "solicitacao",
+                "ref_id": int(row["id"]),
+                "titulo": row.get("assunto") or "",
+                "descricao": (row.get("descricao") or "")[:500],
+                "subtitulo": "Solicitação · %s%s"
+                % (_notif_format_pt_br_dh(dt), (" · " + rn) if rn else ""),
+                "lida": bool(int(row.get("lida") or 0)),
+                "_sk": _notif_sort_key(dt),
+            }
+        )
+
+    for row in rows_prot:
+        dt = row.get("created_at") or row.get("data_envio")
+        rn = (row.get("remetente_nome") or "").strip()
+        merged.append(
+            {
+                "tipo": "protocolo",
+                "ref_id": int(row["id"]),
+                "titulo": row.get("titulo") or "",
+                "descricao": (row.get("descricao") or "")[:500],
+                "subtitulo": "Protocolo · %s%s"
+                % (_notif_format_pt_br_dh(dt), (" · " + rn) if rn else ""),
+                "lida": bool(int(row.get("lida") or 0)),
+                "_sk": _notif_sort_key(dt),
+            }
+        )
+
     merged.sort(key=lambda x: x["_sk"], reverse=True)
     items = []
     for it in merged:
@@ -9123,7 +9441,7 @@ def api_notificacoes_todas():
 
 @app.route("/api/notificacoes/lida", methods=["POST"])
 def api_notificacoes_marcar_lida():
-    """Marca uma notificacao como lida (nao volta a aparecer para este usuario)."""
+    """Marca como lida: aviso, agenda ou item recebido (mensagem/solicitacao/protocolo)."""
     raw_fid = session.get("funcionario_id")
     if not raw_fid:
         return jsonify({"error": "Nao autenticado"}), 401
@@ -9137,13 +9455,14 @@ def api_notificacoes_marcar_lida():
     except (TypeError, ValueError):
         return jsonify({"error": "ref_id invalido"}), 400
 
-    if tipo not in ("aviso", "agenda"):
-        return jsonify({"error": "tipo invalido (use aviso ou agenda)"}), 400
+    if tipo not in ("aviso", "agenda", "mensagem", "solicitacao", "protocolo"):
+        return jsonify({"error": "tipo invalido"}), 400
 
     conn = _get_db()
     cursor = conn.cursor()
     try:
         _ensure_notificacao_usuario_table(cursor)
+        _migrate_notificacao_usuario_enum_modulos(cursor, conn)
         if tipo == "agenda":
             cursor.execute(
                 "SELECT id FROM agenda WHERE id = %s AND id_funcionario = %s",
@@ -9151,10 +9470,31 @@ def api_notificacoes_marcar_lida():
             )
             if not cursor.fetchone():
                 return jsonify({"error": "agenda nao encontrada ou nao pertence ao usuario"}), 404
-        else:
+        elif tipo == "aviso":
             cursor.execute("SELECT id FROM aviso WHERE id = %s", (ref_id,))
             if not cursor.fetchone():
                 return jsonify({"error": "aviso nao encontrado"}), 404
+        elif tipo == "mensagem":
+            cursor.execute(
+                "SELECT id FROM mensagem WHERE id = %s AND id_destinatario = %s",
+                (ref_id, fid),
+            )
+            if not cursor.fetchone():
+                return jsonify({"error": "mensagem nao encontrada ou destinatario invalido"}), 404
+        elif tipo == "solicitacao":
+            cursor.execute(
+                "SELECT id FROM solicitacao WHERE id = %s AND id_destinatario = %s",
+                (ref_id, fid),
+            )
+            if not cursor.fetchone():
+                return jsonify({"error": "solicitacao nao encontrada ou destinatario invalido"}), 404
+        else:
+            cursor.execute(
+                "SELECT id FROM protocolo WHERE id = %s AND id_destinatario = %s",
+                (ref_id, fid),
+            )
+            if not cursor.fetchone():
+                return jsonify({"error": "protocolo nao encontrado ou destinatario invalido"}), 404
 
         cursor.execute(
             """
@@ -10996,6 +11336,64 @@ def api_solicitacao_post():
     except Exception as exc:
         conn.rollback()
         app.logger.exception('api_solicitacao_post')
+        return jsonify({'error': str(exc)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+    return jsonify({'ok': True, 'id': new_id})
+
+
+@app.route('/api/protocolo', methods=['POST'])
+def api_protocolo_post():
+    """Registra protocolo interno; o destinatário recebe notificação no sininho."""
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Nao autenticado.'}), 401
+    fid = int(fid)
+    payload = request.get_json(silent=True) or {}
+    titulo = (payload.get('titulo') or '').strip()
+    if not titulo:
+        return jsonify({'error': 'Titulo obrigatorio.'}), 400
+    titulo = titulo[:50]
+    descricao = (payload.get('descricao') or '').strip() or None
+    try:
+        dest_id = int(payload.get('id_destinatario'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Destinatario invalido.'}), 400
+    if int(dest_id) == fid:
+        return jsonify({'error': 'O destinatario deve ser outro funcionario.'}), 400
+    id_contrato = None
+    raw_c = payload.get('id_contrato')
+    if raw_c not in (None, ''):
+        try:
+            id_contrato = int(raw_c)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'ID contrato invalido.'}), 400
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    new_id = None
+    try:
+        cursor.execute(
+            'SELECT id FROM funcionario WHERE id = %s AND ativo = 1',
+            (dest_id,),
+        )
+        if not cursor.fetchone():
+            return jsonify({'error': 'Destinatario nao encontrado ou inativo.'}), 400
+        if id_contrato is not None:
+            cursor.execute('SELECT id FROM contrato WHERE id = %s', (id_contrato,))
+            if not cursor.fetchone():
+                return jsonify({'error': 'Contrato nao encontrado.'}), 400
+        cursor.execute(
+            'INSERT INTO protocolo (id_remetente, id_destinatario, titulo, descricao, id_contrato) '
+            'VALUES (%s, %s, %s, %s, %s)',
+            (fid, dest_id, titulo, descricao, id_contrato),
+        )
+        conn.commit()
+        new_id = cursor.lastrowid
+    except Exception as exc:
+        conn.rollback()
+        app.logger.exception('api_protocolo_post')
         return jsonify({'error': str(exc)}), 500
     finally:
         cursor.close()

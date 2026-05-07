@@ -10,7 +10,10 @@
     <div class="results-card table-section">
         <div class="table-header">
             <h3><i class="fa-solid fa-file-signature"></i> Protocolos</h3>
-            <div class="table-header-actions">
+            <div class="table-header-actions" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                <button type="button" class="btn-search" id="btnNovoProtocolo" style="height:38px;font-size:0.9rem">
+                    <i class="fa-solid fa-plus"></i> Novo protocolo
+                </button>
                 <span class="badge bg-primary" id="totalCount">0 registros</span>
             </div>
         </div>
@@ -36,6 +39,38 @@
     </div>
 </div>
 
+<!-- Modal Novo Protocolo -->
+<div id="novoProtModal" class="modal-overlay">
+    <div class="modal-container" style="max-width:520px">
+        <div class="modal-header">
+            <h2>Novo protocolo</h2>
+            <button type="button" class="close-modal-btn" id="closeNovoProtBtn"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="modal-body">
+            <form id="formNovoProt" class="nova-solic-form">
+                <div class="form-group">
+                    <label for="protNovaDest">Destinatário</label>
+                    <select id="protNovaDest" class="form-control" required></select>
+                </div>
+                <div class="form-group">
+                    <label for="protNovaTitulo">Título</label>
+                    <input type="text" id="protNovaTitulo" class="form-control" required maxlength="50" placeholder="Título (máx. 50 caracteres)">
+                </div>
+                <div class="form-group">
+                    <label for="protNovaDesc">Descrição (opcional)</label>
+                    <textarea id="protNovaDesc" class="form-control" rows="4" placeholder="Descrição"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="protNovaContrato">ID contrato (opcional)</label>
+                    <input type="number" id="protNovaContrato" class="form-control" min="1" placeholder="Deixe vazio se não aplicar">
+                </div>
+                <p id="protNovaErr" style="color:#dc2626;font-size:0.9rem;margin:0 0 8px;min-height:1.2em"></p>
+                <button type="submit" class="btn-search" id="protNovaSubmit"><i class="fa-solid fa-paper-plane"></i> Enviar</button>
+            </form>
+        </div>
+    </div>
+</div>
+
 <!-- Modal de Detalhes -->
 <div id="detalhesModal" class="modal-overlay">
     <div class="modal-container">
@@ -54,62 +89,175 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='notificacao-deep-link.js') }}"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    fetch('/api/protocolos')
-        .then(res => res.json())
-        .then(data => {
-            const body = document.getElementById('protocoloBody');
-            const totalCount = document.getElementById('totalCount');
-            totalCount.textContent = `${data.total} registros`;
-            body.innerHTML = '';
-            if (data.results.length === 0) {
-                body.innerHTML = '<tr><td colspan="8" class="text-center">Nenhum protocolo encontrado.</td></tr>';
-                return;
-            }
-            data.results.forEach(p => {
-                const tr = document.createElement('tr');
-                const statusStr = p.aceito === null ? 'Pendente' : (p.aceito ? 'Aceito' : 'Recusado');
-                const statusClass = p.aceito === null ? 'status-active' : (p.aceito ? 'status-active' : 'status-danger');
-                
-                tr.innerHTML = `
-                    <td>${p.id}</td>
-                    <td><strong>${p.titulo || ''}</strong></td>
-                    <td>${p.remetente_nome || ''}</td>
-                    <td>${p.destinatario_nome || ''}</td>
-                    <td>${p.data_envio || ''}</td>
-                    <td><span class="status-badge ${statusClass}">${statusStr}</span></td>
-                    <td>${p.grupo ? p.grupo + '/' + p.cota : '—'}</td>
-                    <td>
-                        <button class="action-btn view-btn" data-id="${p.id}"><i class="fa-solid fa-eye"></i> Ver</button>
-                    </td>
-                `;
-                body.appendChild(tr);
-            });
+    var latestProt = [];
+    var meuFuncionarioId = null;
+    var listaFuncionarios = [];
 
-            document.querySelectorAll('.view-btn').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    const id = this.dataset.id;
-                    const p = data.results.find(x => x.id == id);
-                    const modal = document.getElementById('detalhesModal');
-                    const content = document.getElementById('modalContent');
-                    content.innerHTML = `
-                        <div class="detail-grid">
-                            <div class="detail-item"><strong>Título:</strong> ${p.titulo}</div>
-                            <div class="detail-item"><strong>Remetente:</strong> ${p.remetente_nome}</div>
-                            <div class="detail-item"><strong>Destinatário:</strong> ${p.destinatario_nome}</div>
-                            <div class="detail-item"><strong>Data Envio:</strong> ${p.data_envio}</div>
-                            <div class="detail-item"><strong>Data Resposta:</strong> ${p.data_resposta || '—'}</div>
-                            <div class="detail-item"><strong>Aceito:</strong> ${statusStr}</div>
-                            <div class="detail-item full-width"><strong>Descrição:</strong><br>${p.descricao || 'Sem descrição'}</div>
-                        </div>
-                    `;
-                    modal.classList.add('active');
-                });
+    function renderProtocoloTable(data) {
+        latestProt = data.results || [];
+        var body = document.getElementById('protocoloBody');
+        var totalCount = document.getElementById('totalCount');
+        totalCount.textContent = (data.total != null ? data.total : latestProt.length) + ' registros';
+        body.innerHTML = '';
+        if (latestProt.length === 0) {
+            body.innerHTML = '<tr><td colspan="8" class="text-center">Nenhum protocolo encontrado.</td></tr>';
+            if (typeof window.applyNotifDeepLink === 'function') {
+                window.applyNotifDeepLink('protocoloBody');
+            }
+            return;
+        }
+        latestProt.forEach(function (p) {
+            var tr = document.createElement('tr');
+            tr.setAttribute('data-row-id', String(p.id));
+            var statusStr = p.aceito === null ? 'Pendente' : (p.aceito ? 'Aceito' : 'Recusado');
+            var statusClass = p.aceito === null ? 'status-active' : (p.aceito ? 'status-active' : 'status-danger');
+            tr.innerHTML =
+                '<td>' + p.id + '</td>' +
+                '<td><strong>' + (p.titulo || '') + '</strong></td>' +
+                '<td>' + (p.remetente_nome || '') + '</td>' +
+                '<td>' + (p.destinatario_nome || '') + '</td>' +
+                '<td>' + (p.data_envio || '') + '</td>' +
+                '<td><span class="status-badge ' + statusClass + '">' + statusStr + '</span></td>' +
+                '<td>' + (p.grupo ? p.grupo + '/' + p.cota : '—') + '</td>' +
+                '<td><button type="button" class="action-btn view-btn" data-id="' + p.id + '"><i class="fa-solid fa-eye"></i> Ver</button></td>';
+            body.appendChild(tr);
+        });
+
+        document.querySelectorAll('.view-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var id = this.dataset.id;
+                var p = latestProt.find(function (x) { return String(x.id) === String(id); });
+                if (!p) return;
+                var statusStr = p.aceito === null ? 'Pendente' : (p.aceito ? 'Aceito' : 'Recusado');
+                var modal = document.getElementById('detalhesModal');
+                var content = document.getElementById('modalContent');
+                content.innerHTML =
+                    '<div class="detail-grid">' +
+                    '<div class="detail-item"><strong>Título:</strong> ' + (p.titulo || '') + '</div>' +
+                    '<div class="detail-item"><strong>Remetente:</strong> ' + (p.remetente_nome || '') + '</div>' +
+                    '<div class="detail-item"><strong>Destinatário:</strong> ' + (p.destinatario_nome || '') + '</div>' +
+                    '<div class="detail-item"><strong>Data Envio:</strong> ' + (p.data_envio || '') + '</div>' +
+                    '<div class="detail-item"><strong>Data Resposta:</strong> ' + (p.data_resposta || '—') + '</div>' +
+                    '<div class="detail-item"><strong>Status:</strong> ' + statusStr + '</div>' +
+                    '<div class="detail-item full-width"><strong>Descrição:</strong><br>' + (p.descricao || 'Sem descrição') + '</div>' +
+                    '</div>';
+                modal.classList.add('active');
             });
         });
 
-    document.getElementById('closeModalBtn').addEventListener('click', () => {
+        if (typeof window.applyNotifDeepLink === 'function') {
+            window.applyNotifDeepLink('protocoloBody');
+        }
+    }
+
+    function fillProtDestinatarioSelect() {
+        var sel = document.getElementById('protNovaDest');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">Selecione…</option>';
+        listaFuncionarios.forEach(function (f) {
+            if (meuFuncionarioId != null && String(f.id) === String(meuFuncionarioId)) return;
+            var o = document.createElement('option');
+            o.value = f.id;
+            o.textContent = f.nome || ('#' + f.id);
+            sel.appendChild(o);
+        });
+    }
+
+    function loadProtocolos() {
+        return fetch('/api/protocolos')
+            .then(function (res) { return res.json(); })
+            .then(function (data) { renderProtocoloTable(data); });
+    }
+
+    Promise.all([
+        fetch('/api/funcionario/perfil').then(function (r) { return r.json(); }),
+        fetch('/api/funcionarios').then(function (r) { return r.json(); }),
+    ])
+        .then(function (results) {
+            var perf = results[0];
+            if (perf.error) throw new Error(perf.error);
+            meuFuncionarioId = perf.funcionario_id;
+            var funcis = results[1];
+            listaFuncionarios = Array.isArray(funcis) ? funcis : [];
+            return loadProtocolos();
+        })
+        .catch(function () {
+            document.getElementById('protocoloBody').innerHTML =
+                '<tr><td colspan="8" class="text-center" style="color:#dc2626">Erro ao carregar dados.</td></tr>';
+        });
+
+    var novoProtModal = document.getElementById('novoProtModal');
+    document.getElementById('btnNovoProtocolo').addEventListener('click', function () {
+        document.getElementById('protNovaErr').textContent = '';
+        document.getElementById('formNovoProt').reset();
+        fillProtDestinatarioSelect();
+        novoProtModal.classList.add('active');
+    });
+    document.getElementById('closeNovoProtBtn').addEventListener('click', function () {
+        novoProtModal.classList.remove('active');
+    });
+    novoProtModal.addEventListener('click', function (e) {
+        if (e.target === novoProtModal) novoProtModal.classList.remove('active');
+    });
+
+    document.getElementById('formNovoProt').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var errEl = document.getElementById('protNovaErr');
+        var submitBtn = document.getElementById('protNovaSubmit');
+        errEl.textContent = '';
+        var dest = document.getElementById('protNovaDest').value;
+        var titulo = document.getElementById('protNovaTitulo').value.trim();
+        var desc = document.getElementById('protNovaDesc').value.trim();
+        var idContr = document.getElementById('protNovaContrato').value.trim();
+        if (!dest) {
+            errEl.textContent = 'Escolha um destinatário.';
+            return;
+        }
+        if (!titulo) {
+            errEl.textContent = 'Preencha o título.';
+            return;
+        }
+        var body = {
+            id_destinatario: parseInt(dest, 10),
+            titulo: titulo,
+            descricao: desc || null,
+        };
+        if (idContr) body.id_contrato = parseInt(idContr, 10);
+        submitBtn.disabled = true;
+        fetch('/api/protocolo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify(body),
+        })
+            .then(function (r) {
+                return r.json().then(function (d) {
+                    return { ok: r.ok, d: d };
+                });
+            })
+            .then(function (res) {
+                if (!res.ok) {
+                    errEl.textContent = res.d.error || 'Erro ao enviar.';
+                    return;
+                }
+                novoProtModal.classList.remove('active');
+                if (typeof window.__notificacoesRecarregar === 'function') {
+                    try { window.__notificacoesRecarregar(); } catch (ignore) {}
+                }
+                return loadProtocolos();
+            })
+            .catch(function () {
+                errEl.textContent = 'Erro de rede.';
+            })
+            .finally(function () {
+                submitBtn.disabled = false;
+            });
+    });
+
+    document.getElementById('closeModalBtn').addEventListener('click', function () {
         document.getElementById('detalhesModal').classList.remove('active');
     });
 });
@@ -121,5 +269,8 @@ document.addEventListener('DOMContentLoaded', function() {
 .status-badge { padding: 4px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; }
 .status-active { background-color: #e0f2fe; color: #0ea5e9; }
 .status-danger { background-color: #fee2e2; color: #ef4444; }
+.nova-solic-form .form-group { margin-bottom: 14px; display: flex; flex-direction: column; gap: 6px; }
+.nova-solic-form label { font-size: 0.85rem; font-weight: 600; color: #2c3e50; }
+.nova-solic-form .form-control { width: 100%; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-family: inherit; font-size: 0.95rem; }
 </style>
 {% endblock %}

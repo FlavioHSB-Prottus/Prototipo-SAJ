@@ -716,7 +716,7 @@ CREATE TABLE `agenda` (
 CREATE TABLE `notificacao_usuario` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_funcionario` int(11) NOT NULL,
-  `tipo` enum('aviso','agenda') NOT NULL,
+  `tipo` enum('aviso','agenda','mensagem','solicitacao','protocolo') NOT NULL,
   `ref_id` bigint(20) NOT NULL,
   `lida_em` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),

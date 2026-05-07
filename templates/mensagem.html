@@ -112,6 +112,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='notificacao-deep-link.js') }}"></script>
 <script>
 /** Linhas cuja id_resposta e igual ao id do item aberto (respostas diretas), por data. */
 function directRepliesSorted(list, parentId) {
@@ -150,6 +151,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         latestMsg.forEach(function (m) {
             var tr = document.createElement('tr');
+            tr.setAttribute('data-row-id', String(m.id));
             tr.innerHTML =
                 '<td>' +
                 m.id +
@@ -167,6 +169,9 @@ document.addEventListener('DOMContentLoaded', function() {
             body.appendChild(tr);
         });
         bindViewButtonsMsg();
+        if (typeof window.applyNotifDeepLink === 'function') {
+            window.applyNotifDeepLink('mensagemBody');
+        }
     }
 
     function bindViewButtonsMsg() {

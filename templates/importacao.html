@@ -62,11 +62,8 @@
             <!-- Blocos por funcionario -->
             <div class="distribuicao-funcionarios" id="distribuicaoFuncionarios"></div>
 
-            <!-- Rodape: Lista SMS, SMS automáticos, Negativação/Positivação, Recarregar, Restaurar, Aprovar -->
+            <!-- Rodape: SMS automáticos (modal inclui lista Excel), Negativação/Positivação, Recarregar, Restaurar, Aprovar -->
             <div class="distribuicao-actions distribuicao-actions-footer">
-                <button type="button" class="btn-secondary-dist btn-sms-excel-dist" id="btnSmsAutomatizadosExcel" disabled title="Excel: grupo, cota e dias de atraso dos contratos abertos no roteiro SMS/e-mail (dias 0, 16, 31, 61 ou 85)">
-                    <i class="fa-solid fa-file-excel"></i> Lista SMS/E-mail
-                </button>
                 <button type="button" class="btn-secondary-dist btn-sms-automatizados-dist" id="btnSmsAutomatizadosDistribuicao" disabled title="SMS e e-mail automáticos (MessageCenter): mesmos contratos e critérios; ignora contratos que já tiveram SMS ou e-mail hoje">
                     <i class="fa-solid fa-comment-sms"></i> SMS/E-mail Automáticos
                 </button>
@@ -153,6 +150,29 @@
             </div>
             <footer class="transfer-modal-footer">
                 <button type="button" class="btn-secondary-dist" id="negPosEscolhaCancelar">Cancelar</button>
+            </footer>
+        </div>
+    </div>
+
+    <!-- Modal: preview SMS/e-mail automáticos (distribuição) -->
+    <div class="transfer-modal-overlay d-none" id="smsAutomPreviewOverlay" role="dialog" aria-modal="true" aria-labelledby="smsAutomPreviewTitle">
+        <div class="transfer-modal sms-autom-preview-modal">
+            <header class="transfer-modal-header">
+                <div>
+                    <h3 id="smsAutomPreviewTitle"><i class="fa-solid fa-comment-sms"></i> SMS / E-mail automáticos</h3>
+                    <p class="transfer-modal-sub">Resumo antes do envio (MessageCenter). Contratos fora do roteiro ou já contactados hoje são ignorados.</p>
+                </div>
+                <button type="button" class="transfer-close" id="smsAutomPreviewFecharX" aria-label="Fechar">&times;</button>
+            </header>
+            <div class="transfer-modal-body" id="smsAutomPreviewBody"></div>
+            <footer class="transfer-modal-footer sms-autom-preview-footer">
+                <button type="button" class="btn-secondary-dist sms-autom-fechar" id="smsAutomPreviewFechar">Fechar</button>
+                <button type="button" class="btn-sms-autom-sms sms-autom-envio-btn" id="smsAutomEnvioSms"><i class="fa-solid fa-comment-sms"></i> Enviar só SMS</button>
+                <button type="button" class="btn-sms-autom-email sms-autom-envio-btn" id="smsAutomEnvioEmail"><i class="fa-solid fa-envelope"></i> Enviar só E-mail</button>
+                <button type="button" class="btn-secondary-dist btn-sms-excel-dist sms-autom-excel-modal" id="btnSmsAutomatizadosExcel" disabled title="Excel: grupo, cota e dias de atraso dos contratos abertos no roteiro SMS/e-mail (dias 0, 16, 31, 61 ou 85)">
+                    <i class="fa-solid fa-file-excel"></i> Lista SMS/E-mail
+                </button>
+                <button type="button" class="btn-aprovar-dist sms-autom-envio-btn" id="smsAutomEnvioAmbos"><i class="fa-solid fa-paper-plane"></i> SMS e E-mail</button>
             </footer>
         </div>
     </div>
