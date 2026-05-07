@@ -10,6 +10,14 @@
     var SMS_MC_HEADER_NAME = 'apikey';
     var SMS_MC_HEADER_VALUE = 'MC.cC719ae5-22B3-439b-9D63-4D544f79Fffc-788B1CE2-9af2-417F-85Ba-67d3E16a7243';
 
+    function montarMensagemAutomaticaContrato(primeiroNome) {
+        var pn = String(primeiroNome || '').trim();
+        if (!pn) {
+            pn = 'Cliente';
+        }
+        return pn + ': sua cota do Cons\u00f3rcio Chevrolet encontra-se em atraso e foi encaminhada \u00e0 Jo\u00e3o Barbosa Assessoria. Para regulariza\u00e7\u00e3o, ligue 08000012323.';
+    }
+
     document.addEventListener('click', function (e) {
         var btn = e.target.closest('.btn-mensagem');
         if (!btn) {
@@ -21,14 +29,20 @@
         }
         e.preventDefault();
         e.stopPropagation();
-        var mensagem = window.prompt('Mensagem SMS para ' + numero + ':', '');
-        if (mensagem === null) {
-            return;
-        }
-        mensagem = String(mensagem).trim();
-        if (!mensagem) {
-            window.alert('Mensagem vazia.');
-            return;
+        var isSmsAutoContrato = String(btn.getAttribute('data-sms-auto-contrato') || '').trim() === '1';
+        var mensagem = '';
+        if (isSmsAutoContrato) {
+            mensagem = montarMensagemAutomaticaContrato(btn.getAttribute('data-primeiro-nome'));
+        } else {
+            mensagem = window.prompt('Mensagem SMS para ' + numero + ':', '');
+            if (mensagem === null) {
+                return;
+            }
+            mensagem = String(mensagem).trim();
+            if (!mensagem) {
+                window.alert('Mensagem vazia.');
+                return;
+            }
         }
         if (!window.confirm('Enviar SMS para ' + numero + '?')) {
             return;
