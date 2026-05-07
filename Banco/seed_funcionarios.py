@@ -69,6 +69,7 @@ SENHA_PADRAO = os.environ.get("SENHA_PADRAO", "Trocar@123")
 #     Celular             -> ddd + numero  (ex.: 81 / 996640148)
 #     E-mail              -> email
 #     Ramal               -> ramal         (inteiro; UNIQUE na tabela quando informado)
+#     Fila / API key      -> fila, apikey (integracao WhatsApp/MessageCenter; UNIQUE cada uma)
 # -----------------------------------------------------------------------------
 DADOS = [
     {
@@ -130,6 +131,8 @@ DADOS = [
         "matricula":        "matricula",
         "departamento":     "Administrativo",
         "ramal":            6267,
+        "fila":             90,
+        "apikey":           "06853e21659641a18fbb0933d76a279b",
         "nome":             "PAULO ARTHUR JOSE DE SANTANA",
         "data_nascimento":  "1996-01-19",
         "sexo":             "M",
@@ -155,6 +158,8 @@ DADOS = [
         "matricula":        "matricula",
         "departamento":     "Administrativo",
         "ramal":            6227,
+        "fila":             88,
+        "apikey":           "a6644aad87b7448e8e07e71ae52d9412",
         "nome":             "Angela Maria pereira",
         "data_nascimento":  "1973-10-10",
         "sexo":             "F",
@@ -180,6 +185,8 @@ DADOS = [
         "matricula":        "matricula",
         "departamento":     "Administrativo",
         "ramal":            6002,
+        "fila":             92,
+        "apikey":           "87066fba18cc4479beeed9070db49d19",
         "nome":             "MAISA BERNARDO DE SENA",
         "data_nascimento":  "1984-01-26",
         "sexo":             "F",
@@ -205,6 +212,8 @@ DADOS = [
         "matricula":        "matricula",
         "departamento":     "Administrativo",
         "ramal":            6243,
+        "fila":             87,
+        "apikey":           "45a0e2d718ad409c82fe766d92a94e50",
         "nome":             "Alzeni Maria de Lira do Nascimento",
         "data_nascimento":  "1991-07-06",
         "sexo":             "F",
