@@ -41,6 +41,8 @@ CREATE TABLE `aviso` (
   KEY `idx_aviso_data_ref` (`data_ref`)
 );
 
+-- consorcio_gm.funcionario definition
+
 CREATE TABLE `funcionario` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `nome` varchar(255) NOT NULL,
@@ -69,11 +71,13 @@ CREATE TABLE `funcionario` (
   `foto` mediumblob DEFAULT NULL,
   `ramal` int(11) DEFAULT NULL,
   `fila` int(11) DEFAULT NULL,
+  `apikey` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `cpf_cnpj` (`cpf_cnpj`),
   UNIQUE KEY `funcionario_login_IDX` (`login`) USING BTREE,
   UNIQUE KEY `ramal` (`ramal`),
-  UNIQUE KEY `funcionario_fila_IDX` (`fila`) USING BTREE
+  UNIQUE KEY `funcionario_fila_IDX` (`fila`) USING BTREE,
+  UNIQUE KEY `apikey` (`apikey`)
 );
 
 CREATE TABLE `grupo` (
