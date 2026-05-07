@@ -3080,12 +3080,11 @@ def api_discar():
 
 
 WHATSAPP_AB_URL = 'https://joaobarbosa.atenderbem.com/int/enqueueMessageToSend'
-WHATSAPP_AB_APIKEY = '334b7c42cfca4d669200a3f5c0af452c'
 
 
 @app.route('/api/enviar-whatsapp', methods=['POST'])
 def api_enviar_whatsapp():
-    """Proxy WhatsApp: usa fila do usuario logado e encaminha para AtenderBem."""
+    """Proxy WhatsApp: usa fila e apikey do usuario logado (`funcionario`) e encaminha para AtenderBem."""
     fid = session.get('funcionario_id')
     if not fid:
         return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
@@ -3102,7 +3101,10 @@ def api_enviar_whatsapp():
     conn = _get_db()
     try:
         with conn.cursor() as cur:
-            cur.execute('SELECT fila FROM funcionario WHERE id = %s', (int(fid),))
+            cur.execute(
+                'SELECT fila, apikey FROM funcionario WHERE id = %s',
+                (int(fid),),
+            )
             row = cur.fetchone()
     finally:
         conn.close()
@@ -3115,9 +3117,18 @@ def api_enviar_whatsapp():
     except (TypeError, ValueError):
         return jsonify({'error': 'Fila invalida no cadastro do funcionario.'}), 400
 
+    apikey_raw = (row or {}).get('apikey') if row else None
+    if isinstance(apikey_raw, bytes):
+        apikey_raw = apikey_raw.decode('utf-8', errors='replace')
+    apikey_val = (apikey_raw or '').strip()
+    if not apikey_val:
+        return jsonify({
+            'error': 'Seu usuario nao tem apikey cadastrada para envio de WhatsApp (campo apikey em funcionario).',
+        }), 400
+
     body = {
         'queueId': fila_int,
-        'apiKey': WHATSAPP_AB_APIKEY,
+        'apiKey': apikey_val,
         'number': raw,
         'text': msg,
     }
