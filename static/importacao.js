@@ -638,39 +638,45 @@ document.addEventListener('DOMContentLoaded', () => {
         btnSmsAutomatizadosDistribuicao.disabled = true;
         if (btnSmsAutomatizadosExcel) btnSmsAutomatizadosExcel.disabled = true;
         btnSmsAutomatizadosDistribuicao.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Calculando...';
-        let previsto = null;
+        let previstoSms = null;
+        let previstoEmail = null;
         let contratosComSms = null;
+        let contratosComEmail = null;
+        let ignoradosHoje = null;
         try {
             const respPv = await fetch('/api/importacao/distribuicao/sms-automatizados/preview');
             const pv = await respPv.json().catch(() => ({}));
             if (!respPv.ok || pv.error) {
                 throw new Error(pv.error || ('HTTP ' + respPv.status));
             }
-            previsto = pv.sms_previstos != null ? pv.sms_previstos : 0;
+            previstoSms = pv.sms_previstos != null ? pv.sms_previstos : 0;
+            previstoEmail = pv.emails_previstos != null ? pv.emails_previstos : 0;
             contratosComSms = pv.contratos_com_sms != null ? pv.contratos_com_sms : 0;
+            contratosComEmail = pv.contratos_com_email != null ? pv.contratos_com_email : 0;
+            ignoradosHoje = pv.ignorados_ja_enviados_hoje != null ? pv.ignorados_ja_enviados_hoje : 0;
         } catch (e) {
             btnSmsAutomatizadosDistribuicao.innerHTML = prevHtml;
             syncSmsDistribuicaoFooterButtons();
-            alert('Não foi possível calcular o preview dos SMS: ' + (e.message || e));
+            alert('Não foi possível calcular o preview de SMS/e-mail: ' + (e.message || e));
             return;
         }
 
-        if (previsto === 0) {
+        if (previstoSms === 0 && previstoEmail === 0) {
             btnSmsAutomatizadosDistribuicao.innerHTML = prevHtml;
             syncSmsDistribuicaoFooterButtons();
             alert(
-                'Nenhum SMS será enviado no momento: nenhum contrato aberto combina com a diferença ' +
-                    '0, 16, 31, 61 ou 85 dias (hoje vs. vencimento mais antigo das parcelas em aberto), ' +
-                    'ou não há telefone válido após a validação de cadastro.'
+                'Nenhum envio previsto no momento: nenhum contrato aberto no roteiro (diferença 0, 16, 31, 61 ou 85 dias ' +
+                    'entre hoje e o vencimento mais antigo das parcelas em aberto) com telefone e/ou e-mail válidos após validação, ' +
+                    'ou todos já tiveram SMS ou e-mail registrados hoje (' + ignoradosHoje + ' ignorados por duplicidade do dia).'
             );
             return;
         }
 
         const msg =
-            'Serão enviados ' + previsto + ' SMS (' + contratosComSms + ' contratos com pelo menos um telefone válido).\n\n' +
-            'Envio em lote via MessageCenter: todos os contratos com status aberto na base, quando a ' +
-            'diferença entre hoje e o vencimento mais antigo das parcelas em aberto for exatamente ' +
-            '0, 16, 31, 61 ou 85 dias (templates 1 a 4).\n\n' +
+            'Previsto: ' + previstoSms + ' SMS (' + contratosComSms + ' contratos com telefone) e ' +
+            previstoEmail + ' e-mail (' + contratosComEmail + ' contratos com e-mail).\n\n' +
+            'Contratos que já tiveram SMS ou e-mail hoje são ignorados (' + ignoradosHoje + ' no preview).\n\n' +
+            'MessageCenter: mesmo texto nos dois canais (templates 1 a 4).\n\n' +
             'Pode levar vários minutos. Deseja continuar?';
         if (!confirm(msg)) {
             btnSmsAutomatizadosDistribuicao.innerHTML = prevHtml;
@@ -685,11 +691,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error(data.error || ('HTTP ' + resp.status));
             }
             const lines = [
-                'SMS automáticos concluídos.',
-                'Enviados: ' + (data.enviados != null ? data.enviados : 0),
+                'SMS/e-mail automáticos concluídos.',
+                'Total de envios (SMS + e-mail): ' + (data.enviados != null ? data.enviados : 0),
+                '  SMS: ' + (data.envios_sms != null ? data.envios_sms : 0),
+                '  E-mail: ' + (data.envios_email != null ? data.envios_email : 0),
                 'Falhas: ' + (data.falhas != null ? data.falhas : 0),
-                'Ignorados (diferença de dias não é 0, 16, 31, 61 ou 85): ' + (data.ignorados_sem_template != null ? data.ignorados_sem_template : 0),
-                'Ignorados (sem telefone): ' + (data.ignorados_sem_telefone != null ? data.ignorados_sem_telefone : 0),
+                'Ignorados (fora do roteiro de dias): ' + (data.ignorados_sem_template != null ? data.ignorados_sem_template : 0),
+                'Ignorados (sem telefone no contrato): ' + (data.ignorados_sem_telefone != null ? data.ignorados_sem_telefone : 0),
+                'Ignorados (sem e-mail no cadastro): ' + (data.ignorados_sem_email != null ? data.ignorados_sem_email : 0),
+                'Ignorados (já havia SMS ou e-mail hoje): ' + (data.ignorados_ja_enviados_hoje != null ? data.ignorados_ja_enviados_hoje : 0),
                 'Contratos analisados: ' + (data.contratos_processados != null ? data.contratos_processados : 0),
             ];
             if (data.erros_amostra && data.erros_amostra.length) {
@@ -733,7 +743,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             const blob = await resp.blob();
             const cd = resp.headers.get('Content-Disposition');
-            let fname = 'sms_automatizados_distribuicao.xlsx';
+            let fname = 'sms_email_automatizados_distribuicao.xlsx';
             if (cd) {
                 const m = /filename\*?=(?:UTF-8'')?([^;\n]+)/i.exec(cd);
                 if (m) fname = decodeURIComponent(m[1].replace(/['"]/g, '').trim());

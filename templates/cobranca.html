@@ -81,16 +81,13 @@
             <i class="fa-solid fa-calculator"></i>
             Total de Contratos: <span class="total-num" id="totalDisplay">—</span>
         </div>
-        <div class="footer-bulk-actions" id="footerBulkActions" title="Ações aplicadas a todos os contratos da lista visível (operador e busca).">
+        <div class="footer-bulk-actions" id="footerBulkActions" title="Ações aplicadas aos contratos da lista visível (filtro de operador, parcelas desordenadas se ativo e texto de busca).">
             <button type="button" class="bulk-btn bulk-btn-negativacao" id="footerBulkNegativacao" title="Abrir módulo Negativação na Carteira Cobrança (mesmo operador e lista já pesquisada)">
                 <i class="fa-solid fa-gavel"></i><span>Negativação</span>
             </button>
             <span class="footer-bulk-sep" aria-hidden="true"></span>
-            <button type="button" class="bulk-btn bulk-btn-sms" id="footerBulkSms" title="Enviar SMS para TODOS os contratos da lista">
-                <i class="fa-solid fa-comment-sms"></i><span>SMS</span>
-            </button>
-            <button type="button" class="bulk-btn bulk-btn-mail" id="footerBulkEmail" title="Enviar e-mail para TODOS os contratos da lista">
-                <i class="fa-solid fa-envelope"></i><span>E-mail</span>
+            <button type="button" class="bulk-btn bulk-btn-sms-email" id="footerBulkSmsEmail" title="SMS e e-mail automáticos no roteiro (dias 0, 16, 31, 61 e 85), sem duplicar envio no mesmo dia — confira o resumo antes de disparar">
+                <i class="fa-solid fa-comments"></i><span>SMS / E-mail</span>
             </button>
         </div>
         <div class="footer-breakdown">

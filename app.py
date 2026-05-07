@@ -1,6 +1,7 @@
 import calendar
 import datetime
 import decimal
+import html as html_module
 import io
 import json
 import mimetypes
@@ -2008,6 +2009,147 @@ def _mensagem_sms_auto_importacao(primeiro_nome, numero_contrato, parcelas_txt, 
     )
 
 
+def _contrato_teve_envio_cobranca_hoje(cursor, id_contrato):
+    """True se já existe SMS ou e-mail registrado hoje para o contrato (anti-duplicidade diária)."""
+    cid = int(id_contrato)
+    cursor.execute(
+        """
+        SELECT 1 FROM registro_sms
+        WHERE id_contrato = %s AND DATE(created_at) = CURDATE()
+        LIMIT 1
+        """,
+        (cid,),
+    )
+    if cursor.fetchone():
+        return True
+    cursor.execute(
+        """
+        SELECT 1 FROM registro_email
+        WHERE id_contrato = %s AND DATE(created_at) = CURDATE()
+        LIMIT 1
+        """,
+        (cid,),
+    )
+    return cursor.fetchone() is not None
+
+
+def _plain_para_corpo_email_html(msg_plain):
+    """Converte texto plano do SMS automático em HTML simples para o MessageCenter."""
+    t = (msg_plain or '').strip()
+    if not t:
+        return '<p></p>'
+    esc = html_module.escape(t)
+    parts = esc.split('\n')
+    return '<p>' + '</p><p>'.join(parts) + '</p>'
+
+
+def _email_basico_valido(addr):
+    s = (addr or '').strip()
+    if not s or '@' not in s or len(s) > 254:
+        return False
+    return True
+
+
+def _contrato_row_auto_envio(cursor, id_contrato):
+    """Uma linha no formato de `_SMS_AUTOM_DISTRIBUICAO_SQL` para um único contrato aberto."""
+    cursor.execute(
+        """
+        SELECT c.id AS id_contrato,
+               c.grupo,
+               c.cota,
+               c.id_pessoa,
+               c.numero_contrato,
+               p.nome_completo,
+               (SELECT DATEDIFF(CURDATE(), MIN(p2.vencimento))
+                  FROM parcela p2
+                 WHERE p2.id_contrato = c.id AND p2.status = 'aberto') AS dias_atraso
+        FROM contrato c
+        LEFT JOIN pessoa p ON p.id = c.id_pessoa
+        WHERE c.id = %s AND c.status = 'aberto'
+        """,
+        (int(id_contrato),),
+    )
+    return cursor.fetchone()
+
+
+def _contratos_rows_auto_envio_batch(cursor, contrato_ids):
+    """Mesmo formato de `_contrato_row_auto_envio`, em lote (contratos abertos)."""
+    if not contrato_ids:
+        return {}
+    ph = ','.join(['%s'] * len(contrato_ids))
+    cursor.execute(
+        f"""
+        SELECT c.id AS id_contrato,
+               c.grupo,
+               c.cota,
+               c.id_pessoa,
+               c.numero_contrato,
+               p.nome_completo,
+               (SELECT DATEDIFF(CURDATE(), MIN(p2.vencimento))
+                  FROM parcela p2
+                 WHERE p2.id_contrato = c.id AND p2.status = 'aberto') AS dias_atraso
+        FROM contrato c
+        LEFT JOIN pessoa p ON p.id = c.id_pessoa
+        WHERE c.id IN ({ph}) AND c.status = 'aberto'
+        """,
+        list(contrato_ids),
+    )
+    return {int(r['id_contrato']): r for r in (cursor.fetchall() or [])}
+
+
+def _contratos_teve_envio_cobranca_hoje_batch(cursor, contrato_ids):
+    """Conjunto de ids de contrato que já têm SMS ou e-mail registrados hoje."""
+    if not contrato_ids:
+        return set()
+    ph = ','.join(['%s'] * len(contrato_ids))
+    ids = list(contrato_ids)
+    cursor.execute(
+        f"""
+        SELECT DISTINCT id_contrato FROM (
+            SELECT id_contrato FROM registro_sms
+            WHERE id_contrato IN ({ph}) AND DATE(created_at) = CURDATE()
+            UNION ALL
+            SELECT id_contrato FROM registro_email
+            WHERE id_contrato IN ({ph}) AND DATE(created_at) = CURDATE()
+        ) t
+        """,
+        ids + ids,
+    )
+    return {int(r['id_contrato']) for r in (cursor.fetchall() or [])}
+
+
+def _telefones_por_pessoas(cursor, pessoa_ids):
+    """{id_pessoa: [rows telefone]} preservando ordem estável por id."""
+    if not pessoa_ids:
+        return {}
+    ph = ','.join(['%s'] * len(pessoa_ids))
+    cursor.execute(
+        f'SELECT id, id_pessoa, numero FROM telefone WHERE id_pessoa IN ({ph}) ORDER BY id ASC',
+        list(pessoa_ids),
+    )
+    out = {}
+    for r in cursor.fetchall() or []:
+        pid = int(r['id_pessoa'])
+        out.setdefault(pid, []).append(r)
+    return out
+
+
+def _emails_por_pessoas(cursor, pessoa_ids):
+    """{id_pessoa: [rows email]} preservando ordem estável por id."""
+    if not pessoa_ids:
+        return {}
+    ph = ','.join(['%s'] * len(pessoa_ids))
+    cursor.execute(
+        f'SELECT id, id_pessoa, email FROM email WHERE id_pessoa IN ({ph}) ORDER BY id ASC',
+        list(pessoa_ids),
+    )
+    out = {}
+    for r in cursor.fetchall() or []:
+        pid = int(r['id_pessoa'])
+        out.setdefault(pid, []).append(r)
+    return out
+
+
 _SMS_AUTOM_DISTRIBUICAO_SQL = """
                 SELECT c.id AS id_contrato,
                        c.grupo,
@@ -2075,18 +2217,22 @@ def _sms_automatizados_template_id_por_dias(da_int):
 
 
 def _sms_automatizados_analise(conn):
-    """Mesma logica do preview (template + telefones + _resolve_ids_registro_sms).
+    """Mesma logica do preview (template + telefones/emails + anti-duplicidade do dia).
 
-    Contratos `aberto` na base; dispara quando DATEDIFF(hoje, MIN vencimento parcelas
-    abertas) in (0, 16, 31, 61, 85). Retorna (contagens, lista vazia — Excel usa
-    `_SMS_AUTOM_EXCEL_SQL` separadamente).
+    Contratos `aberto` na base; roteiro quando DATEDIFF(hoje, MIN vencimento parcelas
+    abertas) in (0, 16, 31, 61, 85). Contratos que já tiveram SMS ou e-mail hoje
+    entram em `ignorados_ja_enviados_hoje` e não contam como previstos.
     """
     out = {
         'sms_previstos': 0,
+        'emails_previstos': 0,
         'contratos_com_sms': 0,
+        'contratos_com_email': 0,
         'ignorados_sem_entrada': 0,
         'ignorados_sem_template': 0,
         'ignorados_sem_telefone': 0,
+        'ignorados_sem_email': 0,
+        'ignorados_ja_enviados_hoje': 0,
         'tentativas_bloqueadas_cadastro': 0,
         'contratos_processados': 0,
     }
@@ -2118,17 +2264,18 @@ def _sms_automatizados_analise(conn):
             continue
 
         with conn.cursor() as cursor:
+            if _contrato_teve_envio_cobranca_hoje(cursor, id_contrato):
+                out['ignorados_ja_enviados_hoje'] += 1
+                continue
+
+        with conn.cursor() as cursor:
             cursor.execute(
                 'SELECT id, numero FROM telefone WHERE id_pessoa = %s',
                 (id_pessoa,),
             )
             telefones = cursor.fetchall() or []
 
-        if not telefones:
-            out['ignorados_sem_telefone'] += 1
-            continue
-
-        n_ok_contrato = 0
+        n_ok_sms = 0
         for tel in telefones:
             digits = _sms_digits_only(tel.get('numero'))
             if not digits:
@@ -2145,16 +2292,194 @@ def _sms_automatizados_analise(conn):
                 out['tentativas_bloqueadas_cadastro'] += 1
                 continue
             out['sms_previstos'] += 1
-            n_ok_contrato += 1
-        if n_ok_contrato > 0:
+            n_ok_sms += 1
+        if n_ok_sms > 0:
             out['contratos_com_sms'] += 1
+        elif not telefones:
+            out['ignorados_sem_telefone'] += 1
+
+        with conn.cursor() as cursor:
+            cursor.execute(
+                'SELECT id, email FROM email WHERE id_pessoa = %s',
+                (id_pessoa,),
+            )
+            emails_rows = cursor.fetchall() or []
+
+        n_ok_mail = 0
+        for em in emails_rows:
+            if not _email_basico_valido(em.get('email')):
+                out['tentativas_bloqueadas_cadastro'] += 1
+                continue
+            payload_resolve = {
+                'id_email': int(em['id']),
+                'id_pessoa': id_pessoa,
+                'id_contrato': id_contrato,
+            }
+            with conn.cursor() as cursor:
+                _, err = _resolve_ids_registro_email(
+                    cursor, id_pessoa, int(em['id']), id_contrato,
+                )
+            if err:
+                out['tentativas_bloqueadas_cadastro'] += 1
+                continue
+            out['emails_previstos'] += 1
+            n_ok_mail += 1
+        if n_ok_mail > 0:
+            out['contratos_com_email'] += 1
+        elif not emails_rows:
+            out['ignorados_sem_email'] += 1
 
     return out, []
 
 
+def _analise_automacao_carteira(conn, contrato_ids):
+    """Igual à análise da Lista SMS/E-mail (distribuição), restrita aos IDs da carteira visível.
+
+    Usado pelo modal de confirmação em Cobrança para mostrar contagens e contratos reais.
+    Consultas em lote para suportar milhares de IDs sem timeout.
+    """
+    uniq = []
+    seen = set()
+    for x in contrato_ids or []:
+        try:
+            cid = int(x)
+        except (TypeError, ValueError):
+            continue
+        if cid not in seen:
+            seen.add(cid)
+            uniq.append(cid)
+
+    out = {
+        'carteira_ids': len(uniq),
+        'sms_previstos': 0,
+        'emails_previstos': 0,
+        'contratos_com_sms': 0,
+        'contratos_com_email': 0,
+        'ignorados_sem_contrato_aberto': 0,
+        'ignorados_sem_pessoa': 0,
+        'ignorados_fora_rota': 0,
+        'ignorados_ja_enviados_hoje': 0,
+        'ignorados_sem_telefone': 0,
+        'ignorados_sem_email': 0,
+        'tentativas_bloqueadas_cadastro': 0,
+        'detalhes': [],
+    }
+
+    if not uniq:
+        return out
+
+    with conn.cursor() as cursor:
+        row_by_id = _contratos_rows_auto_envio_batch(cursor, uniq)
+        envio_hoje = _contratos_teve_envio_cobranca_hoje_batch(cursor, uniq)
+
+    pending = []
+    for cid in uniq:
+        row = row_by_id.get(cid)
+        if not row:
+            out['ignorados_sem_contrato_aberto'] += 1
+            continue
+
+        id_contrato = int(row['id_contrato'])
+        id_pessoa = row.get('id_pessoa')
+        if id_pessoa is None:
+            out['ignorados_sem_pessoa'] += 1
+            continue
+        id_pessoa = int(id_pessoa)
+
+        dias_atraso = row.get('dias_atraso')
+        da_int = None
+        if dias_atraso is not None:
+            try:
+                da_int = int(dias_atraso)
+            except (TypeError, ValueError):
+                da_int = None
+
+        if _sms_automatizados_template_id_por_dias(da_int) is None:
+            out['ignorados_fora_rota'] += 1
+            continue
+
+        if id_contrato in envio_hoje:
+            out['ignorados_ja_enviados_hoje'] += 1
+            continue
+
+        pending.append((id_contrato, row, id_pessoa, da_int))
+
+    if not pending:
+        return out
+
+    pessoa_ids = list({p[2] for p in pending})
+    with conn.cursor() as cursor:
+        tel_map = _telefones_por_pessoas(cursor, pessoa_ids)
+        email_map = _emails_por_pessoas(cursor, pessoa_ids)
+
+    for id_contrato, row, id_pessoa, da_int in pending:
+        telefones = tel_map.get(id_pessoa, [])
+
+        n_ok_sms = 0
+        for tel in telefones:
+            digits = _sms_digits_only(tel.get('numero'))
+            if not digits:
+                out['tentativas_bloqueadas_cadastro'] += 1
+                continue
+            payload_resolve = {
+                'id_telefone': int(tel['id']),
+                'id_pessoa': id_pessoa,
+                'id_contrato': id_contrato,
+            }
+            with conn.cursor() as cursor:
+                _, err = _resolve_ids_registro_sms(cursor, payload_resolve, digits)
+            if err:
+                out['tentativas_bloqueadas_cadastro'] += 1
+                continue
+            out['sms_previstos'] += 1
+            n_ok_sms += 1
+        if n_ok_sms > 0:
+            out['contratos_com_sms'] += 1
+        elif not telefones:
+            out['ignorados_sem_telefone'] += 1
+
+        emails_rows = email_map.get(id_pessoa, [])
+
+        n_ok_mail = 0
+        for em in emails_rows:
+            if not _email_basico_valido(em.get('email')):
+                out['tentativas_bloqueadas_cadastro'] += 1
+                continue
+            with conn.cursor() as cursor:
+                _, err = _resolve_ids_registro_email(
+                    cursor, id_pessoa, int(em['id']), id_contrato,
+                )
+            if err:
+                out['tentativas_bloqueadas_cadastro'] += 1
+                continue
+            out['emails_previstos'] += 1
+            n_ok_mail += 1
+        if n_ok_mail > 0:
+            out['contratos_com_email'] += 1
+        elif not emails_rows:
+            out['ignorados_sem_email'] += 1
+
+        if n_ok_sms > 0 or n_ok_mail > 0:
+            out['detalhes'].append({
+                'id_contrato': id_contrato,
+                'grupo': row.get('grupo'),
+                'cota': row.get('cota'),
+                'nome_devedor': (row.get('nome_completo') or '').strip() or '—',
+                'dias_atraso': da_int,
+                'disparos_sms': n_ok_sms,
+                'disparos_email': n_ok_mail,
+            })
+
+    out['detalhes'].sort(key=lambda r: (
+        (r.get('nome_devedor') or '').lower(),
+        int(r.get('id_contrato') or 0),
+    ))
+    return out
+
+
 @app.route('/api/importacao/distribuicao/sms-automatizados/preview', methods=['GET'])
 def api_distribuicao_sms_automatizados_preview():
-    """Preview do lote: contratos abertos com dias 0/16/31/61/85 desde MIN(vencimento) parcelas abertas."""
+    """Preview SMS + e-mail: roteiro 0/16/31/61/85, contagens e ignorados por duplicidade do dia."""
     if not session.get('funcionario_id'):
         return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
     if not _pode_sms_automatizados_importacao():
@@ -2193,7 +2518,7 @@ def _xlsx_cell_str(val):
 
 @app.route('/api/importacao/distribuicao/sms-automatizados/excel', methods=['GET'])
 def api_distribuicao_sms_automatizados_excel():
-    """Excel: grupo, cota e dias de atraso via CTE MenorVencimento (`_SMS_AUTOM_EXCEL_SQL`)."""
+    """Excel do roteiro SMS/e-mail: grupo, cota e dias de atraso (`_SMS_AUTOM_EXCEL_SQL`)."""
     if not session.get('funcionario_id'):
         return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
     if not _pode_sms_automatizados_importacao():
@@ -2224,7 +2549,7 @@ def api_distribuicao_sms_automatizados_excel():
     try:
         wb = Workbook()
         ws = wb.active
-        ws.title = 'SMS previstos'
+        ws.title = 'SMS e e-mail previstos'
         hdr = ('Grupo', 'Cota', 'Dias de atraso')
         ws.append(hdr)
         if not linhas:
@@ -2252,7 +2577,7 @@ def api_distribuicao_sms_automatizados_excel():
         return jsonify({'error': f'Falha ao gerar o Excel: {exc}'}), 500
 
     fname = (
-        'sms_automatizados_distribuicao_'
+        'sms_email_automatizados_distribuicao_'
         + datetime.datetime.now().strftime('%Y%m%d_%H%M')
         + '.xlsx'
     )
@@ -2266,10 +2591,10 @@ def api_distribuicao_sms_automatizados_excel():
 
 @app.route('/api/importacao/distribuicao/sms-automatizados', methods=['POST'])
 def api_distribuicao_sms_automatizados():
-    """Envia SMS em lote (MessageCenter) para contratos abertos na base.
+    """Envia SMS e e-mail em lote (MessageCenter) para contratos abertos no roteiro automático.
 
     Regra: DATEDIFF(hoje, MIN vencimento de parcelas abertas) em 0, 16, 31, 61 ou 85 dias;
-    templates 1 a 4 conforme mapeamento. Registra em registro_sms apos sucesso.
+    mesmo texto nos dois canais. Contratos que já tiveram SMS ou e-mail no dia são ignorados.
     Apenas Gestor ou Administrador.
     """
     fid = session.get('funcionario_id')
@@ -2278,13 +2603,18 @@ def api_distribuicao_sms_automatizados():
     if not _pode_sms_automatizados_importacao():
         return jsonify({'error': 'Acesso restrito a gestores ou administradores.'}), 403
 
+    remetente_nome = _primeiro_nome(session.get('funcionario_nome'))
     conn = _get_db()
     stats = {
+        'envios_sms': 0,
+        'envios_email': 0,
         'enviados': 0,
         'falhas': 0,
         'ignorados_sem_entrada': 0,
         'ignorados_sem_template': 0,
         'ignorados_sem_telefone': 0,
+        'ignorados_sem_email': 0,
+        'ignorados_ja_enviados_hoje': 0,
         'contratos_processados': 0,
     }
     erros_amostra = []
@@ -2296,153 +2626,31 @@ def api_distribuicao_sms_automatizados():
 
         for row in contratos:
             stats['contratos_processados'] += 1
-            id_contrato = int(row['id_contrato'])
-            id_pessoa = row.get('id_pessoa')
-            if id_pessoa is None:
-                stats['ignorados_sem_template'] += 1
-                continue
-            id_pessoa = int(id_pessoa)
-
-            dias_atraso = row.get('dias_atraso')
-            da_int = None
-            if dias_atraso is not None:
-                try:
-                    da_int = int(dias_atraso)
-                except (TypeError, ValueError):
-                    da_int = None
-
-            template_id = _sms_automatizados_template_id_por_dias(da_int)
-
-            if template_id is None:
-                stats['ignorados_sem_template'] += 1
-                continue
-
-            primeiro = _primeiro_nome(row.get('nome_completo'))
-            parcelas_txt = '-'
-            if template_id in (2, 3):
-                with conn.cursor() as cursor:
-                    parcelas_txt = _format_parcelas_sms_auto(cursor, id_contrato)
-
-            msg = _mensagem_sms_auto_importacao(
-                primeiro,
-                row.get('numero_contrato'),
-                parcelas_txt,
-                template_id,
+            _auto_envio_contrato_canais(
+                conn,
+                int(fid),
+                row,
+                remetente_nome,
+                stats,
+                erros_amostra,
+                {'sms', 'email'},
             )
-            if len(msg) > 1600:
-                msg = msg[:1600]
-
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    'SELECT id, numero FROM telefone WHERE id_pessoa = %s',
-                    (id_pessoa,),
-                )
-                telefones = cursor.fetchall() or []
-
-            if not telefones:
-                stats['ignorados_sem_telefone'] += 1
-                continue
-
-            for tel in telefones:
-                digits = _sms_digits_only(tel.get('numero'))
-                if not digits:
-                    stats['falhas'] += 1
-                    if len(erros_amostra) < 20:
-                        erros_amostra.append(
-                            {'id_contrato': id_contrato, 'erro': 'Numero invalido.'}
-                        )
-                    continue
-
-                payload_resolve = {
-                    'id_telefone': int(tel['id']),
-                    'id_pessoa': id_pessoa,
-                    'id_contrato': id_contrato,
-                }
-                with conn.cursor() as cursor:
-                    ids, err = _resolve_ids_registro_sms(cursor, payload_resolve, digits)
-                    if err:
-                        stats['falhas'] += 1
-                        if len(erros_amostra) < 20:
-                            erros_amostra.append({
-                                'id_contrato': id_contrato,
-                                'erro': err,
-                            })
-                        continue
-
-                params = {'Phone': digits, 'Msgtext': msg}
-                headers = {SMS_MC_HEADER_NAME: SMS_MC_HEADER_VALUE}
-                try:
-                    resp = requests.get(
-                        SMS_MC_URL,
-                        params=params,
-                        headers=headers,
-                        timeout=30,
-                    )
-                except requests.RequestException as exc:
-                    stats['falhas'] += 1
-                    if len(erros_amostra) < 20:
-                        erros_amostra.append({
-                            'id_contrato': id_contrato,
-                            'erro': f'Rede: {exc}',
-                        })
-                    continue
-
-                if not resp.ok:
-                    stats['falhas'] += 1
-                    if len(erros_amostra) < 20:
-                        try:
-                            det = resp.json()
-                        except Exception:
-                            det = (resp.text or '')[:200]
-                        erros_amostra.append({
-                            'id_contrato': id_contrato,
-                            'erro': f'API SMS HTTP {resp.status_code}',
-                            'detalhe': det,
-                        })
-                    continue
-
-                try:
-                    with conn.cursor() as cursor:
-                        cursor.execute(
-                            'INSERT INTO registro_sms (id_contrato, id_pessoa, id_telefone, id_funcionario, mensagem) '
-                            'VALUES (%s, %s, %s, %s, %s)',
-                            (
-                                ids['id_contrato'],
-                                ids['id_pessoa'],
-                                ids['id_telefone'],
-                                int(fid),
-                                msg,
-                            ),
-                        )
-                        conn.commit()
-                except Exception as exc:
-                    try:
-                        conn.rollback()
-                    except Exception:
-                        pass
-                    stats['falhas'] += 1
-                    app.logger.warning(
-                        'registro_sms insert falhou apos SMS ok (lote importacao): %s', exc
-                    )
-                    if len(erros_amostra) < 20:
-                        erros_amostra.append({
-                            'id_contrato': id_contrato,
-                            'erro': f'Falha ao registrar SMS: {exc}',
-                        })
-                    continue
-
-                stats['enviados'] += 1
 
     finally:
         conn.close()
 
+    stats['enviados'] = stats['envios_sms'] + stats['envios_email']
     return jsonify({
         'ok': True,
         'enviados': stats['enviados'],
+        'envios_sms': stats['envios_sms'],
+        'envios_email': stats['envios_email'],
         'falhas': stats['falhas'],
         'ignorados_sem_entrada': stats['ignorados_sem_entrada'],
         'ignorados_sem_template': stats['ignorados_sem_template'],
         'ignorados_sem_telefone': stats['ignorados_sem_telefone'],
+        'ignorados_sem_email': stats['ignorados_sem_email'],
+        'ignorados_ja_enviados_hoje': stats['ignorados_ja_enviados_hoje'],
         'contratos_processados': stats['contratos_processados'],
         'erros_amostra': erros_amostra,
     })
@@ -3170,6 +3378,47 @@ EMAIL_MC_REMETENTE = os.environ.get(
     'EMAIL_MC_REMETENTE', 'atendimento@joaobarbosa.com.br'
 )
 
+
+def _messagecenter_post_email_html(remetente_nome, destinatario, cliente_primeiro_nome, corpo_html):
+    """POST MessageCenter EnviarEmailHtml. Retorna (ok_bool, erro_str_ou_None, data_dict)."""
+    destinatario = (destinatario or '').strip()
+    if not destinatario:
+        return False, 'Destinatario vazio.', None
+    query_params = {
+        'Destinatario': destinatario,
+        'RemetenteNome': remetente_nome or '',
+        'RemetenteEmail': EMAIL_MC_REMETENTE,
+        'Assunto': 'Cobranca',
+        'Identificador': '',
+        'ClienteNome': cliente_primeiro_nome or '',
+        'ClienteDocumento': '',
+        'CentroCusto': '',
+        'CamposCustomizados1': '',
+        'CamposCustomizados2': '',
+        'CamposCustomizados3': '',
+        'CamposCustomizados4': '',
+        'CamposCustomizados5': '',
+    }
+    headers = {SMS_MC_HEADER_NAME: SMS_MC_HEADER_VALUE}
+    try:
+        resp = requests.post(
+            EMAIL_MC_URL,
+            params=query_params,
+            files={'CorpoHtml': (None, corpo_html, 'text/plain; charset=utf-8')},
+            headers=headers,
+            timeout=60,
+        )
+    except requests.RequestException as exc:
+        return False, f'Erro de rede ao enviar e-mail: {exc}', None
+    try:
+        data = resp.json()
+    except Exception:
+        data = {'raw': (resp.text or '')[:500]}
+    if not resp.ok:
+        return False, f'Falha HTTP {resp.status_code}', data
+    return True, None, data
+
+
 _TELEFONE_NUMERO_DIGITS_SQL = (
     "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(IFNULL(numero,''),'+',''),'-',''),' ',''),'(',''),')',''),'.','')"
 )
@@ -3356,6 +3605,235 @@ def _resolve_ids_registro_sms(cursor, payload, digits_destino):
         cid = int(crow['id'])
 
     return {'id_telefone': tid, 'id_pessoa': pid, 'id_contrato': cid}, None
+
+
+def _auto_envio_contrato_canais(conn, fid, row, remetente_nome, stats, erros_amostra, canais):
+    """Envia SMS e/ou e-mail automáticos (mesmo texto) para um contrato no roteiro 0/16/31/61/85.
+
+    `canais`: iterable com 'sms' e/ou 'email'. Evita duplicidade: se já houve SMS ou e-mail
+    hoje para o contrato, não envia nada nesta chamada.
+    """
+    canais = set(canais) if canais else {'sms', 'email'}
+    id_contrato = int(row['id_contrato'])
+    id_pessoa = row.get('id_pessoa')
+    if id_pessoa is None:
+        stats['ignorados_sem_template'] += 1
+        return
+    id_pessoa = int(id_pessoa)
+
+    dias_atraso = row.get('dias_atraso')
+    da_int = None
+    if dias_atraso is not None:
+        try:
+            da_int = int(dias_atraso)
+        except (TypeError, ValueError):
+            da_int = None
+
+    template_id = _sms_automatizados_template_id_por_dias(da_int)
+    if template_id is None:
+        stats['ignorados_sem_template'] += 1
+        return
+
+    with conn.cursor() as cursor:
+        if _contrato_teve_envio_cobranca_hoje(cursor, id_contrato):
+            stats['ignorados_ja_enviados_hoje'] += 1
+            return
+
+    primeiro = _primeiro_nome(row.get('nome_completo'))
+    parcelas_txt = '-'
+    if template_id in (2, 3):
+        with conn.cursor() as cursor:
+            parcelas_txt = _format_parcelas_sms_auto(cursor, id_contrato)
+
+    msg = _mensagem_sms_auto_importacao(
+        primeiro,
+        row.get('numero_contrato'),
+        parcelas_txt,
+        template_id,
+    )
+    if len(msg) > 1600:
+        msg = msg[:1600]
+
+    corpo_html = _plain_para_corpo_email_html(msg)
+    cliente_pn = primeiro or 'Cliente'
+    rem_nome = remetente_nome or ''
+
+    if 'sms' in canais:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                'SELECT id, numero FROM telefone WHERE id_pessoa = %s',
+                (id_pessoa,),
+            )
+            telefones = cursor.fetchall() or []
+
+        if not telefones:
+            stats['ignorados_sem_telefone'] += 1
+        for tel in telefones:
+            digits = _sms_digits_only(tel.get('numero'))
+            if not digits:
+                stats['falhas'] += 1
+                if len(erros_amostra) < 20:
+                    erros_amostra.append(
+                        {'id_contrato': id_contrato, 'erro': 'Numero invalido.'}
+                    )
+                continue
+
+            payload_resolve = {
+                'id_telefone': int(tel['id']),
+                'id_pessoa': id_pessoa,
+                'id_contrato': id_contrato,
+            }
+            with conn.cursor() as cursor:
+                ids, err = _resolve_ids_registro_sms(cursor, payload_resolve, digits)
+                if err:
+                    stats['falhas'] += 1
+                    if len(erros_amostra) < 20:
+                        erros_amostra.append({'id_contrato': id_contrato, 'erro': err})
+                    continue
+
+            params = {'Phone': digits, 'Msgtext': msg}
+            headers = {SMS_MC_HEADER_NAME: SMS_MC_HEADER_VALUE}
+            try:
+                resp = requests.get(
+                    SMS_MC_URL,
+                    params=params,
+                    headers=headers,
+                    timeout=30,
+                )
+            except requests.RequestException as exc:
+                stats['falhas'] += 1
+                if len(erros_amostra) < 20:
+                    erros_amostra.append({
+                        'id_contrato': id_contrato,
+                        'erro': f'Rede: {exc}',
+                    })
+                continue
+
+            if not resp.ok:
+                stats['falhas'] += 1
+                if len(erros_amostra) < 20:
+                    try:
+                        det = resp.json()
+                    except Exception:
+                        det = (resp.text or '')[:200]
+                    erros_amostra.append({
+                        'id_contrato': id_contrato,
+                        'erro': f'API SMS HTTP {resp.status_code}',
+                        'detalhe': det,
+                    })
+                continue
+
+            try:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        'INSERT INTO registro_sms (id_contrato, id_pessoa, id_telefone, id_funcionario, mensagem) '
+                        'VALUES (%s, %s, %s, %s, %s)',
+                        (
+                            ids['id_contrato'],
+                            ids['id_pessoa'],
+                            ids['id_telefone'],
+                            int(fid),
+                            msg,
+                        ),
+                    )
+                    conn.commit()
+            except Exception as exc:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                stats['falhas'] += 1
+                app.logger.warning(
+                    'registro_sms insert falhou apos SMS ok (lote auto): %s', exc
+                )
+                if len(erros_amostra) < 20:
+                    erros_amostra.append({
+                        'id_contrato': id_contrato,
+                        'erro': f'Falha ao registrar SMS: {exc}',
+                    })
+                continue
+
+            stats['envios_sms'] += 1
+
+    if 'email' in canais:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                'SELECT id, email FROM email WHERE id_pessoa = %s',
+                (id_pessoa,),
+            )
+            emails_rows = cursor.fetchall() or []
+
+        if not emails_rows:
+            stats['ignorados_sem_email'] += 1
+        for em in emails_rows:
+            em_addr = (em.get('email') or '').strip()
+            if not _email_basico_valido(em_addr):
+                stats['falhas'] += 1
+                if len(erros_amostra) < 20:
+                    erros_amostra.append({
+                        'id_contrato': id_contrato,
+                        'erro': 'E-mail invalido no cadastro.',
+                    })
+                continue
+
+            with conn.cursor() as cursor:
+                ids_reg, err_reg = _resolve_ids_registro_email(
+                    cursor, id_pessoa, int(em['id']), id_contrato,
+                )
+                if err_reg:
+                    stats['falhas'] += 1
+                    if len(erros_amostra) < 20:
+                        erros_amostra.append({
+                            'id_contrato': id_contrato,
+                            'erro': err_reg,
+                        })
+                    continue
+
+            ok_mc, err_mc, det_mc = _messagecenter_post_email_html(
+                rem_nome, em_addr, cliente_pn, corpo_html,
+            )
+            if not ok_mc:
+                stats['falhas'] += 1
+                if len(erros_amostra) < 20:
+                    erros_amostra.append({
+                        'id_contrato': id_contrato,
+                        'erro': err_mc or 'Falha ao enviar e-mail.',
+                        'detalhe': det_mc,
+                    })
+                continue
+
+            msg_reg = corpo_html[:1600]
+            try:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        'INSERT INTO registro_email (id_contrato, id_pessoa, id_email, id_funcionario, mensagem) '
+                        'VALUES (%s, %s, %s, %s, %s)',
+                        (
+                            ids_reg['id_contrato'],
+                            ids_reg['id_pessoa'],
+                            ids_reg['id_email'],
+                            int(fid),
+                            msg_reg,
+                        ),
+                    )
+                    conn.commit()
+            except Exception as exc:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                stats['falhas'] += 1
+                app.logger.warning(
+                    'registro_email insert falhou apos e-mail ok (lote auto): %s', exc
+                )
+                if len(erros_amostra) < 20:
+                    erros_amostra.append({
+                        'id_contrato': id_contrato,
+                        'erro': f'Falha ao registrar e-mail: {exc}',
+                    })
+                continue
+
+            stats['envios_email'] += 1
 
 
 @app.route('/api/enviar-sms', methods=['POST'])
@@ -8880,7 +9358,7 @@ def _mapa_parcelas_negativadas_por_contrato(cursor, contrato_ids):
 # (requests.post / httpx) e propagar a resposta.
 # =============================================================================
 
-_AUTOMACAO_TIPOS = {'sms', 'email', 'ligacao'}
+_AUTOMACAO_TIPOS = {'sms', 'email', 'ligacao', 'sms_email'}
 
 
 def _automacao_log(tipo, payload, extra=None):
@@ -8904,6 +9382,31 @@ def _validar_ids_contratos(ids):
     if not out:
         return None, 'Nenhum contrato informado.'
     return out, None
+
+
+@app.route('/api/automacao/preview', methods=['POST'])
+@app.route('/api/cobranca/sms-email/preview', methods=['POST'])
+def api_automacao_preview():
+    """Preview de SMS/e-mail para os IDs da carteira (mesma lógica da Lista SMS/E-mail na importação)."""
+    if not session.get('funcionario_id'):
+        return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
+    payload = request.get_json(silent=True) or {}
+    ids, err = _validar_ids_contratos(payload.get('contrato_ids'))
+    if err:
+        return jsonify({'error': err}), 400
+
+    conn = _get_db()
+    try:
+        data = _analise_automacao_carteira(conn, ids)
+    except Exception:
+        app.logger.exception('api_automacao_preview: falha ao analisar carteira')
+        return jsonify({
+            'error': 'Falha ao calcular o preview. Tente novamente; se persistir, verifique os logs do servidor.',
+        }), 500
+    finally:
+        conn.close()
+
+    return jsonify({'ok': True, **data})
 
 
 @app.route('/api/automacao/<tipo>', methods=['POST'])
@@ -8948,10 +9451,15 @@ def api_automacao(tipo):
             'mock': True,
         })
 
-    # SMS / email - lote
+    # SMS / email - lote (MessageCenter, mesma regra do roteiro da distribuição;
+    # só contratos no roteiro e sem envio SMS/e-mail no dia.)
     ids, err = _validar_ids_contratos(payload.get('contrato_ids'))
     if err:
         return jsonify({'error': err}), 400
+
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
 
     _automacao_log(tipo, {
         'nivel': nivel,
@@ -8959,23 +9467,87 @@ def api_automacao(tipo):
         'ids': ids[:50],  # log nao precisa imprimir milhares
     })
 
-    # TODO: substituir pelo POST real para a API do Flavio.
-    # Exemplo:
-    #   import requests
-    #   r = requests.post(f'http://api-flavio/{tipo}/lote',
-    #                     json={'contrato_ids': ids, 'nivel': nivel},
-    #                     timeout=30)
-    #   data = r.json()
-    #   return jsonify(data), r.status_code
+    remetente_nome = _primeiro_nome(session.get('funcionario_nome'))
+    if tipo == 'sms':
+        canais = {'sms'}
+    elif tipo == 'email':
+        canais = {'email'}
+    else:
+        canais = {'sms', 'email'}
+    conn = _get_db()
+    stats = {
+        'envios_sms': 0,
+        'envios_email': 0,
+        'falhas': 0,
+        'ignorados_sem_template': 0,
+        'ignorados_sem_telefone': 0,
+        'ignorados_sem_email': 0,
+        'ignorados_ja_enviados_hoje': 0,
+        'ignorados_fora_rota': 0,
+        'ignorados_sem_contrato': 0,
+        'contratos_solicitados': len(ids),
+    }
+    erros_amostra = []
 
+    try:
+        for cid in ids:
+            with conn.cursor() as cursor:
+                row = _contrato_row_auto_envio(cursor, cid)
+            if not row:
+                stats['ignorados_sem_contrato'] += 1
+                continue
+
+            da_int = None
+            if row.get('dias_atraso') is not None:
+                try:
+                    da_int = int(row['dias_atraso'])
+                except (TypeError, ValueError):
+                    da_int = None
+
+            if _sms_automatizados_template_id_por_dias(da_int) is None:
+                stats['ignorados_fora_rota'] += 1
+                continue
+
+            _auto_envio_contrato_canais(
+                conn,
+                int(fid),
+                row,
+                remetente_nome,
+                stats,
+                erros_amostra,
+                canais,
+            )
+    finally:
+        conn.close()
+
+    if tipo == 'sms':
+        enviados = stats['envios_sms']
+    elif tipo == 'email':
+        enviados = stats['envios_email']
+    else:
+        enviados = stats['envios_sms'] + stats['envios_email']
+    msg = (
+        f'SMS: {stats["envios_sms"]} | E-mail: {stats["envios_email"]} | Falhas: {stats["falhas"]} | '
+        f'Fora do roteiro (dias): {stats["ignorados_fora_rota"]} | '
+        f'Já enviados hoje: {stats["ignorados_ja_enviados_hoje"]} | '
+        f'Sem contrato aberto: {stats["ignorados_sem_contrato"]}'
+    )
     return jsonify({
         'success': True,
         'tipo': tipo,
         'nivel': nivel,
-        'enviados': len(ids),
-        'falhas': 0,
-        'mensagem': f'{len(ids)} {tipo} disparados (mock).',
-        'mock': True,
+        'enviados': enviados,
+        'envios_sms': stats['envios_sms'],
+        'envios_email': stats['envios_email'],
+        'falhas': stats['falhas'],
+        'ignorados_fora_rota': stats['ignorados_fora_rota'],
+        'ignorados_ja_enviados_hoje': stats['ignorados_ja_enviados_hoje'],
+        'ignorados_sem_contrato': stats['ignorados_sem_contrato'],
+        'ignorados_sem_telefone': stats['ignorados_sem_telefone'],
+        'ignorados_sem_email': stats['ignorados_sem_email'],
+        'mensagem': msg,
+        'erros_amostra': erros_amostra[:20],
+        'mock': False,
     })
 
 
