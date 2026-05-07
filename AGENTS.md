@@ -63,22 +63,28 @@ Sistema web para gestao de cobranca de consorcios, com foco em:
 - Numero de origem vem de `funcionario.ramal` do usuario logado.
 - Configuracao via `DISCADOR_URL`, `DISCADOR_USUARIO`, `DISCADOR_TOKEN`.
 
-### 4.7 SMS automáticos (importacao / distribuicao)
-Lote na pagina de importacao (preview, POST envio, export Excel): gestor/admin, rotas `/api/importacao/distribuicao/sms-automatizados/`, codigo em `app.py` (`_SMS_AUTOM_DISTRIBUICAO_SQL`, `_sms_automatizados_template_id_por_dias`, `_sms_automatizados_analise`, POST).
+### 4.7 SMS e e-mail automáticos (importacao / distribuicao)
+Lote na pagina de importacao (preview, POST envio, export Excel): gestor/admin, rotas `/api/importacao/distribuicao/sms-automatizados/`, codigo em `app.py` (`_SMS_AUTOM_DISTRIBUICAO_SQL`, `_sms_automatizados_template_id_por_dias`, `_sms_automatizados_analise`, `_auto_envio_contrato_canais`, POST).
 
-**Universo:** todos os registos em **`contrato`** com **`status = aberto`**, com `LEFT JOIN pessoa` (telefone do devedor). **Nao** se filtra por `funcionario_cobranca`.
+**Universo:** todos os registos em **`contrato`** com **`status = aberto`**, com `LEFT JOIN pessoa` (devedor). **Nao** se filtra por `funcionario_cobranca`.
 
-**Metrica de dias:** `DATEDIFF(CURDATE(), MIN(p2.vencimento))` sobre **`parcela`** com `status = aberto` do contrato (vencimento mais antigo entre parcelas em aberto). Valores **negativos** (vencimento no futuro) nao disparam SMS.
+**Metrica de dias:** `DATEDIFF(CURDATE(), MIN(p2.vencimento))` sobre **`parcela`** com `status = aberto` do contrato (vencimento mais antigo entre parcelas em aberto). Valores **negativos** (vencimento no futuro) nao disparam.
 
 **Disparo (pontos fixos):** envio/preview apenas quando essa diferenca e **exactamente** **0, 16, 31, 61 ou 85** dias (sem faixas).
 
+**Canais:** para cada contrato elegivel, o POST tenta **SMS** (MessageCenter `enviarsms`) para telefones validos do devedor e **e-mail** (MessageCenter `EnviarEmailHtml`) para cada e-mail valido do devedor, com o **mesmo texto** base (`_mensagem_sms_auto_importacao` convertido a HTML simples para o e-mail).
+
+**Anti-duplicidade no dia:** se ja existir registo em **`registro_sms`** ou **`registro_email`** para o **mesmo `id_contrato`** com `DATE(created_at) = CURDATE()`, o contrato **nao** recebe novo disparo neste fluxo nem nos lotes da pagina **Cobrança** (`/api/automacao/sms` ou `/api/automacao/email`), que aplicam a mesma rota de dias e esta regra.
+
+**Cobrança (rodapé SMS/E-mail):** botão único «SMS / E-mail»; `POST /api/cobranca/sms-email/preview` (alias `/api/automacao/preview`) com `contrato_ids` da lista visível (operador + busca); devolve contagens e `detalhes` alinhados à Lista SMS/E-mail. O modal usa esse preview; `POST /api/automacao/sms_email` dispara SMS e e-mail no mesmo fluxo (anti-duplicado do dia).
+
 **Templates (texto `_mensagem_sms_auto_importacao`):** mapeamento dias → `template_id`: **0→1**, **16→2**, **31→3**, **61 ou 85→4**. Templates 2 e 3 usam `_format_parcelas_sms_auto` para o texto das parcelas.
 
-**Telefones:** validacao `_resolve_ids_registro_sms` como no envio unitario; preview e Excel usam `_sms_automatizados_analise`.
+**Telefones / e-mails:** validacao `_resolve_ids_registro_sms` e `_resolve_ids_registro_email` como no envio unitario; preview usa `_sms_automatizados_analise`.
 
-**Export Excel:** query dedicada `_SMS_AUTOM_EXCEL_SQL` (CTE `MenorVencimento`: `MIN(vencimento)` por contrato em parcelas `aberto`; filtro `dias_atraso IN (0,16,31,61,85)`). Folha com colunas **Grupo**, **Cota** e **Dias de atraso** (pode incluir contratos sem telefone valido — o preview/POST continuam a filtrar por telefone).
+**Export Excel:** query dedicada `_SMS_AUTOM_EXCEL_SQL` (CTE `MenorVencimento`: `MIN(vencimento)` por contrato em parcelas `aberto`; filtro `dias_atraso IN (0,16,31,61,85)`). Folha com colunas **Grupo**, **Cota** e **Dias de atraso** (lista o roteiro; pode incluir contratos sem telefone/e-mail valido).
 
-**JSON:** `ignorados_sem_entrada` mantido a **0** (compatibilidade com clientes antigos); contratos fora dos dias acima contam em `ignorados_sem_template`.
+**JSON:** `ignorados_sem_entrada` mantido a **0** (compatibilidade); contratos fora dos dias contam em `ignorados_sem_template`; resposta POST inclui `envios_sms`, `envios_email`, `ignorados_sem_email`, `ignorados_ja_enviados_hoje`.
 
 **Alteracoes de produto:** mudar lista de dias, universo (ex. voltar a filtrar por distribuicao), ou criterio de parcela exige actualizar esta secao e preview/POST/Excel em conjunto.
 

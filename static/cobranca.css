@@ -1209,6 +1209,18 @@
     border-color: #f59e0b;
 }
 
+.bulk-btn-sms-email {
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.14) 0%, rgba(245, 158, 11, 0.14) 100%);
+    color: #5b21b6;
+    border-color: rgba(124, 58, 237, 0.35);
+}
+
+.bulk-btn-sms-email:hover {
+    background: linear-gradient(135deg, #8b5cf6 0%, #f59e0b 100%);
+    color: #fff;
+    border-color: transparent;
+}
+
 @media (max-width: 720px) {
     .bulk-btn span { display: none; }
     .bulk-btn { padding: 7px 9px; }
@@ -1442,6 +1454,59 @@
 .auto-pill-critico { background: rgba(239, 68, 68, 0.12);  color: #b91c1c; border-color: rgba(239, 68, 68, 0.25); }
 .auto-pill-atencao { background: rgba(245, 158, 11, 0.15); color: #b45309; border-color: rgba(245, 158, 11, 0.30); }
 .auto-pill-recente { background: rgba(59, 130, 246, 0.12); color: #1d4ed8; border-color: rgba(59, 130, 246, 0.25); }
+.auto-pill-todos {
+    background: rgba(100, 116, 139, 0.12);
+    color: #475569;
+    border-color: rgba(100, 116, 139, 0.28);
+}
+
+.auto-preview-table-wrap {
+    margin-top: 12px;
+    max-height: 280px;
+    overflow: auto;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #fff;
+}
+.auto-preview-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+}
+.auto-preview-table th,
+.auto-preview-table td {
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 1px solid #f3f4f6;
+    vertical-align: top;
+}
+.auto-preview-table th {
+    background: #f9fafb;
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+.auto-preview-more {
+    margin: 0;
+    padding: 8px 10px;
+    font-size: 0.8rem;
+    color: #64748b;
+    background: #fafafa;
+    border-top: 1px solid #f3f4f6;
+}
+
+.auto-preview-highlight {
+    margin-top: 8px;
+    padding-top: 12px;
+    border-top: 1px solid #e5e7eb;
+    border-bottom: none;
+}
+.auto-preview-highlight .auto-info-value strong {
+    font-size: 1.12rem;
+    color: #0f172a;
+    font-variant-numeric: tabular-nums;
+}
 
 .auto-helper-text {
     margin: 14px 0 0;

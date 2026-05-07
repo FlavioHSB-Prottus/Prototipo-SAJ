@@ -1038,12 +1038,6 @@ document.addEventListener('DOMContentLoaded', function () {
             '  <button type="button" class="bulk-btn bulk-btn-call" data-action="ligacao" title="Ligar para todos (sequencial)">' +
             '    <i class="fa-solid fa-phone"></i><span>Ligar</span>' +
             '  </button>' +
-            '  <button type="button" class="bulk-btn bulk-btn-sms" data-action="sms" title="Enviar SMS para todos">' +
-            '    <i class="fa-solid fa-comment-sms"></i><span>SMS</span>' +
-            '  </button>' +
-            '  <button type="button" class="bulk-btn bulk-btn-mail" data-action="email" title="Enviar e-mail para todos">' +
-            '    <i class="fa-solid fa-envelope"></i><span>E-mail</span>' +
-            '  </button>' +
             '</div>';
     }
 
@@ -1088,11 +1082,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // ---- Ações de automação geral no rodapé (SMS / E-mail) ----
     function bindFooterBulkActions() {
-        var btnSms = document.getElementById('footerBulkSms');
-        var btnMail = document.getElementById('footerBulkEmail');
+        var btnSmsEmail = document.getElementById('footerBulkSmsEmail');
         var btnNeg = document.getElementById('footerBulkNegativacao');
-        if (btnSms) btnSms.addEventListener('click', function () { dispararFooterLote('sms'); });
-        if (btnMail) btnMail.addEventListener('click', function () { dispararFooterLote('email'); });
+        if (btnSmsEmail) {
+            btnSmsEmail.addEventListener('click', function () {
+                dispararFooterLote('sms_email');
+            });
+        }
         // Abre o módulo Negativação (Carteira) com o mesmo operador selecionado.
         if (btnNeg) btnNeg.addEventListener('click', function () {
             var qs = new URLSearchParams();

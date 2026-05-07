@@ -41,6 +41,14 @@
             cor: '#f59e0b',
             bgIcone: 'rgba(245,158,11,0.15)'
         },
+        sms_email: {
+            label: 'SMS / E-mail',
+            verbo: 'enviar SMS e e-mails automáticos',
+            verboCurto: 'SMS / E-mail',
+            icone: 'fa-solid fa-comments',
+            cor: '#7c3aed',
+            bgIcone: 'rgba(124,58,237,0.12)'
+        },
         negativacao: {
             label: 'Negativação',
             verbo: 'negativar os contratos elegíveis',
@@ -206,9 +214,286 @@
                 return;
             }
 
+            if (tipo === 'sms' || tipo === 'email' || tipo === 'sms_email') {
+                iniciarComPreviewSmsEmail(tipo, nivel, contratos);
+                return;
+            }
+
             mostrarConfirmacao(tipo, nivel, contratos);
         }
     };
+
+    var PREVIEW_TABLE_MAX = 50;
+
+    /** Preview/disparo: rota estável sob /api/cobranca (mesmo prefixo do painel). */
+    var SMS_EMAIL_PREVIEW_URL = '/api/cobranca/sms-email/preview';
+
+    function parseResponseJson(r) {
+        var status = r.status;
+        return r.text().then(function (text) {
+            var trimmed = (text || '').trim();
+            var body = null;
+            if (trimmed) {
+                try {
+                    body = JSON.parse(trimmed);
+                } catch (ignore) {
+                    var snippet = trimmed.length > 280 ? trimmed.slice(0, 280) + '…' : trimmed;
+                    return {
+                        ok: false,
+                        status: status,
+                        body: null,
+                        alertMsg:
+                            'Resposta inválida do servidor (HTTP ' +
+                            status +
+                            '). Esperávamos JSON — pode ser erro de proxy ou servidor sobrecarregado.\n\n' +
+                            snippet,
+                    };
+                }
+            }
+            return { ok: r.ok, status: status, body: body, alertMsg: null };
+        });
+    }
+
+    function rowElegivelCanal(tipo, row) {
+        if (tipo === 'sms') return row.disparos_sms > 0;
+        if (tipo === 'email') return row.disparos_email > 0;
+        return row.disparos_sms > 0 || row.disparos_email > 0;
+    }
+
+    function iniciarComPreviewSmsEmail(tipo, nivel, contratos) {
+        var ids = contratos.map(function (c) { return c.id; }).filter(function (id) {
+            return id != null && id !== '';
+        });
+        if (!ids.length) {
+            alert('Nenhum contrato disponível na lista atual.');
+            return;
+        }
+
+        fetch(SMS_EMAIL_PREVIEW_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ contrato_ids: ids }),
+        })
+            .then(parseResponseJson)
+            .then(function (res) {
+                if (res.alertMsg) {
+                    alert(res.alertMsg);
+                    return;
+                }
+                var body = res.body || {};
+                if (!res.ok || body.error) {
+                    alert(
+                        'Não foi possível calcular o preview: ' +
+                            (body.error || ('HTTP ' + (res.status || '')))
+                    );
+                    return;
+                }
+                var pv = body;
+                var prevSms = pv.sms_previstos != null ? pv.sms_previstos : 0;
+                var prevMail = pv.emails_previstos != null ? pv.emails_previstos : 0;
+                var prev = tipo === 'sms' ? prevSms : tipo === 'email' ? prevMail : prevSms + prevMail;
+                var contratosCanal =
+                    tipo === 'sms'
+                        ? pv.contratos_com_sms
+                        : tipo === 'email'
+                          ? pv.contratos_com_email
+                          : null;
+                if (tipo === 'sms_email') {
+                    contratosCanal = (pv.detalhes || []).filter(function (row) {
+                        return rowElegivelCanal(tipo, row);
+                    }).length;
+                }
+                if (!prev || prev < 1) {
+                    alert(
+                        'Nenhum disparo previsto para os contratos da sua lista neste momento.\n\n' +
+                            'Critérios (iguais à Lista SMS/E-mail na Importação): roteiro nos dias ' +
+                            '0, 16, 31, 61 ou 85 (vencimento mais antigo em parcelas em aberto); sem SMS ' +
+                            'nem e-mail registrados hoje para o contrato; telefone ou e-mail válido no cadastro.\n\n' +
+                            'Contratos na carteira enviados ao preview: ' +
+                            (pv.carteira_ids != null ? pv.carteira_ids : ids.length) +
+                            '.'
+                    );
+                    return;
+                }
+                mostrarConfirmacaoSmsEmail(tipo, nivel, pv, contratosCanal, prev);
+            })
+            .catch(function (err) {
+                alert('Falha ao consultar o servidor: ' + (err.message || String(err)));
+            });
+    }
+
+    function mostrarConfirmacaoSmsEmail(tipo, nivel, pv, contratosCanal, totalDisparos) {
+        var d = dom();
+        var meta = TIPO_META[tipo];
+        var nivelLabel = NIVEL_LABEL[nivel] || nivel;
+
+        var detalhesFiltrados = (pv.detalhes || []).filter(function (row) {
+            return rowElegivelCanal(tipo, row);
+        });
+
+        var elegiveisParaEnvio = detalhesFiltrados.map(function (row) {
+            return { id: row.id_contrato };
+        });
+
+        setIcon(d.confirmIcon, meta.icone, meta.cor, meta.bgIcone);
+        d.confirmTitle.textContent = meta.verboCurto + ' — resumo (carteira)';
+        d.confirmGoLabel.textContent = 'Confirmar e disparar';
+        d.confirmGo.style.background = meta.cor;
+        d.confirmGo.style.borderColor = meta.cor;
+
+        var subtipo =
+            tipo === 'sms' ? 'SMS' : tipo === 'email' ? 'E-mail' : 'SMS e e-mail';
+        var tableHtml = '';
+        var showRows = detalhesFiltrados.slice(0, PREVIEW_TABLE_MAX);
+        var omitidos = detalhesFiltrados.length - showRows.length;
+        if (showRows.length) {
+            var headExtra =
+                tipo === 'sms_email'
+                    ? '<th>SMS (nº)</th><th>E-mail (nº)</th>'
+                    : '<th>' + (tipo === 'sms' ? 'SMS (nº)' : 'E-mail (nº)') + '</th>';
+            tableHtml =
+                '<div class="auto-preview-table-wrap">' +
+                '<table class="auto-preview-table"><thead><tr>' +
+                '<th>Grupo / Cota</th><th>Devedor</th><th>Dias rota</th>' +
+                headExtra +
+                '</tr></thead><tbody>';
+            showRows.forEach(function (row) {
+                var gc = esc(String(row.grupo || '')) + ' / ' + esc(String(row.cota || ''));
+                var dias = row.dias_atraso != null ? esc(String(row.dias_atraso)) : '—';
+                var cells =
+                    tipo === 'sms_email'
+                        ? '<td>' +
+                          esc(String(row.disparos_sms || 0)) +
+                          '</td><td>' +
+                          esc(String(row.disparos_email || 0)) +
+                          '</td>'
+                        : '<td>' +
+                          esc(String(tipo === 'sms' ? row.disparos_sms : row.disparos_email)) +
+                          '</td>';
+                tableHtml +=
+                    '<tr><td>' +
+                    gc +
+                    '</td><td>' +
+                    esc(row.nome_devedor || '') +
+                    '</td>' +
+                    '<td>' +
+                    dias +
+                    '</td>' +
+                    cells +
+                    '</tr>';
+            });
+            tableHtml += '</tbody></table>';
+            if (omitidos > 0) {
+                tableHtml +=
+                    '<p class="auto-preview-more">… e mais ' +
+                    omitidos.toLocaleString('pt-BR') +
+                    ' contrato(s) elegível(is).</p>';
+            }
+            tableHtml += '</div>';
+        }
+
+        var detalhe =
+            'Mesma regra da <strong>Lista SMS/E-mail</strong> na Importação e Distribuição, aplicada só aos ' +
+            'contratos da sua lista (operador / busca).';
+
+        var destaqueContratos =
+            tipo === 'sms_email'
+                ? '<div class="auto-info-row auto-preview-highlight">' +
+                  '  <span class="auto-info-label">Contratos com ao menos SMS ou e-mail previsto</span>' +
+                  '  <span class="auto-info-value"><strong>' +
+                  (contratosCanal || 0).toLocaleString('pt-BR') +
+                  '</strong></span>' +
+                  '</div>' +
+                  '<div class="auto-info-row auto-preview-highlight" style="border-top:none;padding-top:4px;margin-top:0">' +
+                  '  <span class="auto-info-label">Total disparos SMS</span>' +
+                  '  <span class="auto-info-value"><strong>' +
+                  (pv.sms_previstos != null ? pv.sms_previstos : 0).toLocaleString('pt-BR') +
+                  '</strong></span>' +
+                  '</div>' +
+                  '<div class="auto-info-row auto-preview-highlight" style="border-top:none;padding-top:4px;margin-top:0">' +
+                  '  <span class="auto-info-label">Total disparos e-mail</span>' +
+                  '  <span class="auto-info-value"><strong>' +
+                  (pv.emails_previstos != null ? pv.emails_previstos : 0).toLocaleString('pt-BR') +
+                  '</strong></span>' +
+                  '</div>'
+                : '<div class="auto-info-row auto-preview-highlight">' +
+                  '  <span class="auto-info-label">Contratos que receberão ' +
+                  esc(subtipo) +
+                  '</span>' +
+                  '  <span class="auto-info-value"><strong>' +
+                  (contratosCanal || 0).toLocaleString('pt-BR') +
+                  '</strong></span>' +
+                  '</div>' +
+                  '<div class="auto-info-row auto-preview-highlight" style="border-top:none;padding-top:4px;margin-top:0">' +
+                  '  <span class="auto-info-label">Total de disparos ' +
+                  esc(subtipo) +
+                  '</span>' +
+                  '  <span class="auto-info-value"><strong>' +
+                  (totalDisparos || 0).toLocaleString('pt-BR') +
+                  '</strong></span>' +
+                  '</div>';
+
+        d.confirmBody.innerHTML =
+            '<div class="auto-info-row">' +
+            '  <span class="auto-info-label">Tipo</span>' +
+            '  <span class="auto-info-value"><i class="' +
+            meta.icone +
+            '" style="color:' +
+            meta.cor +
+            '"></i> ' +
+            esc(subtipo) +
+            '</span>' +
+            '</div>' +
+            '<div class="auto-info-row">' +
+            '  <span class="auto-info-label">Escopo</span>' +
+            '  <span class="auto-info-value auto-pill auto-pill-' +
+            esc(nivel) +
+            '">' +
+            esc(nivelLabel) +
+            '</span>' +
+            '</div>' +
+            '<div class="auto-info-row auto-info-sub">' +
+            '  <span class="auto-info-label">Contratos na lista (carteira)</span>' +
+            '  <span class="auto-info-value auto-sub-value">' +
+            (pv.carteira_ids != null ? pv.carteira_ids : 0).toLocaleString('pt-BR') +
+            '</span>' +
+            '</div>' +
+            '<div class="auto-info-row auto-info-sub">' +
+            '  <span class="auto-info-label">Fora do roteiro de dias</span>' +
+            '  <span class="auto-info-value auto-sub-value">' +
+            (pv.ignorados_fora_rota != null ? pv.ignorados_fora_rota : 0).toLocaleString('pt-BR') +
+            '</span>' +
+            '</div>' +
+            '<div class="auto-info-row auto-info-sub">' +
+            '  <span class="auto-info-label">Já enviados hoje (SMS ou e-mail)</span>' +
+            '  <span class="auto-info-value auto-sub-value">' +
+            (pv.ignorados_ja_enviados_hoje != null ? pv.ignorados_ja_enviados_hoje : 0).toLocaleString(
+                'pt-BR'
+            ) +
+            '</span>' +
+            '</div>' +
+            '<div class="auto-info-row auto-info-sub">' +
+            '  <span class="auto-info-label">Sem contrato aberto na lista</span>' +
+            '  <span class="auto-info-value auto-sub-value">' +
+            (pv.ignorados_sem_contrato_aberto != null ? pv.ignorados_sem_contrato_aberto : 0).toLocaleString(
+                'pt-BR'
+            ) +
+            '</span>' +
+            '</div>' +
+            destaqueContratos +
+            '<p class="auto-helper-text">' +
+            detalhe +
+            '</p>' +
+            (tableHtml || '');
+
+        d.confirmGo.onclick = function () {
+            fechar(d.confirmOverlay);
+            dispararLote(tipo, nivel, elegiveisParaEnvio);
+        };
+        bindFechamentoConfirm();
+        abrir(d.confirmOverlay);
+    }
 
     // ---- Modal de confirmação ------------------------------------------------------
     function mostrarConfirmacao(tipo, nivel, contratos, infoNeg) {
@@ -232,6 +517,10 @@
         if (tipo === 'ligacao') {
             detalhe = 'As ligações serão feitas <strong>uma a uma</strong>, na ordem da lista. ' +
                 'Após cada chamada o sistema perguntará se deseja seguir para a próxima.';
+        } else if (tipo === 'sms' || tipo === 'email') {
+            detalhe = 'O servidor envia apenas para contratos no <strong>roteiro automático</strong> ' +
+                '(dias 0, 16, 31, 61 ou 85 desde o vencimento mais antigo em parcelas abertas) e que ' +
+                '<strong>ainda não tiveram SMS nem e-mail registrados hoje</strong>. Os demais são ignorados.';
         } else if (tipo === 'negativacao') {
             detalhe = 'Serão negativadas no Serasa <strong>apenas as parcelas elegíveis</strong> ' +
                 '(parcela mais antiga com <strong>31 a 89 dias</strong> de atraso, ' +
@@ -349,17 +638,23 @@
         fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contrato_ids: ids, nivel: nivel })
+            credentials: 'same-origin',
+            body: JSON.stringify({ contrato_ids: ids, nivel: nivel }),
         })
-        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
-        .then(function (res) {
-            d.statusCloseX.disabled = false;
-            if (!res.ok || res.body.error) {
-                renderStatusErro(meta, res.body.error || 'Falha ao disparar.', tipo);
-                return;
-            }
-            renderStatusSucessoLote(meta, res.body, nivel, tipo);
-        })
+            .then(parseResponseJson)
+            .then(function (res) {
+                d.statusCloseX.disabled = false;
+                if (res.alertMsg) {
+                    renderStatusErro(meta, res.alertMsg, tipo);
+                    return;
+                }
+                var body = res.body || {};
+                if (!res.ok || body.error) {
+                    renderStatusErro(meta, body.error || 'Falha ao disparar.', tipo);
+                    return;
+                }
+                renderStatusSucessoLote(meta, body, nivel, tipo);
+            })
         .catch(function (err) {
             d.statusCloseX.disabled = false;
             renderStatusErro(meta, err.message || String(err), tipo);
@@ -385,6 +680,18 @@
                      '</span><span class="auto-stat-lbl">Já negativados</span></div>' +
                 '    <div class="auto-stat"><span class="auto-stat-num" style="color:#f59e0b">' + foraJan.toLocaleString('pt-BR') +
                      '</span><span class="auto-stat-lbl">Fora da janela</span></div>' +
+                '    <div class="auto-stat"><span class="auto-stat-num auto-stat-fail">' + falhas.toLocaleString('pt-BR') +
+                     '</span><span class="auto-stat-lbl">Falhas</span></div>' +
+                '  </div>';
+        } else if (tipo === 'sms_email') {
+            var es = body.envios_sms != null ? body.envios_sms : 0;
+            var ee = body.envios_email != null ? body.envios_email : 0;
+            statsHTML =
+                '  <div class="auto-result-stats auto-result-stats-neg">' +
+                '    <div class="auto-stat"><span class="auto-stat-num">' + es.toLocaleString('pt-BR') +
+                     '</span><span class="auto-stat-lbl">SMS enviados</span></div>' +
+                '    <div class="auto-stat"><span class="auto-stat-num">' + ee.toLocaleString('pt-BR') +
+                     '</span><span class="auto-stat-lbl">E-mails enviados</span></div>' +
                 '    <div class="auto-stat"><span class="auto-stat-num auto-stat-fail">' + falhas.toLocaleString('pt-BR') +
                      '</span><span class="auto-stat-lbl">Falhas</span></div>' +
                 '  </div>';
