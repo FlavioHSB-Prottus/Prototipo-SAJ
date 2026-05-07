@@ -68,21 +68,23 @@ Lote na pagina de importacao (preview, POST envio, export Excel): gestor/admin, 
 
 **Universo:** todos os registos em **`contrato`** com **`status = aberto`**, com `LEFT JOIN pessoa` (devedor). **Nao** se filtra por `funcionario_cobranca`.
 
-**Metrica de dias:** `DATEDIFF(CURDATE(), MIN(p2.vencimento))` sobre **`parcela`** com `status = aberto` do contrato (vencimento mais antigo entre parcelas em aberto). Valores **negativos** (vencimento no futuro) nao disparam.
+**Metrica de dias:** `DATEDIFF(data_atual, MIN(vencimento))` sobre **`parcela`** com `status = aberto` do contrato (CTE `MenorVencimento`, igual à base do Excel). `_SMS_AUTOM_DISTRIBUICAO_SQL` usa esse JOIN em vez de subconsulta correlacionada por contrato. Valores **negativos** (vencimento no futuro) nao disparam.
 
 **Disparo (pontos fixos):** envio/preview apenas quando essa diferenca e **exactamente** **0, 16, 31, 61 ou 85** dias (sem faixas).
 
-**Canais:** para cada contrato elegivel, o POST tenta **SMS** (MessageCenter `enviarsms`) para telefones validos do devedor e **e-mail** (MessageCenter `EnviarEmailHtml`) para cada e-mail valido do devedor, com o **mesmo texto** base (`_mensagem_sms_auto_importacao` convertido a HTML simples para o e-mail).
+**Canais:** para cada contrato elegivel, o POST pode enviar **SMS**, **e-mail** ou **ambos** via JSON opcional `{"canais":["sms"]}`, `["email"]` ou `["sms","email"]` (padrao: ambos). SMS via MessageCenter `enviarsms`; e-mail via `EnviarEmailHtml`; **mesmo texto** (`_mensagem_sms_auto_importacao` → HTML simples). Na UI de importacao, o preview abre um modal com botoes separados (so SMS, so e-mail, SMS+e-mail).
+
+**Preview (modal):** `_sms_automatizados_analise` usa `_SMS_AUTOM_PREVIEW_ROTEIRO_SQL` — mesmo critério que `_SMS_AUTOM_EXCEL_SQL` (lista exportável) — mais contagens em memória de telefone/e-mail e lotes para `envio hoje`. O POST em lote continua a iterar `_SMS_AUTOM_DISTRIBUICAO_SQL` e `_resolve_ids_registro_*` por tentativa.
 
 **Anti-duplicidade no dia:** se ja existir registo em **`registro_sms`** ou **`registro_email`** para o **mesmo `id_contrato`** com `DATE(created_at) = CURDATE()`, o contrato **nao** recebe novo disparo neste fluxo nem nos lotes da pagina **Cobrança** (`/api/automacao/sms` ou `/api/automacao/email`), que aplicam a mesma rota de dias e esta regra.
 
-**Cobrança (rodapé SMS/E-mail):** botão único «SMS / E-mail»; `POST /api/cobranca/sms-email/preview` (alias `/api/automacao/preview`) com `contrato_ids` da lista visível (operador + busca); devolve contagens e `detalhes` alinhados à Lista SMS/E-mail. O modal usa esse preview; `POST /api/automacao/sms_email` dispara SMS e e-mail no mesmo fluxo (anti-duplicado do dia).
+**Cobrança (rodapé SMS/E-mail):** botão «SMS / E-mail» abre modal no mesmo estilo da Importação (`importacao.css` + `cobranca.html`); `POST /api/cobranca/sms-email/preview` com `contrato_ids` da lista visível; resumo em `<dl class="sms-preview-stats">` e ações **Enviar só SMS / só e-mail / ambos** → `POST /api/automacao/sms`, `email` ou `sms_email` (anti-duplicado do dia).
 
 **Templates (texto `_mensagem_sms_auto_importacao`):** mapeamento dias → `template_id`: **0→1**, **16→2**, **31→3**, **61 ou 85→4**. Templates 2 e 3 usam `_format_parcelas_sms_auto` para o texto das parcelas.
 
-**Telefones / e-mails:** validacao `_resolve_ids_registro_sms` e `_resolve_ids_registro_email` como no envio unitario; preview usa `_sms_automatizados_analise`.
+**Telefones / e-mails:** no **envio** (POST), validação `_resolve_ids_registro_sms` e `_resolve_ids_registro_email` como no envio unitário; o **preview** (`_sms_automatizados_analise` e `_analise_automacao_carteira`) usa a mesma fila de contratos mas validação em memória para não estourar tempo de resposta.
 
-**Export Excel:** query dedicada `_SMS_AUTOM_EXCEL_SQL` (CTE `MenorVencimento`: `MIN(vencimento)` por contrato em parcelas `aberto`; filtro `dias_atraso IN (0,16,31,61,85)`). Folha com colunas **Grupo**, **Cota** e **Dias de atraso** (lista o roteiro; pode incluir contratos sem telefone/e-mail valido).
+**Export Excel:** query dedicada `_SMS_AUTOM_EXCEL_SQL` (CTE `MenorVencimento`: `MIN(vencimento)` por contrato em parcelas `aberto`; filtro `dias_atraso IN (0,16,31,61,85)`). Folha com colunas **Grupo**, **Cota** e **Dias de atraso** (lista o roteiro; pode incluir contratos sem telefone/e-mail valido). Na UI de importação o botão **Lista SMS/E-mail** fica no rodapé do modal «SMS / E-mail automáticos» (à esquerda de «SMS e E-mail»).
 
 **JSON:** `ignorados_sem_entrada` mantido a **0** (compatibilidade); contratos fora dos dias contam em `ignorados_sem_template`; resposta POST inclui `envios_sms`, `envios_email`, `ignorados_sem_email`, `ignorados_ja_enviados_hoje`.
 

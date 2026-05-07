@@ -1006,22 +1006,152 @@
     .distribuicao-actions-footer .btn-secondary-dist,
     .distribuicao-actions-footer .btn-neg-pos-dist,
     .distribuicao-actions-footer .btn-restaurar-dist,
-    .distribuicao-actions-footer .btn-sms-automatizados-dist,
-    .distribuicao-actions-footer .btn-sms-excel-dist {
+    .distribuicao-actions-footer .btn-sms-automatizados-dist {
         flex: 1;
         justify-content: center;
     }
 }
 
-/* Lista Excel (SMS automáticos): tom verde discreto alinhado aos botões secundários */
-.distribuicao-actions-footer .btn-sms-excel-dist {
+/* Modal preview SMS/e-mail automáticos (distribuição) */
+.sms-autom-preview-modal {
+    max-width: 560px;
+}
+
+.sms-autom-preview-footer {
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+    align-items: center;
+}
+
+.sms-autom-preview-footer .sms-autom-fechar {
+    margin-right: auto;
+}
+
+.sms-preview-stats {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px 14px;
+    font-size: 0.9rem;
+    margin: 0 0 14px;
+}
+
+.sms-preview-stats dt {
+    margin: 0;
+    color: #64748b;
+    font-weight: 600;
+}
+
+.sms-preview-stats dd {
+    margin: 0;
+    font-weight: 700;
+    color: #0f172a;
+    text-align: right;
+}
+
+.sms-preview-note {
+    font-size: 0.85rem;
+    color: #475569;
+    background: #f1f5f9;
+    padding: 10px 12px;
+    border-radius: 8px;
+    line-height: 1.45;
+    margin: 0;
+}
+
+.sms-preview-loading {
+    padding: 28px 16px;
+    text-align: center;
+    color: var(--text-main);
+}
+
+.sms-preview-loading .fa-spin {
+    margin-right: 8px;
+}
+
+.sms-preview-loading-hint {
+    margin-top: 14px;
+    font-size: 0.88rem;
+    color: var(--text-muted);
+    line-height: 1.45;
+}
+
+.sms-preview-erro {
+    padding: 16px 12px;
+    border-radius: 8px;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #7f1d1d;
+}
+
+.sms-preview-erro-info {
+    background: #eff6ff;
+    border-color: #bfdbfe;
+    color: #1e3a8a;
+}
+
+.sms-preview-erro-msg {
+    margin: 10px 0 0;
+    font-size: 0.9rem;
+    word-break: break-word;
+}
+
+.btn-sms-autom-sms {
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 0.88rem;
+    background: rgba(139, 92, 246, 0.12);
+    color: #5b21b6;
+    border: 1px solid rgba(139, 92, 246, 0.35);
+}
+
+.btn-sms-autom-sms:hover:not(:disabled) {
+    background: #8b5cf6;
+    color: #fff;
+    border-color: #8b5cf6;
+}
+
+.btn-sms-autom-email {
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 0.88rem;
+    background: rgba(245, 158, 11, 0.14);
+    color: #b45309;
+    border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.btn-sms-autom-email:hover:not(:disabled) {
+    background: #f59e0b;
+    color: #fff;
+    border-color: #f59e0b;
+}
+
+/* Lista Excel no modal SMS/e-mail automáticos */
+.sms-autom-preview-footer .btn-sms-excel-dist {
     border-color: #15803d;
     color: #166534;
 }
 
-.distribuicao-actions-footer .btn-sms-excel-dist:hover:not(:disabled) {
+.sms-autom-preview-footer .btn-sms-excel-dist:hover:not(:disabled) {
     background: #f0fdf4;
     border-color: #16a34a;
     color: #14532d;
+}
+
+@media (max-width: 520px) {
+    .sms-autom-preview-footer .sms-autom-fechar {
+        margin-right: 0;
+        width: 100%;
+    }
+    .sms-autom-preview-footer .sms-autom-envio-btn,
+    .sms-autom-preview-footer .btn-sms-excel-dist {
+        flex: 1;
+        justify-content: center;
+        min-width: calc(50% - 4px);
+    }
 }
 

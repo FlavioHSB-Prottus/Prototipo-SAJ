@@ -228,6 +228,246 @@
     /** Preview/disparo: rota estável sob /api/cobranca (mesmo prefixo do painel). */
     var SMS_EMAIL_PREVIEW_URL = '/api/cobranca/sms-email/preview';
 
+    /** Estado do modal estilo Importação (rodapé SMS/E-mail, lista «todos»). */
+    var lastCobrancaCarteiraPreview = null;
+
+    function cobrancaCarteiraModalEls() {
+        return {
+            overlay: document.getElementById('cobrancaSmsCarteiraOverlay'),
+            body: document.getElementById('cobrancaSmsCarteiraBody'),
+            fechar: document.getElementById('cobrancaSmsCarteiraFechar'),
+            fecharX: document.getElementById('cobrancaSmsCarteiraFecharX'),
+            envSms: document.getElementById('cobrancaSmsCarteiraEnvioSms'),
+            envEmail: document.getElementById('cobrancaSmsCarteiraEnvioEmail'),
+            envAmbos: document.getElementById('cobrancaSmsCarteiraEnvioAmbos'),
+        };
+    }
+
+    function fmtIntPreview(n) {
+        var x = Number(n);
+        if (!isFinite(x)) return '0';
+        return x.toLocaleString('pt-BR');
+    }
+
+    function fecharModalCarteiraSmsEmail() {
+        var m = cobrancaCarteiraModalEls();
+        if (!m.overlay) return;
+        m.overlay.classList.add('d-none');
+        m.overlay.setAttribute('aria-hidden', 'true');
+        if (!document.querySelector('.auto-overlay.active')) {
+            document.body.style.overflow = '';
+        }
+        lastCobrancaCarteiraPreview = null;
+    }
+
+    function abrirModalCarteiraSmsEmailCarregando() {
+        var m = cobrancaCarteiraModalEls();
+        if (!m.body || !m.overlay) return;
+        m.body.innerHTML =
+            '<div class="sms-preview-loading">' +
+            '<p><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Calculando resumo…</p>' +
+            '<p class="sms-preview-loading-hint">Lista visível no painel (operador e busca).</p>' +
+            '</div>';
+        [m.envSms, m.envEmail, m.envAmbos].forEach(function (b) {
+            if (b) {
+                b.disabled = true;
+                b.removeAttribute('title');
+            }
+        });
+        m.overlay.classList.remove('d-none');
+        m.overlay.setAttribute('aria-hidden', 'false');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function mostrarModalCarteiraSmsEmailErro(msg) {
+        var m = cobrancaCarteiraModalEls();
+        if (!m.body) return;
+        m.body.innerHTML =
+            '<div class="sms-preview-erro">' +
+            '<p><strong>Não foi possível calcular o resumo.</strong></p>' +
+            '<p class="sms-preview-erro-msg">' + esc(msg) + '</p>' +
+            '<p class="sms-preview-loading-hint">Tente novamente ou verifique os logs do servidor.</p>' +
+            '</div>';
+        [m.envSms, m.envEmail, m.envAmbos].forEach(function (b) {
+            if (b) b.disabled = true;
+        });
+    }
+
+    function mostrarModalCarteiraSmsEmailSemPrevisto(pv) {
+        var m = cobrancaCarteiraModalEls();
+        if (!m.body) return;
+        var ign = pv.ignorados_ja_enviados_hoje != null ? pv.ignorados_ja_enviados_hoje : 0;
+        m.body.innerHTML =
+            '<div class="sms-preview-erro sms-preview-erro-info">' +
+            '<p><strong>Nenhum envio previsto neste momento.</strong></p>' +
+            '<p class="sms-preview-loading-hint">Nenhum contrato da lista no roteiro (0, 16, 31, 61 ou 85 dias) com telefone e/ou e-mail válidos, ' +
+            'ou todos já receberam SMS ou e-mail hoje (<strong>' +
+            fmtIntPreview(ign) +
+            '</strong> ignorados por duplicidade do dia).</p>' +
+            '</div>';
+        [m.envSms, m.envEmail, m.envAmbos].forEach(function (b) {
+            if (b) b.disabled = true;
+        });
+    }
+
+    function preencherModalCarteiraSmsEmail(pv) {
+        var m = cobrancaCarteiraModalEls();
+        if (!m.body) return;
+        var prevSms = pv.sms_previstos != null ? pv.sms_previstos : 0;
+        var prevMail = pv.emails_previstos != null ? pv.emails_previstos : 0;
+
+        m.body.innerHTML =
+            '<dl class="sms-preview-stats">' +
+            '<dt>Contratos na lista (carteira)</dt><dd>' + fmtIntPreview(pv.carteira_ids) + '</dd>' +
+            '<dt>Disparos SMS previstos</dt><dd>' + fmtIntPreview(pv.sms_previstos) + '</dd>' +
+            '<dt>Contratos com pelo menos 1 SMS válido</dt><dd>' + fmtIntPreview(pv.contratos_com_sms) + '</dd>' +
+            '<dt>Disparos de e-mail previstos</dt><dd>' + fmtIntPreview(pv.emails_previstos) + '</dd>' +
+            '<dt>Contratos com pelo menos 1 e-mail válido</dt><dd>' + fmtIntPreview(pv.contratos_com_email) + '</dd>' +
+            '<dt>Fora do roteiro (dias)</dt><dd>' + fmtIntPreview(pv.ignorados_fora_rota) + '</dd>' +
+            '<dt>Já SMS ou e-mail hoje</dt><dd>' + fmtIntPreview(pv.ignorados_ja_enviados_hoje) + '</dd>' +
+            '<dt>Sem contrato aberto na lista</dt><dd>' + fmtIntPreview(pv.ignorados_sem_contrato_aberto) + '</dd>' +
+            '<dt>Sem pessoa (devedor)</dt><dd>' + fmtIntPreview(pv.ignorados_sem_pessoa) + '</dd>' +
+            '<dt>Sem telefone no cadastro</dt><dd>' + fmtIntPreview(pv.ignorados_sem_telefone) + '</dd>' +
+            '<dt>Sem e-mail no cadastro</dt><dd>' + fmtIntPreview(pv.ignorados_sem_email) + '</dd>' +
+            '<dt>Tentativas bloqueadas (validação cadastro)</dt><dd>' + fmtIntPreview(pv.tentativas_bloqueadas_cadastro) + '</dd>' +
+            '</dl>' +
+            '<p class="sms-preview-note">Mesmo texto no SMS e no e-mail (templates 1–4). O envio pode levar vários minutos. ' +
+            'Escolha abaixo apenas SMS, apenas e-mail ou ambos.</p>';
+
+        if (m.envSms) {
+            m.envSms.disabled = prevSms < 1;
+            m.envSms.title = prevSms < 1 ? 'Nenhum SMS previsto neste momento.' : '';
+        }
+        if (m.envEmail) {
+            m.envEmail.disabled = prevMail < 1;
+            m.envEmail.title = prevMail < 1 ? 'Nenhum e-mail previsto neste momento.' : '';
+        }
+        if (m.envAmbos) {
+            m.envAmbos.disabled = prevSms < 1 && prevMail < 1;
+            m.envAmbos.title =
+                prevSms < 1 && prevMail < 1 ? 'Nenhum canal previsto.' : 'Dispara SMS e e-mail no mesmo processamento.';
+        }
+    }
+
+    function contratosIdsParaEnvioCarteira(canais) {
+        var st = lastCobrancaCarteiraPreview;
+        if (!st || !st.pv) return [];
+        var wantSms = canais.indexOf('sms') >= 0;
+        var wantEm = canais.indexOf('email') >= 0;
+        var det = st.pv.detalhes || [];
+        var seen = {};
+        var out = [];
+        det.forEach(function (row) {
+            var ok =
+                (wantSms && (row.disparos_sms || 0) > 0) || (wantEm && (row.disparos_email || 0) > 0);
+            if (!ok) return;
+            var id = row.id_contrato;
+            if (id == null || seen[id]) return;
+            seen[id] = true;
+            out.push({ id: id });
+        });
+        return out;
+    }
+
+    function executarEnvioCarteiraSmsEmail(canais) {
+        var st = lastCobrancaCarteiraPreview;
+        if (!st || !st.pv) return;
+        var contratos = contratosIdsParaEnvioCarteira(canais);
+        if (!contratos.length) {
+            alert('Nenhum contrato elegível para os canais escolhidos.');
+            return;
+        }
+        var tipo = canais.length >= 2 ? 'sms_email' : canais[0];
+        var nivel = st.nivel;
+        fecharModalCarteiraSmsEmail();
+        dispararLote(tipo, nivel, contratos);
+    }
+
+    function abrirModalCarteiraSmsEmail(contratos) {
+        var ids = contratos.map(function (c) {
+            return c.id;
+        }).filter(function (id) {
+            return id != null && id !== '';
+        });
+        if (!ids.length) {
+            alert('Nenhum contrato disponível na lista atual.');
+            return;
+        }
+
+        lastCobrancaCarteiraPreview = { pv: null, nivel: 'todos' };
+        abrirModalCarteiraSmsEmailCarregando();
+
+        fetch(SMS_EMAIL_PREVIEW_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ contrato_ids: ids }),
+        })
+            .then(parseResponseJson)
+            .then(function (res) {
+                if (res.alertMsg) {
+                    mostrarModalCarteiraSmsEmailErro(res.alertMsg);
+                    return;
+                }
+                var body = res.body || {};
+                if (!res.ok || body.error) {
+                    mostrarModalCarteiraSmsEmailErro(body.error || 'HTTP ' + (res.status || ''));
+                    return;
+                }
+                var pv = body;
+                lastCobrancaCarteiraPreview.pv = pv;
+                var prevSms = pv.sms_previstos != null ? pv.sms_previstos : 0;
+                var prevMail = pv.emails_previstos != null ? pv.emails_previstos : 0;
+                if (prevSms < 1 && prevMail < 1) {
+                    mostrarModalCarteiraSmsEmailSemPrevisto(pv);
+                    return;
+                }
+                preencherModalCarteiraSmsEmail(pv);
+            })
+            .catch(function (err) {
+                mostrarModalCarteiraSmsEmailErro(err.message || String(err));
+            });
+    }
+
+    function bindModalCarteiraSmsEmailOnce() {
+        var m = cobrancaCarteiraModalEls();
+        if (!m.overlay || m.overlay._cobrancaSmsBound) return;
+        m.overlay._cobrancaSmsBound = true;
+        function fe() {
+            fecharModalCarteiraSmsEmail();
+        }
+        if (m.fechar) m.fechar.addEventListener('click', fe);
+        if (m.fecharX) m.fecharX.addEventListener('click', fe);
+        m.overlay.addEventListener('click', function (e) {
+            if (e.target === m.overlay) fe();
+        });
+        document.addEventListener('keydown', function (e) {
+            if (
+                e.key === 'Escape' &&
+                m.overlay &&
+                !m.overlay.classList.contains('d-none')
+            ) {
+                fe();
+            }
+        });
+        if (m.envSms) {
+            m.envSms.addEventListener('click', function () {
+                executarEnvioCarteiraSmsEmail(['sms']);
+            });
+        }
+        if (m.envEmail) {
+            m.envEmail.addEventListener('click', function () {
+                executarEnvioCarteiraSmsEmail(['email']);
+            });
+        }
+        if (m.envAmbos) {
+            m.envAmbos.addEventListener('click', function () {
+                executarEnvioCarteiraSmsEmail(['sms', 'email']);
+            });
+        }
+    }
+    bindModalCarteiraSmsEmailOnce();
+
     function parseResponseJson(r) {
         var status = r.status;
         return r.text().then(function (text) {
@@ -261,6 +501,11 @@
     }
 
     function iniciarComPreviewSmsEmail(tipo, nivel, contratos) {
+        if (tipo === 'sms_email' && nivel === 'todos') {
+            abrirModalCarteiraSmsEmail(contratos);
+            return;
+        }
+
         var ids = contratos.map(function (c) { return c.id; }).filter(function (id) {
             return id != null && id !== '';
         });

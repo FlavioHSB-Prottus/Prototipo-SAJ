@@ -2073,99 +2073,127 @@ def _contrato_row_auto_envio(cursor, id_contrato):
     return cursor.fetchone()
 
 
-def _contratos_rows_auto_envio_batch(cursor, contrato_ids):
+def _contratos_rows_auto_envio_batch(cursor, contrato_ids, chunk_size=450):
     """Mesmo formato de `_contrato_row_auto_envio`, em lote (contratos abertos)."""
     if not contrato_ids:
         return {}
-    ph = ','.join(['%s'] * len(contrato_ids))
-    cursor.execute(
-        f"""
-        SELECT c.id AS id_contrato,
-               c.grupo,
-               c.cota,
-               c.id_pessoa,
-               c.numero_contrato,
-               p.nome_completo,
-               (SELECT DATEDIFF(CURDATE(), MIN(p2.vencimento))
-                  FROM parcela p2
-                 WHERE p2.id_contrato = c.id AND p2.status = 'aberto') AS dias_atraso
-        FROM contrato c
-        LEFT JOIN pessoa p ON p.id = c.id_pessoa
-        WHERE c.id IN ({ph}) AND c.status = 'aberto'
-        """,
-        list(contrato_ids),
-    )
-    return {int(r['id_contrato']): r for r in (cursor.fetchall() or [])}
+    ids = list(contrato_ids)
+    merged = {}
+    for i in range(0, len(ids), chunk_size):
+        chunk = ids[i : i + chunk_size]
+        ph = ','.join(['%s'] * len(chunk))
+        cursor.execute(
+            f"""
+            SELECT c.id AS id_contrato,
+                   c.grupo,
+                   c.cota,
+                   c.id_pessoa,
+                   c.numero_contrato,
+                   p.nome_completo,
+                   (SELECT DATEDIFF(CURDATE(), MIN(p2.vencimento))
+                      FROM parcela p2
+                     WHERE p2.id_contrato = c.id AND p2.status = 'aberto') AS dias_atraso
+            FROM contrato c
+            LEFT JOIN pessoa p ON p.id = c.id_pessoa
+            WHERE c.id IN ({ph}) AND c.status = 'aberto'
+            """,
+            chunk,
+        )
+        for r in cursor.fetchall() or []:
+            merged[int(r['id_contrato'])] = r
+    return merged
 
 
-def _contratos_teve_envio_cobranca_hoje_batch(cursor, contrato_ids):
-    """Conjunto de ids de contrato que já têm SMS ou e-mail registrados hoje."""
+def _contratos_teve_envio_cobranca_hoje_batch(cursor, contrato_ids, chunk_size=450):
+    """Conjunto de ids de contrato que já têm SMS ou e-mail registrados hoje.
+
+    Consultas fatiadas para não estourar limite de placeholders/pacote em bases grandes.
+    """
     if not contrato_ids:
         return set()
-    ph = ','.join(['%s'] * len(contrato_ids))
     ids = list(contrato_ids)
-    cursor.execute(
-        f"""
-        SELECT DISTINCT id_contrato FROM (
-            SELECT id_contrato FROM registro_sms
-            WHERE id_contrato IN ({ph}) AND DATE(created_at) = CURDATE()
-            UNION ALL
-            SELECT id_contrato FROM registro_email
-            WHERE id_contrato IN ({ph}) AND DATE(created_at) = CURDATE()
-        ) t
-        """,
-        ids + ids,
-    )
-    return {int(r['id_contrato']) for r in (cursor.fetchall() or [])}
+    found = set()
+    for i in range(0, len(ids), chunk_size):
+        chunk = ids[i : i + chunk_size]
+        ph = ','.join(['%s'] * len(chunk))
+        cursor.execute(
+            f"""
+            SELECT DISTINCT id_contrato FROM (
+                SELECT id_contrato FROM registro_sms
+                WHERE id_contrato IN ({ph}) AND DATE(created_at) = CURDATE()
+                UNION ALL
+                SELECT id_contrato FROM registro_email
+                WHERE id_contrato IN ({ph}) AND DATE(created_at) = CURDATE()
+            ) t
+            """,
+            chunk + chunk,
+        )
+        for r in cursor.fetchall() or []:
+            found.add(int(r['id_contrato']))
+    return found
 
 
-def _telefones_por_pessoas(cursor, pessoa_ids):
+def _telefones_por_pessoas(cursor, pessoa_ids, chunk_size=450):
     """{id_pessoa: [rows telefone]} preservando ordem estável por id."""
     if not pessoa_ids:
         return {}
-    ph = ','.join(['%s'] * len(pessoa_ids))
-    cursor.execute(
-        f'SELECT id, id_pessoa, numero FROM telefone WHERE id_pessoa IN ({ph}) ORDER BY id ASC',
-        list(pessoa_ids),
-    )
+    ids = list(pessoa_ids)
     out = {}
-    for r in cursor.fetchall() or []:
-        pid = int(r['id_pessoa'])
-        out.setdefault(pid, []).append(r)
+    for i in range(0, len(ids), chunk_size):
+        chunk = ids[i : i + chunk_size]
+        ph = ','.join(['%s'] * len(chunk))
+        cursor.execute(
+            f'SELECT id, id_pessoa, numero FROM telefone WHERE id_pessoa IN ({ph}) ORDER BY id ASC',
+            chunk,
+        )
+        for r in cursor.fetchall() or []:
+            pid = int(r['id_pessoa'])
+            out.setdefault(pid, []).append(r)
     return out
 
 
-def _emails_por_pessoas(cursor, pessoa_ids):
+def _emails_por_pessoas(cursor, pessoa_ids, chunk_size=450):
     """{id_pessoa: [rows email]} preservando ordem estável por id."""
     if not pessoa_ids:
         return {}
-    ph = ','.join(['%s'] * len(pessoa_ids))
-    cursor.execute(
-        f'SELECT id, id_pessoa, email FROM email WHERE id_pessoa IN ({ph}) ORDER BY id ASC',
-        list(pessoa_ids),
-    )
+    ids = list(pessoa_ids)
     out = {}
-    for r in cursor.fetchall() or []:
-        pid = int(r['id_pessoa'])
-        out.setdefault(pid, []).append(r)
+    for i in range(0, len(ids), chunk_size):
+        chunk = ids[i : i + chunk_size]
+        ph = ','.join(['%s'] * len(chunk))
+        cursor.execute(
+            f'SELECT id, id_pessoa, email FROM email WHERE id_pessoa IN ({ph}) ORDER BY id ASC',
+            chunk,
+        )
+        for r in cursor.fetchall() or []:
+            pid = int(r['id_pessoa'])
+            out.setdefault(pid, []).append(r)
     return out
 
 
+# Lista todos os contratos abertos com dias desde MIN(vencimento) das parcelas em aberto.
+# Usa a mesma CTE `MenorVencimento` que o Excel (sem subconsulta correlacionada por linha),
+# para o mesmo resultado numérico e desempenho aceitável em bases grandes.
 _SMS_AUTOM_DISTRIBUICAO_SQL = """
-                SELECT c.id AS id_contrato,
-                       c.grupo,
-                       c.cota,
-                       c.id_pessoa,
-                       c.numero_contrato,
-                       p.nome_completo,
-                       (SELECT DATEDIFF(CURDATE(), MIN(p2.vencimento))
-                          FROM parcela p2
-                         WHERE p2.id_contrato = c.id AND p2.status = 'aberto') AS dias_atraso
-                FROM contrato c
-                LEFT JOIN pessoa p ON p.id = c.id_pessoa
-                WHERE c.status = 'aberto'
-                ORDER BY c.id
-                """
+WITH MenorVencimento AS (
+    SELECT id_contrato, MIN(vencimento) AS data_vencimento_minima
+    FROM parcela
+    WHERE status = 'aberto'
+    GROUP BY id_contrato
+)
+SELECT c.id AS id_contrato,
+       c.grupo,
+       c.cota,
+       c.id_pessoa,
+       c.numero_contrato,
+       p.nome_completo,
+       DATEDIFF(CURRENT_DATE, mv.data_vencimento_minima) AS dias_atraso
+FROM contrato c
+LEFT JOIN MenorVencimento mv ON c.id = mv.id_contrato
+LEFT JOIN pessoa p ON p.id = c.id_pessoa
+WHERE c.status = 'aberto'
+ORDER BY c.id
+"""
 
 # Export Excel (lista contratos abertos no roteiro de dias); independente da validacao de telefone do preview/POST.
 _SMS_AUTOM_EXCEL_SQL = """
@@ -2183,6 +2211,30 @@ SELECT
     c.grupo,
     c.cota,
     mv.data_vencimento_minima,
+    DATEDIFF(CURRENT_DATE, mv.data_vencimento_minima) AS dias_atraso
+FROM contrato c
+JOIN MenorVencimento mv ON c.id = mv.id_contrato
+WHERE c.status = 'aberto'
+  AND DATEDIFF(CURRENT_DATE, mv.data_vencimento_minima) IN (0, 16, 31, 61, 85)
+ORDER BY dias_atraso DESC
+"""
+
+# Mesmo filtro que `_SMS_AUTOM_EXCEL_SQL`, com `id_pessoa` para o preview (resumo = mesma lista).
+_SMS_AUTOM_PREVIEW_ROTEIRO_SQL = """
+WITH MenorVencimento AS (
+    SELECT
+        id_contrato,
+        MIN(vencimento) AS data_vencimento_minima
+    FROM parcela
+    WHERE status = 'aberto'
+    GROUP BY id_contrato
+)
+SELECT
+    c.id AS id_contrato,
+    c.id_pessoa,
+    c.grupo,
+    c.cota,
+    c.numero_contrato,
     DATEDIFF(CURRENT_DATE, mv.data_vencimento_minima) AS dias_atraso
 FROM contrato c
 JOIN MenorVencimento mv ON c.id = mv.id_contrato
@@ -2218,11 +2270,11 @@ def _sms_automatizados_template_id_por_dias(da_int):
 
 
 def _sms_automatizados_analise(conn):
-    """Mesma logica do preview (template + telefones/emails + anti-duplicidade do dia).
+    """Contagens para o modal de preview (importação): mesma lista que o Excel / Lista SMS-E-mail.
 
-    Contratos `aberto` na base; roteiro quando DATEDIFF(hoje, MIN vencimento parcelas
-    abertas) in (0, 16, 31, 61, 85). Contratos que já tiveram SMS ou e-mail hoje
-    entram em `ignorados_ja_enviados_hoje` e não contam como previstos.
+    Usa `_SMS_AUTOM_PREVIEW_ROTEIRO_SQL` (filtro identico a `_SMS_AUTOM_EXCEL_SQL`) e depois
+    telefones/e-mails em memoria. Contratos abertos fora dessa lista entram em
+    `ignorados_sem_template`. O POST em lote continua a iterar `_SMS_AUTOM_DISTRIBUICAO_SQL`.
     """
     out = {
         'sms_previstos': 0,
@@ -2238,43 +2290,48 @@ def _sms_automatizados_analise(conn):
         'contratos_processados': 0,
     }
     with conn.cursor() as cursor:
-        cursor.execute(_SMS_AUTOM_DISTRIBUICAO_SQL)
-        contratos = cursor.fetchall() or []
+        cursor.execute(
+            "SELECT COUNT(*) AS n FROM contrato WHERE status = %s",
+            ('aberto',),
+        )
+        crow = cursor.fetchone() or {}
+        total_abertos = int(crow.get('n') or 0)
+    out['contratos_processados'] = total_abertos
 
-    for row in contratos:
-        out['contratos_processados'] += 1
+    with conn.cursor() as cursor:
+        cursor.execute(_SMS_AUTOM_PREVIEW_ROTEIRO_SQL)
+        roteiro_rows = cursor.fetchall() or []
+
+    n_na_lista = len(roteiro_rows)
+    out['ignorados_sem_template'] = max(0, total_abertos - n_na_lista)
+
+    pending = []
+    for row in roteiro_rows:
         id_contrato = int(row['id_contrato'])
         id_pessoa = row.get('id_pessoa')
         if id_pessoa is None:
             out['ignorados_sem_template'] += 1
             continue
-        id_pessoa = int(id_pessoa)
+        pending.append((id_contrato, row, int(id_pessoa)))
 
-        dias_atraso = row.get('dias_atraso')
-        da_int = None
-        if dias_atraso is not None:
-            try:
-                da_int = int(dias_atraso)
-            except (TypeError, ValueError):
-                da_int = None
+    if not pending:
+        return out, []
 
-        template_id = _sms_automatizados_template_id_por_dias(da_int)
+    ids = [p[0] for p in pending]
+    with conn.cursor() as cursor:
+        envio_hoje = _contratos_teve_envio_cobranca_hoje_batch(cursor, ids)
 
-        if template_id is None:
-            out['ignorados_sem_template'] += 1
+    pessoa_ids = list({p[2] for p in pending})
+    with conn.cursor() as cursor:
+        tel_map = _telefones_por_pessoas(cursor, pessoa_ids)
+        email_map = _emails_por_pessoas(cursor, pessoa_ids)
+
+    for id_contrato, row, id_pessoa in pending:
+        if id_contrato in envio_hoje:
+            out['ignorados_ja_enviados_hoje'] += 1
             continue
 
-        with conn.cursor() as cursor:
-            if _contrato_teve_envio_cobranca_hoje(cursor, id_contrato):
-                out['ignorados_ja_enviados_hoje'] += 1
-                continue
-
-        with conn.cursor() as cursor:
-            cursor.execute(
-                'SELECT id, numero FROM telefone WHERE id_pessoa = %s',
-                (id_pessoa,),
-            )
-            telefones = cursor.fetchall() or []
+        telefones = tel_map.get(id_pessoa, [])
 
         n_ok_sms = 0
         for tel in telefones:
@@ -2282,14 +2339,7 @@ def _sms_automatizados_analise(conn):
             if not digits:
                 out['tentativas_bloqueadas_cadastro'] += 1
                 continue
-            payload_resolve = {
-                'id_telefone': int(tel['id']),
-                'id_pessoa': id_pessoa,
-                'id_contrato': id_contrato,
-            }
-            with conn.cursor() as cursor:
-                _, err = _resolve_ids_registro_sms(cursor, payload_resolve, digits)
-            if err:
+            if not _sms_numero_variant_sets_overlap(tel.get('numero'), digits):
                 out['tentativas_bloqueadas_cadastro'] += 1
                 continue
             out['sms_previstos'] += 1
@@ -2299,28 +2349,11 @@ def _sms_automatizados_analise(conn):
         elif not telefones:
             out['ignorados_sem_telefone'] += 1
 
-        with conn.cursor() as cursor:
-            cursor.execute(
-                'SELECT id, email FROM email WHERE id_pessoa = %s',
-                (id_pessoa,),
-            )
-            emails_rows = cursor.fetchall() or []
+        emails_rows = email_map.get(id_pessoa, [])
 
         n_ok_mail = 0
         for em in emails_rows:
             if not _email_basico_valido(em.get('email')):
-                out['tentativas_bloqueadas_cadastro'] += 1
-                continue
-            payload_resolve = {
-                'id_email': int(em['id']),
-                'id_pessoa': id_pessoa,
-                'id_contrato': id_contrato,
-            }
-            with conn.cursor() as cursor:
-                _, err = _resolve_ids_registro_email(
-                    cursor, id_pessoa, int(em['id']), id_contrato,
-                )
-            if err:
                 out['tentativas_bloqueadas_cadastro'] += 1
                 continue
             out['emails_previstos'] += 1
@@ -2337,7 +2370,7 @@ def _analise_automacao_carteira(conn, contrato_ids):
     """Igual à análise da Lista SMS/E-mail (distribuição), restrita aos IDs da carteira visível.
 
     Usado pelo modal de confirmação em Cobrança para mostrar contagens e contratos reais.
-    Consultas em lote para suportar milhares de IDs sem timeout.
+    Validação de telefone/e-mail em memória (como o preview de importação); consultas fatiadas.
     """
     uniq = []
     seen = set()
@@ -2422,14 +2455,7 @@ def _analise_automacao_carteira(conn, contrato_ids):
             if not digits:
                 out['tentativas_bloqueadas_cadastro'] += 1
                 continue
-            payload_resolve = {
-                'id_telefone': int(tel['id']),
-                'id_pessoa': id_pessoa,
-                'id_contrato': id_contrato,
-            }
-            with conn.cursor() as cursor:
-                _, err = _resolve_ids_registro_sms(cursor, payload_resolve, digits)
-            if err:
+            if not _sms_numero_variant_sets_overlap(tel.get('numero'), digits):
                 out['tentativas_bloqueadas_cadastro'] += 1
                 continue
             out['sms_previstos'] += 1
@@ -2444,13 +2470,6 @@ def _analise_automacao_carteira(conn, contrato_ids):
         n_ok_mail = 0
         for em in emails_rows:
             if not _email_basico_valido(em.get('email')):
-                out['tentativas_bloqueadas_cadastro'] += 1
-                continue
-            with conn.cursor() as cursor:
-                _, err = _resolve_ids_registro_email(
-                    cursor, id_pessoa, int(em['id']), id_contrato,
-                )
-            if err:
                 out['tentativas_bloqueadas_cadastro'] += 1
                 continue
             out['emails_previstos'] += 1
@@ -2489,6 +2508,11 @@ def api_distribuicao_sms_automatizados_preview():
     conn = _get_db()
     try:
         out, _linhas = _sms_automatizados_analise(conn)
+    except Exception:
+        app.logger.exception('sms-automatizados/preview')
+        return jsonify({
+            'error': 'Falha ao calcular o preview. Tente novamente; se persistir, verifique os logs do servidor.',
+        }), 500
     finally:
         conn.close()
 
@@ -2596,6 +2620,8 @@ def api_distribuicao_sms_automatizados():
 
     Regra: DATEDIFF(hoje, MIN vencimento de parcelas abertas) em 0, 16, 31, 61 ou 85 dias;
     mesmo texto nos dois canais. Contratos que já tiveram SMS ou e-mail no dia são ignorados.
+    Body JSON opcional: ``{"canais": ["sms"]}``, ``["email"]`` ou ambos (padrao: ambos).
+
     Apenas Gestor ou Administrador.
     """
     fid = session.get('funcionario_id')
@@ -2603,6 +2629,21 @@ def api_distribuicao_sms_automatizados():
         return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
     if not _pode_sms_automatizados_importacao():
         return jsonify({'error': 'Acesso restrito a gestores ou administradores.'}), 403
+
+    payload = request.get_json(silent=True) or {}
+    canais = {'sms', 'email'}
+    raw_canais = payload.get('canais')
+    if raw_canais is not None:
+        canais = set()
+        if isinstance(raw_canais, list):
+            for x in raw_canais:
+                xl = str(x).strip().lower()
+                if xl == 'sms':
+                    canais.add('sms')
+                elif xl in ('email', 'e-mail', 'mail'):
+                    canais.add('email')
+        if not canais:
+            return jsonify({'error': 'canais deve ser uma lista com "sms" e/ou "email".'}), 400
 
     remetente_nome = _primeiro_nome(session.get('funcionario_nome'))
     conn = _get_db()
@@ -2634,7 +2675,7 @@ def api_distribuicao_sms_automatizados():
                 remetente_nome,
                 stats,
                 erros_amostra,
-                {'sms', 'email'},
+                canais,
             )
 
     finally:
@@ -2643,6 +2684,7 @@ def api_distribuicao_sms_automatizados():
     stats['enviados'] = stats['envios_sms'] + stats['envios_email']
     return jsonify({
         'ok': True,
+        'canais': sorted(canais),
         'enviados': stats['enviados'],
         'envios_sms': stats['envios_sms'],
         'envios_email': stats['envios_email'],

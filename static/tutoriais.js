@@ -90,7 +90,7 @@ const TUTORIAIS = [
             {
                 titulo: "Ações em massa no rodapé",
                 texto:
-                    "\"Negativação\" abre o módulo já focado na carteira cobrança com o mesmo operador e filtros. \"SMS / E-mail\" consulta o servidor (`/api/cobranca/sms-email/preview`) e abre um resumo com contagens e tabela dos contratos elegíveis — iguais à Lista SMS/E-mail na Importação, aplicados só à sua lista; ao confirmar, dispara SMS e e-mail no mesmo fluxo (`/api/automacao/sms_email`). Os blocos Crítico/Atenção/Recente mantêm só o botão Ligar em lote.",
+                    "\"Negativação\" abre o módulo já focado na carteira cobrança com o mesmo operador e filtros. \"SMS / E-mail\" abre um pop-up (mesmo estilo da Importação) com resumo do preview (`/api/cobranca/sms-email/preview`) e opções de enviar só SMS, só e-mail ou ambos. Os blocos Crítico/Atenção/Recente mantêm só o botão Ligar em lote.",
                 icone: "fa-solid fa-bolt",
             },
         ],

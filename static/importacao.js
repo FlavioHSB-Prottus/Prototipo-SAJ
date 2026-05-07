@@ -11,7 +11,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnRestaurarDistribuicao = document.getElementById('btnRestaurarDistribuicao');
     const btnNegPosDistribuicao = document.getElementById('btnNegPosDistribuicao');
     const negPosEscolhaModal = document.getElementById('negPosEscolhaModal');
+    const smsAutomPreviewOverlay = document.getElementById('smsAutomPreviewOverlay');
+    const smsAutomPreviewBody = document.getElementById('smsAutomPreviewBody');
+    const smsAutomPreviewFechar = document.getElementById('smsAutomPreviewFechar');
+    const smsAutomPreviewFecharX = document.getElementById('smsAutomPreviewFecharX');
+    const smsAutomEnvioSms = document.getElementById('smsAutomEnvioSms');
+    const smsAutomEnvioEmail = document.getElementById('smsAutomEnvioEmail');
+    const smsAutomEnvioAmbos = document.getElementById('smsAutomEnvioAmbos');
     const distribuicaoToggle = document.getElementById('distribuicaoToggle');
+
+    /** Último preview SMS/e-mail (para reabilitar botões do modal após envio ou erro). */
+    let lastSmsAutomPreview = null;
 
     function setDistribuicaoExpandido(expandido) {
         if (!distribuicaoPanel || !distribuicaoToggle) return;
@@ -386,7 +396,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // =====================================================================
 
     const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
-    const fmtInt = (n) => (n || 0).toLocaleString('pt-BR');
+    const fmtInt = (n) => {
+        const x = Number(n);
+        if (!isFinite(x)) return '0';
+        return x.toLocaleString('pt-BR');
+    };
     const fmtMoney = (n) => BRL.format(Number(n) || 0);
     const fmtPct = (part, total) => {
         if (!total) return '0%';
@@ -422,6 +436,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             distribuicaoData = data;
             renderDistribuicao();
+            // Recolhido por padrao ao entrar/recarregar; abre só após importação (scrollIntoView) ou clique no cabeçalho.
             if (scrollIntoView) {
                 setDistribuicaoExpandido(true);
                 distribuicaoPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -633,65 +648,137 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function smsAutomatizadosDistribuicao() {
-        const prevHtml = btnSmsAutomatizadosDistribuicao.innerHTML;
-        btnSmsAutomatizadosDistribuicao.disabled = true;
-        if (btnSmsAutomatizadosExcel) btnSmsAutomatizadosExcel.disabled = true;
-        btnSmsAutomatizadosDistribuicao.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Calculando...';
-        let previstoSms = null;
-        let previstoEmail = null;
-        let contratosComSms = null;
-        let contratosComEmail = null;
-        let ignoradosHoje = null;
-        try {
-            const respPv = await fetch('/api/importacao/distribuicao/sms-automatizados/preview');
-            const pv = await respPv.json().catch(() => ({}));
-            if (!respPv.ok || pv.error) {
-                throw new Error(pv.error || ('HTTP ' + respPv.status));
+    function fecharSmsAutomPreviewModal() {
+        if (!smsAutomPreviewOverlay) return;
+        smsAutomPreviewOverlay.classList.add('d-none');
+        smsAutomPreviewOverlay.setAttribute('aria-hidden', 'true');
+    }
+
+    /** Abre o modal já na etapa de carregamento (feedback antes da resposta do preview). */
+    function abrirSmsAutomPreviewCarregando() {
+        if (!smsAutomPreviewOverlay || !smsAutomPreviewBody) return;
+        smsAutomPreviewBody.innerHTML =
+            '<div class="sms-preview-loading">' +
+            '<p><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Calculando resumo…</p>' +
+            '<p class="sms-preview-loading-hint">Mesmo universo da lista Excel (contratos abertos no roteiro 0, 16, 31, 61 ou 85 dias).</p>' +
+            '</div>';
+        [smsAutomEnvioSms, smsAutomEnvioEmail, smsAutomEnvioAmbos].forEach(function (b) {
+            if (b) {
+                b.disabled = true;
+                b.removeAttribute('title');
             }
-            previstoSms = pv.sms_previstos != null ? pv.sms_previstos : 0;
-            previstoEmail = pv.emails_previstos != null ? pv.emails_previstos : 0;
-            contratosComSms = pv.contratos_com_sms != null ? pv.contratos_com_sms : 0;
-            contratosComEmail = pv.contratos_com_email != null ? pv.contratos_com_email : 0;
-            ignoradosHoje = pv.ignorados_ja_enviados_hoje != null ? pv.ignorados_ja_enviados_hoje : 0;
-        } catch (e) {
-            btnSmsAutomatizadosDistribuicao.innerHTML = prevHtml;
-            syncSmsDistribuicaoFooterButtons();
-            alert('Não foi possível calcular o preview de SMS/e-mail: ' + (e.message || e));
-            return;
+        });
+        smsAutomPreviewOverlay.classList.remove('d-none');
+        smsAutomPreviewOverlay.setAttribute('aria-hidden', 'false');
+    }
+
+    function desabilitarBotoesEnvioSmsAutom() {
+        [smsAutomEnvioSms, smsAutomEnvioEmail, smsAutomEnvioAmbos].forEach(function (b) {
+            if (b) {
+                b.disabled = true;
+                b.removeAttribute('title');
+            }
+        });
+    }
+
+    /** Erro no preview: mantém o modal aberto para o usuário ler e usar Fechar. */
+    function mostrarSmsAutomPreviewErro(msg) {
+        if (!smsAutomPreviewBody) return;
+        smsAutomPreviewBody.innerHTML =
+            '<div class="sms-preview-erro">' +
+            '<p><strong>Não foi possível calcular o resumo.</strong></p>' +
+            '<p class="sms-preview-erro-msg">' + escHtml(msg) + '</p>' +
+            '<p class="sms-preview-loading-hint">Confira os logs do servidor ou use <strong>Lista SMS/E-mail</strong> para exportar o roteiro. ' +
+            'Use <strong>Fechar</strong> abaixo quando terminar.</p>' +
+            '</div>';
+        desabilitarBotoesEnvioSmsAutom();
+        syncSmsDistribuicaoFooterButtons();
+    }
+
+    /** Nenhum disparo previsto: mensagem no modal em vez de alert bloqueando a tela. */
+    function mostrarSmsAutomPreviewSemEnvioPrevisto(ignoradosHoje) {
+        if (!smsAutomPreviewBody) return;
+        smsAutomPreviewBody.innerHTML =
+            '<div class="sms-preview-erro sms-preview-erro-info">' +
+            '<p><strong>Nenhum envio previsto neste momento.</strong></p>' +
+            '<p class="sms-preview-loading-hint">Nenhum contrato no roteiro (0, 16, 31, 61 ou 85 dias) com telefone e/ou e-mail válidos, ' +
+            'ou todos já receberam SMS ou e-mail hoje (<strong>' +
+            fmtInt(ignoradosHoje) +
+            '</strong> ignorados por duplicidade do dia).</p>' +
+            '</div>';
+        desabilitarBotoesEnvioSmsAutom();
+        syncSmsDistribuicaoFooterButtons();
+    }
+
+    function abrirSmsAutomPreviewModal(pv) {
+        if (!smsAutomPreviewOverlay || !smsAutomPreviewBody) return;
+        lastSmsAutomPreview = pv;
+        const prevSms = pv.sms_previstos != null ? pv.sms_previstos : 0;
+        const prevMail = pv.emails_previstos != null ? pv.emails_previstos : 0;
+        const cSms = pv.contratos_com_sms != null ? pv.contratos_com_sms : 0;
+        const cMail = pv.contratos_com_email != null ? pv.contratos_com_email : 0;
+        const ignHoje = pv.ignorados_ja_enviados_hoje != null ? pv.ignorados_ja_enviados_hoje : 0;
+        const ignRota = pv.ignorados_sem_template != null ? pv.ignorados_sem_template : 0;
+        const ignTel = pv.ignorados_sem_telefone != null ? pv.ignorados_sem_telefone : 0;
+        const ignEm = pv.ignorados_sem_email != null ? pv.ignorados_sem_email : 0;
+        const proc = pv.contratos_processados != null ? pv.contratos_processados : 0;
+        const bloq = pv.tentativas_bloqueadas_cadastro != null ? pv.tentativas_bloqueadas_cadastro : 0;
+
+        smsAutomPreviewBody.innerHTML =
+            '<dl class="sms-preview-stats">' +
+            '<dt>Contratos analisados (abertos)</dt><dd>' + fmtInt(proc) + '</dd>' +
+            '<dt>Disparos SMS previstos</dt><dd>' + fmtInt(prevSms) + '</dd>' +
+            '<dt>Contratos com pelo menos 1 SMS válido</dt><dd>' + fmtInt(cSms) + '</dd>' +
+            '<dt>Disparos de e-mail previstos</dt><dd>' + fmtInt(prevMail) + '</dd>' +
+            '<dt>Contratos com pelo menos 1 e-mail válido</dt><dd>' + fmtInt(cMail) + '</dd>' +
+            '<dt>Ignorados (fora do roteiro 0/16/31/61/85)</dt><dd>' + fmtInt(ignRota) + '</dd>' +
+            '<dt>Ignorados (já SMS ou e-mail hoje)</dt><dd>' + fmtInt(ignHoje) + '</dd>' +
+            '<dt>Sem telefone no cadastro</dt><dd>' + fmtInt(ignTel) + '</dd>' +
+            '<dt>Sem e-mail no cadastro</dt><dd>' + fmtInt(ignEm) + '</dd>' +
+            '<dt>Tentativas bloqueadas (validação cadastro)</dt><dd>' + fmtInt(bloq) + '</dd>' +
+            '</dl>' +
+            '<p class="sms-preview-note">Mesmo texto no SMS e no e-mail (templates 1–4). O envio pode levar vários minutos. ' +
+            'Use <strong>Lista SMS/E-mail</strong> para exportar o roteiro em Excel. Escolha abaixo apenas SMS, apenas e-mail ou ambos.</p>';
+
+        if (smsAutomEnvioSms) {
+            smsAutomEnvioSms.disabled = prevSms < 1;
+            smsAutomEnvioSms.title = prevSms < 1 ? 'Nenhum SMS previsto neste momento.' : '';
+        }
+        if (smsAutomEnvioEmail) {
+            smsAutomEnvioEmail.disabled = prevMail < 1;
+            smsAutomEnvioEmail.title = prevMail < 1 ? 'Nenhum e-mail previsto neste momento.' : '';
+        }
+        if (smsAutomEnvioAmbos) {
+            smsAutomEnvioAmbos.disabled = prevSms < 1 && prevMail < 1;
+            smsAutomEnvioAmbos.title =
+                prevSms < 1 && prevMail < 1 ? 'Nenhum canal previsto.' : 'Dispara SMS e e-mail no mesmo processamento.';
         }
 
-        if (previstoSms === 0 && previstoEmail === 0) {
-            btnSmsAutomatizadosDistribuicao.innerHTML = prevHtml;
-            syncSmsDistribuicaoFooterButtons();
-            alert(
-                'Nenhum envio previsto no momento: nenhum contrato aberto no roteiro (diferença 0, 16, 31, 61 ou 85 dias ' +
-                    'entre hoje e o vencimento mais antigo das parcelas em aberto) com telefone e/ou e-mail válidos após validação, ' +
-                    'ou todos já tiveram SMS ou e-mail registrados hoje (' + ignoradosHoje + ' ignorados por duplicidade do dia).'
-            );
-            return;
-        }
+        smsAutomPreviewOverlay.classList.remove('d-none');
+        smsAutomPreviewOverlay.setAttribute('aria-hidden', 'false');
+    }
 
-        const msg =
-            'Previsto: ' + previstoSms + ' SMS (' + contratosComSms + ' contratos com telefone) e ' +
-            previstoEmail + ' e-mail (' + contratosComEmail + ' contratos com e-mail).\n\n' +
-            'Contratos que já tiveram SMS ou e-mail hoje são ignorados (' + ignoradosHoje + ' no preview).\n\n' +
-            'MessageCenter: mesmo texto nos dois canais (templates 1 a 4).\n\n' +
-            'Pode levar vários minutos. Deseja continuar?';
-        if (!confirm(msg)) {
-            btnSmsAutomatizadosDistribuicao.innerHTML = prevHtml;
-            syncSmsDistribuicaoFooterButtons();
-            return;
-        }
-        btnSmsAutomatizadosDistribuicao.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Enviando...';
+    async function executarSmsAutomatizadosDistribuicao(canais) {
+        const footerEnvioBtns = smsAutomPreviewOverlay
+            ? smsAutomPreviewOverlay.querySelectorAll('.sms-autom-envio-btn')
+            : [];
+        footerEnvioBtns.forEach(function (b) {
+            b.disabled = true;
+        });
         try {
-            const resp = await fetch('/api/importacao/distribuicao/sms-automatizados', { method: 'POST' });
+            const resp = await fetch('/api/importacao/distribuicao/sms-automatizados', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ canais: canais }),
+            });
             const data = await resp.json().catch(() => ({}));
             if (!resp.ok || data.error) {
                 throw new Error(data.error || ('HTTP ' + resp.status));
             }
             const lines = [
-                'SMS/e-mail automáticos concluídos.',
+                'Envio automático concluído.',
+                'Canais: ' + (Array.isArray(data.canais) ? data.canais.join(', ') : 'sms, email'),
                 'Total de envios (SMS + e-mail): ' + (data.enviados != null ? data.enviados : 0),
                 '  SMS: ' + (data.envios_sms != null ? data.envios_sms : 0),
                 '  E-mail: ' + (data.envios_email != null ? data.envios_email : 0),
@@ -707,20 +794,128 @@ document.addEventListener('DOMContentLoaded', () => {
                 data.erros_amostra.forEach(function (e) {
                     var extra = '';
                     if (e.detalhe != null && e.detalhe !== '') {
-                        extra = typeof e.detalhe === 'object'
-                            ? ' | ' + JSON.stringify(e.detalhe).slice(0, 400)
-                            : ' | ' + String(e.detalhe).slice(0, 400);
+                        extra =
+                            typeof e.detalhe === 'object'
+                                ? ' | ' + JSON.stringify(e.detalhe).slice(0, 400)
+                                : ' | ' + String(e.detalhe).slice(0, 400);
                     }
                     lines.push('- contrato ' + (e.id_contrato || '?') + ': ' + (e.erro || '') + extra);
                 });
             }
             alert(lines.join('\n'));
+            fecharSmsAutomPreviewModal();
         } catch (err) {
             alert('Falha no envio em lote: ' + (err.message || err));
+        } finally {
+            footerEnvioBtns.forEach(function (b) {
+                b.disabled = false;
+            });
+            if (lastSmsAutomPreview) {
+                const ps = lastSmsAutomPreview.sms_previstos != null ? lastSmsAutomPreview.sms_previstos : 0;
+                const pe = lastSmsAutomPreview.emails_previstos != null ? lastSmsAutomPreview.emails_previstos : 0;
+                if (smsAutomEnvioSms) smsAutomEnvioSms.disabled = ps < 1;
+                if (smsAutomEnvioEmail) smsAutomEnvioEmail.disabled = pe < 1;
+                if (smsAutomEnvioAmbos) smsAutomEnvioAmbos.disabled = ps < 1 && pe < 1;
+            }
+        }
+    }
+
+    async function smsAutomatizadosDistribuicao() {
+        const prevHtml = btnSmsAutomatizadosDistribuicao.innerHTML;
+        btnSmsAutomatizadosDistribuicao.disabled = true;
+        if (btnSmsAutomatizadosExcel) btnSmsAutomatizadosExcel.disabled = true;
+        btnSmsAutomatizadosDistribuicao.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Calculando...';
+        let ignoradosHoje = 0;
+        const modalOk = !!(smsAutomPreviewOverlay && smsAutomPreviewBody);
+        if (modalOk) {
+            abrirSmsAutomPreviewCarregando();
+        }
+        try {
+            const respPv = await fetch('/api/importacao/distribuicao/sms-automatizados/preview', {
+                credentials: 'same-origin',
+            });
+            const rawText = await respPv.text();
+            let pv = {};
+            try {
+                pv = rawText ? JSON.parse(rawText) : {};
+            } catch (parseErr) {
+                const m =
+                    'Resposta inválida do servidor (HTTP ' +
+                    respPv.status +
+                    '). Verifique os logs do servidor.';
+                if (modalOk) {
+                    mostrarSmsAutomPreviewErro(m);
+                } else {
+                    alert(m);
+                }
+                return;
+            }
+            if (!respPv.ok || pv.error) {
+                const m = pv.error || 'Erro HTTP ' + respPv.status;
+                if (modalOk) {
+                    mostrarSmsAutomPreviewErro(m);
+                } else {
+                    alert(m);
+                }
+                return;
+            }
+            const previstoSms = pv.sms_previstos != null ? pv.sms_previstos : 0;
+            const previstoEmail = pv.emails_previstos != null ? pv.emails_previstos : 0;
+            ignoradosHoje = pv.ignorados_ja_enviados_hoje != null ? pv.ignorados_ja_enviados_hoje : 0;
+
+            if (previstoSms === 0 && previstoEmail === 0) {
+                if (modalOk) {
+                    mostrarSmsAutomPreviewSemEnvioPrevisto(ignoradosHoje);
+                } else {
+                    alert(
+                        'Nenhum envio previsto no momento: nenhum contrato aberto no roteiro (diferença 0, 16, 31, 61 ou 85 dias ' +
+                            'entre hoje e o vencimento mais antigo das parcelas em aberto) com telefone e/ou e-mail válidos após validação, ' +
+                            'ou todos já tiveram SMS ou e-mail registrados hoje (' +
+                            ignoradosHoje +
+                            ' ignorados por duplicidade do dia).'
+                    );
+                }
+                return;
+            }
+
+            abrirSmsAutomPreviewModal(pv);
+        } catch (e) {
+            if (modalOk) {
+                mostrarSmsAutomPreviewErro(e.message || String(e));
+            } else {
+                alert('Não foi possível calcular o preview de SMS/e-mail: ' + (e.message || e));
+            }
         } finally {
             btnSmsAutomatizadosDistribuicao.innerHTML = prevHtml;
             syncSmsDistribuicaoFooterButtons();
         }
+    }
+
+    if (smsAutomPreviewFechar) {
+        smsAutomPreviewFechar.addEventListener('click', fecharSmsAutomPreviewModal);
+    }
+    if (smsAutomPreviewFecharX) {
+        smsAutomPreviewFecharX.addEventListener('click', fecharSmsAutomPreviewModal);
+    }
+    if (smsAutomPreviewOverlay) {
+        smsAutomPreviewOverlay.addEventListener('click', function (e) {
+            if (e.target === smsAutomPreviewOverlay) fecharSmsAutomPreviewModal();
+        });
+    }
+    if (smsAutomEnvioSms) {
+        smsAutomEnvioSms.addEventListener('click', function () {
+            executarSmsAutomatizadosDistribuicao(['sms']);
+        });
+    }
+    if (smsAutomEnvioEmail) {
+        smsAutomEnvioEmail.addEventListener('click', function () {
+            executarSmsAutomatizadosDistribuicao(['email']);
+        });
+    }
+    if (smsAutomEnvioAmbos) {
+        smsAutomEnvioAmbos.addEventListener('click', function () {
+            executarSmsAutomatizadosDistribuicao(['sms', 'email']);
+        });
     }
 
     async function downloadSmsAutomatizadosExcel() {
