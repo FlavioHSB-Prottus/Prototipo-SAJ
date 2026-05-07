@@ -35,9 +35,32 @@
             .replace(/'/g, "&#39;");
     }
 
+    /** Tipos aceitos pelo POST /api/notificacoes/lida e pelo dropdown. */
+    function normalizeNotifTipo(t) {
+        const x = String(t || "").toLowerCase();
+        if (x === "agenda") return "agenda";
+        if (x === "mensagem") return "mensagem";
+        if (x === "solicitacao") return "solicitacao";
+        if (x === "protocolo") return "protocolo";
+        return "aviso";
+    }
+
     function irPara(tipo, refId) {
+        const id = encodeURIComponent(String(refId));
         if (tipo === "agenda") {
-            window.location.href = "/agenda?notif_id=" + encodeURIComponent(String(refId));
+            window.location.href = "/agenda?notif_id=" + id;
+            return;
+        }
+        if (tipo === "mensagem") {
+            window.location.href = "/mensagem?notif_id=" + id;
+            return;
+        }
+        if (tipo === "solicitacao") {
+            window.location.href = "/solicitacao?notif_id=" + id;
+            return;
+        }
+        if (tipo === "protocolo") {
+            window.location.href = "/protocolo?notif_id=" + id;
             return;
         }
         window.location.href = "/home#mural-avisos";
@@ -57,7 +80,7 @@
     }
 
     function botoesHtml(tipo, refId) {
-        const t = tipo === "agenda" ? "agenda" : "aviso";
+        const t = normalizeNotifTipo(tipo);
         const r = parseInt(refId, 10);
         if (!Number.isFinite(r)) return "";
         return `
@@ -69,7 +92,7 @@
 
     /** Modal "Todas as notificacoes": so mostra "Lido" se ainda nao foi lida. */
     function botoesModalHtml(tipo, refId, jaLida) {
-        const t = tipo === "agenda" ? "agenda" : "aviso";
+        const t = normalizeNotifTipo(tipo);
         const r = parseInt(refId, 10);
         if (!Number.isFinite(r)) return "";
         const btnLido = jaLida
@@ -85,7 +108,7 @@
     }
 
     function renderDropdownItem(it) {
-        const tipo = it.tipo === "agenda" ? "agenda" : "aviso";
+        const tipo = normalizeNotifTipo(it.tipo);
         const refId = parseInt(it.ref_id, 10);
         if (!Number.isFinite(refId)) return "";
         const pri =
@@ -104,7 +127,7 @@
     }
 
     function renderModalItem(it) {
-        const tipo = it.tipo === "agenda" ? "agenda" : "aviso";
+        const tipo = normalizeNotifTipo(it.tipo);
         const refId = parseInt(it.ref_id, 10);
         if (!Number.isFinite(refId)) return "";
         const jaLida = notificacaoJaLida(it.lida);
@@ -228,7 +251,15 @@
         if (!act || !tipo || !Number.isFinite(refId)) return;
 
         if (act === "ir") {
-            irPara(tipo, refId);
+            const modulosComLida = ["mensagem", "solicitacao", "protocolo"];
+            const tnorm = normalizeNotifTipo(tipo);
+            if (modulosComLida.includes(tnorm)) {
+                marcarLida(tnorm, refId)
+                    .catch(() => {})
+                    .finally(() => irPara(tnorm, refId));
+                return;
+            }
+            irPara(tnorm, refId);
             return;
         }
         if (act === "lido") {

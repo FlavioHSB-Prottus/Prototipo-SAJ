@@ -110,6 +110,7 @@ _COBRANCA_API_PREFIXES_OK = (
     '/api/relatorios',
     '/api/agenda',
     '/api/protocolos',
+    '/api/protocolo',
     '/api/solicitacoes',
     '/api/solicitacao',
     '/api/mensagens',
@@ -8566,13 +8567,16 @@ def _ensure_aviso_table(cursor):
 
 
 def _ensure_notificacao_usuario_table(cursor):
-    """Tabela de leitura de notificacoes por funcionario (mural + agenda), idempotente."""
+    """Tabela de leitura de notificacoes por funcionario (mural + agenda + modulos), idempotente."""
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS notificacao_usuario (
             id BIGINT PRIMARY KEY AUTO_INCREMENT,
             id_funcionario INT NOT NULL,
-            tipo ENUM('aviso', 'agenda') NOT NULL,
+            tipo ENUM(
+                'aviso', 'agenda',
+                'mensagem', 'solicitacao', 'protocolo'
+            ) NOT NULL,
             ref_id BIGINT NOT NULL,
             lida_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE KEY uk_notif_func_tipo_ref (id_funcionario, tipo, ref_id),
@@ -8582,6 +8586,38 @@ def _ensure_notificacao_usuario_table(cursor):
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """
     )
+
+
+def _migrate_notificacao_usuario_enum_modulos(cursor, conn):
+    """Bancos antigos: amplia ENUM `tipo` para mensagem/solicitacao/protocolo."""
+    try:
+        cursor.execute(
+            """
+            SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'notificacao_usuario'
+              AND COLUMN_NAME = 'tipo'
+            """
+        )
+        row = cursor.fetchone()
+        if not row:
+            return
+        ct = row.get('COLUMN_TYPE') if isinstance(row, dict) else row[0]
+        ct = (ct or '').lower()
+        if 'mensagem' in ct:
+            return
+        cursor.execute(
+            """
+            ALTER TABLE notificacao_usuario
+            MODIFY COLUMN tipo ENUM(
+                'aviso', 'agenda',
+                'mensagem', 'solicitacao', 'protocolo'
+            ) NOT NULL
+            """
+        )
+        conn.commit()
+    except Exception:
+        app.logger.exception('_migrate_notificacao_usuario_enum_modulos')
 
 
 def _aviso_row_to_api_dict(row):
@@ -8890,7 +8926,7 @@ def _notif_sort_key(value):
 
 @app.route("/api/notificacoes", methods=["GET"])
 def api_notificacoes():
-    """Lista notificacoes nao lidas: avisos do mural e tarefas de agenda no horario agendado."""
+    """Lista notificacoes nao lidas: mural, agenda e registros onde o usuario e destinatario (mensagem/solicitacao/protocolo)."""
     raw_fid = session.get("funcionario_id")
     if not raw_fid:
         return jsonify({"error": "Nao autenticado"}), 401
@@ -8901,10 +8937,14 @@ def api_notificacoes():
     rows_aviso = []
     rows_agenda = []
     unread_count = 0
+    rows_msg = []
+    rows_sol = []
+    rows_prot = []
     try:
         _ensure_aviso_table(cursor)
         _avisos_fix_legacy_pt_br(cursor, conn)
         _ensure_notificacao_usuario_table(cursor)
+        _migrate_notificacao_usuario_enum_modulos(cursor, conn)
 
         cursor.execute(
             """
@@ -8934,7 +8974,47 @@ def api_notificacoes():
             (fid, fid),
         )
         count_agenda = int((_clean_row(cursor.fetchone()) or {}).get("c") or 0)
-        unread_count = count_aviso + count_agenda
+
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS c FROM mensagem m
+            WHERE m.id_destinatario = %s
+              AND NOT EXISTS (
+                SELECT 1 FROM notificacao_usuario nu
+                WHERE nu.id_funcionario = %s AND nu.tipo = 'mensagem' AND nu.ref_id = m.id
+              )
+            """,
+            (fid, fid),
+        )
+        count_msg = int((_clean_row(cursor.fetchone()) or {}).get("c") or 0)
+
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS c FROM solicitacao s
+            WHERE s.id_destinatario = %s
+              AND NOT EXISTS (
+                SELECT 1 FROM notificacao_usuario nu
+                WHERE nu.id_funcionario = %s AND nu.tipo = 'solicitacao' AND nu.ref_id = s.id
+              )
+            """,
+            (fid, fid),
+        )
+        count_sol = int((_clean_row(cursor.fetchone()) or {}).get("c") or 0)
+
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS c FROM protocolo p
+            WHERE p.id_destinatario = %s
+              AND NOT EXISTS (
+                SELECT 1 FROM notificacao_usuario nu
+                WHERE nu.id_funcionario = %s AND nu.tipo = 'protocolo' AND nu.ref_id = p.id
+              )
+            """,
+            (fid, fid),
+        )
+        count_prot = int((_clean_row(cursor.fetchone()) or {}).get("c") or 0)
+
+        unread_count = count_aviso + count_agenda + count_msg + count_sol + count_prot
 
         cursor.execute(
             """
@@ -8968,6 +9048,57 @@ def api_notificacoes():
             (fid, fid),
         )
         rows_agenda = _clean_rows(cursor.fetchall())
+
+        cursor.execute(
+            """
+            SELECT m.id, m.assunto, m.descricao, m.data_envio, fr.nome AS remetente_nome
+            FROM mensagem m
+            JOIN funcionario fr ON fr.id = m.id_remetente
+            WHERE m.id_destinatario = %s
+              AND NOT EXISTS (
+                SELECT 1 FROM notificacao_usuario nu
+                WHERE nu.id_funcionario = %s AND nu.tipo = 'mensagem' AND nu.ref_id = m.id
+              )
+            ORDER BY m.data_envio DESC, m.id DESC
+            LIMIT 40
+            """,
+            (fid, fid),
+        )
+        rows_msg = _clean_rows(cursor.fetchall())
+
+        cursor.execute(
+            """
+            SELECT s.id, s.assunto, s.descricao, s.data_envio, fr.nome AS remetente_nome
+            FROM solicitacao s
+            JOIN funcionario fr ON fr.id = s.id_remetente
+            WHERE s.id_destinatario = %s
+              AND NOT EXISTS (
+                SELECT 1 FROM notificacao_usuario nu
+                WHERE nu.id_funcionario = %s AND nu.tipo = 'solicitacao' AND nu.ref_id = s.id
+              )
+            ORDER BY s.data_envio DESC, s.id DESC
+            LIMIT 40
+            """,
+            (fid, fid),
+        )
+        rows_sol = _clean_rows(cursor.fetchall())
+
+        cursor.execute(
+            """
+            SELECT p.id, p.titulo, p.descricao, p.data_envio, p.created_at, fr.nome AS remetente_nome
+            FROM protocolo p
+            JOIN funcionario fr ON fr.id = p.id_remetente
+            WHERE p.id_destinatario = %s
+              AND NOT EXISTS (
+                SELECT 1 FROM notificacao_usuario nu
+                WHERE nu.id_funcionario = %s AND nu.tipo = 'protocolo' AND nu.ref_id = p.id
+              )
+            ORDER BY COALESCE(p.created_at, CONCAT(p.data_envio, ' 00:00:00')) DESC, p.id DESC
+            LIMIT 40
+            """,
+            (fid, fid),
+        )
+        rows_prot = _clean_rows(cursor.fetchall())
     except Exception as e:
         app.logger.exception("api/notificacoes: query")
         return jsonify({"error": str(e)}), 500
@@ -9011,6 +9142,51 @@ def api_notificacoes():
             }
         )
 
+    for row in rows_msg:
+        dt = row.get("data_envio")
+        rn = (row.get("remetente_nome") or "").strip()
+        merged.append(
+            {
+                "tipo": "mensagem",
+                "ref_id": int(row["id"]),
+                "titulo": row.get("assunto") or "",
+                "descricao": (row.get("descricao") or "")[:500],
+                "subtitulo": "Mensagem · %s%s"
+                % (_notif_format_pt_br_dh(dt), (" · " + rn) if rn else ""),
+                "_sk": _notif_sort_key(dt),
+            }
+        )
+
+    for row in rows_sol:
+        dt = row.get("data_envio")
+        rn = (row.get("remetente_nome") or "").strip()
+        merged.append(
+            {
+                "tipo": "solicitacao",
+                "ref_id": int(row["id"]),
+                "titulo": row.get("assunto") or "",
+                "descricao": (row.get("descricao") or "")[:500],
+                "subtitulo": "Solicitação · %s%s"
+                % (_notif_format_pt_br_dh(dt), (" · " + rn) if rn else ""),
+                "_sk": _notif_sort_key(dt),
+            }
+        )
+
+    for row in rows_prot:
+        dt = row.get("created_at") or row.get("data_envio")
+        rn = (row.get("remetente_nome") or "").strip()
+        merged.append(
+            {
+                "tipo": "protocolo",
+                "ref_id": int(row["id"]),
+                "titulo": row.get("titulo") or "",
+                "descricao": (row.get("descricao") or "")[:500],
+                "subtitulo": "Protocolo · %s%s"
+                % (_notif_format_pt_br_dh(dt), (" · " + rn) if rn else ""),
+                "_sk": _notif_sort_key(dt),
+            }
+        )
+
     merged.sort(key=lambda x: x["_sk"], reverse=True)
     items = []
     for it in merged[:18]:
@@ -9022,7 +9198,7 @@ def api_notificacoes():
 
 @app.route("/api/notificacoes/todas", methods=["GET"])
 def api_notificacoes_todas():
-    """Mural completo (avisos) + agenda elegivel do usuario, com flag `lida` por item."""
+    """Mural, agenda e mensagens/solicitações/protocolos recebidos pelo usuario, com flag `lida`."""
     raw_fid = session.get("funcionario_id")
     if not raw_fid:
         return jsonify({"error": "Nao autenticado"}), 401
@@ -9032,10 +9208,14 @@ def api_notificacoes_todas():
     cursor = conn.cursor()
     rows_aviso = []
     rows_agenda = []
+    rows_msg = []
+    rows_sol = []
+    rows_prot = []
     try:
         _ensure_aviso_table(cursor)
         _avisos_fix_legacy_pt_br(cursor, conn)
         _ensure_notificacao_usuario_table(cursor)
+        _migrate_notificacao_usuario_enum_modulos(cursor, conn)
 
         cursor.execute(
             """
@@ -9067,6 +9247,54 @@ def api_notificacoes_todas():
             (fid, fid),
         )
         rows_agenda = _clean_rows(cursor.fetchall())
+
+        cursor.execute(
+            """
+            SELECT m.id, m.assunto, m.descricao, m.data_envio, fr.nome AS remetente_nome,
+                   CASE WHEN nu.id IS NOT NULL THEN 1 ELSE 0 END AS lida
+            FROM mensagem m
+            JOIN funcionario fr ON fr.id = m.id_remetente
+            LEFT JOIN notificacao_usuario nu
+              ON nu.id_funcionario = %s AND nu.tipo = 'mensagem' AND nu.ref_id = m.id
+            WHERE m.id_destinatario = %s
+            ORDER BY m.data_envio DESC, m.id DESC
+            LIMIT 100
+            """,
+            (fid, fid),
+        )
+        rows_msg = _clean_rows(cursor.fetchall())
+
+        cursor.execute(
+            """
+            SELECT s.id, s.assunto, s.descricao, s.data_envio, fr.nome AS remetente_nome,
+                   CASE WHEN nu.id IS NOT NULL THEN 1 ELSE 0 END AS lida
+            FROM solicitacao s
+            JOIN funcionario fr ON fr.id = s.id_remetente
+            LEFT JOIN notificacao_usuario nu
+              ON nu.id_funcionario = %s AND nu.tipo = 'solicitacao' AND nu.ref_id = s.id
+            WHERE s.id_destinatario = %s
+            ORDER BY s.data_envio DESC, s.id DESC
+            LIMIT 100
+            """,
+            (fid, fid),
+        )
+        rows_sol = _clean_rows(cursor.fetchall())
+
+        cursor.execute(
+            """
+            SELECT p.id, p.titulo, p.descricao, p.data_envio, p.created_at, fr.nome AS remetente_nome,
+                   CASE WHEN nu.id IS NOT NULL THEN 1 ELSE 0 END AS lida
+            FROM protocolo p
+            JOIN funcionario fr ON fr.id = p.id_remetente
+            LEFT JOIN notificacao_usuario nu
+              ON nu.id_funcionario = %s AND nu.tipo = 'protocolo' AND nu.ref_id = p.id
+            WHERE p.id_destinatario = %s
+            ORDER BY COALESCE(p.created_at, CONCAT(p.data_envio, ' 00:00:00')) DESC, p.id DESC
+            LIMIT 100
+            """,
+            (fid, fid),
+        )
+        rows_prot = _clean_rows(cursor.fetchall())
     except Exception as e:
         app.logger.exception("api/notificacoes/todas")
         return jsonify({"error": str(e)}), 500
@@ -9112,6 +9340,54 @@ def api_notificacoes_todas():
             }
         )
 
+    for row in rows_msg:
+        dt = row.get("data_envio")
+        rn = (row.get("remetente_nome") or "").strip()
+        merged.append(
+            {
+                "tipo": "mensagem",
+                "ref_id": int(row["id"]),
+                "titulo": row.get("assunto") or "",
+                "descricao": (row.get("descricao") or "")[:500],
+                "subtitulo": "Mensagem · %s%s"
+                % (_notif_format_pt_br_dh(dt), (" · " + rn) if rn else ""),
+                "lida": bool(int(row.get("lida") or 0)),
+                "_sk": _notif_sort_key(dt),
+            }
+        )
+
+    for row in rows_sol:
+        dt = row.get("data_envio")
+        rn = (row.get("remetente_nome") or "").strip()
+        merged.append(
+            {
+                "tipo": "solicitacao",
+                "ref_id": int(row["id"]),
+                "titulo": row.get("assunto") or "",
+                "descricao": (row.get("descricao") or "")[:500],
+                "subtitulo": "Solicitação · %s%s"
+                % (_notif_format_pt_br_dh(dt), (" · " + rn) if rn else ""),
+                "lida": bool(int(row.get("lida") or 0)),
+                "_sk": _notif_sort_key(dt),
+            }
+        )
+
+    for row in rows_prot:
+        dt = row.get("created_at") or row.get("data_envio")
+        rn = (row.get("remetente_nome") or "").strip()
+        merged.append(
+            {
+                "tipo": "protocolo",
+                "ref_id": int(row["id"]),
+                "titulo": row.get("titulo") or "",
+                "descricao": (row.get("descricao") or "")[:500],
+                "subtitulo": "Protocolo · %s%s"
+                % (_notif_format_pt_br_dh(dt), (" · " + rn) if rn else ""),
+                "lida": bool(int(row.get("lida") or 0)),
+                "_sk": _notif_sort_key(dt),
+            }
+        )
+
     merged.sort(key=lambda x: x["_sk"], reverse=True)
     items = []
     for it in merged:
@@ -9123,7 +9399,7 @@ def api_notificacoes_todas():
 
 @app.route("/api/notificacoes/lida", methods=["POST"])
 def api_notificacoes_marcar_lida():
-    """Marca uma notificacao como lida (nao volta a aparecer para este usuario)."""
+    """Marca como lida: aviso, agenda ou item recebido (mensagem/solicitacao/protocolo)."""
     raw_fid = session.get("funcionario_id")
     if not raw_fid:
         return jsonify({"error": "Nao autenticado"}), 401
@@ -9137,13 +9413,14 @@ def api_notificacoes_marcar_lida():
     except (TypeError, ValueError):
         return jsonify({"error": "ref_id invalido"}), 400
 
-    if tipo not in ("aviso", "agenda"):
-        return jsonify({"error": "tipo invalido (use aviso ou agenda)"}), 400
+    if tipo not in ("aviso", "agenda", "mensagem", "solicitacao", "protocolo"):
+        return jsonify({"error": "tipo invalido"}), 400
 
     conn = _get_db()
     cursor = conn.cursor()
     try:
         _ensure_notificacao_usuario_table(cursor)
+        _migrate_notificacao_usuario_enum_modulos(cursor, conn)
         if tipo == "agenda":
             cursor.execute(
                 "SELECT id FROM agenda WHERE id = %s AND id_funcionario = %s",
@@ -9151,10 +9428,31 @@ def api_notificacoes_marcar_lida():
             )
             if not cursor.fetchone():
                 return jsonify({"error": "agenda nao encontrada ou nao pertence ao usuario"}), 404
-        else:
+        elif tipo == "aviso":
             cursor.execute("SELECT id FROM aviso WHERE id = %s", (ref_id,))
             if not cursor.fetchone():
                 return jsonify({"error": "aviso nao encontrado"}), 404
+        elif tipo == "mensagem":
+            cursor.execute(
+                "SELECT id FROM mensagem WHERE id = %s AND id_destinatario = %s",
+                (ref_id, fid),
+            )
+            if not cursor.fetchone():
+                return jsonify({"error": "mensagem nao encontrada ou destinatario invalido"}), 404
+        elif tipo == "solicitacao":
+            cursor.execute(
+                "SELECT id FROM solicitacao WHERE id = %s AND id_destinatario = %s",
+                (ref_id, fid),
+            )
+            if not cursor.fetchone():
+                return jsonify({"error": "solicitacao nao encontrada ou destinatario invalido"}), 404
+        else:
+            cursor.execute(
+                "SELECT id FROM protocolo WHERE id = %s AND id_destinatario = %s",
+                (ref_id, fid),
+            )
+            if not cursor.fetchone():
+                return jsonify({"error": "protocolo nao encontrado ou destinatario invalido"}), 404
 
         cursor.execute(
             """
@@ -10996,6 +11294,64 @@ def api_solicitacao_post():
     except Exception as exc:
         conn.rollback()
         app.logger.exception('api_solicitacao_post')
+        return jsonify({'error': str(exc)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+    return jsonify({'ok': True, 'id': new_id})
+
+
+@app.route('/api/protocolo', methods=['POST'])
+def api_protocolo_post():
+    """Registra protocolo interno; o destinatário recebe notificação no sininho."""
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Nao autenticado.'}), 401
+    fid = int(fid)
+    payload = request.get_json(silent=True) or {}
+    titulo = (payload.get('titulo') or '').strip()
+    if not titulo:
+        return jsonify({'error': 'Titulo obrigatorio.'}), 400
+    titulo = titulo[:50]
+    descricao = (payload.get('descricao') or '').strip() or None
+    try:
+        dest_id = int(payload.get('id_destinatario'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Destinatario invalido.'}), 400
+    if int(dest_id) == fid:
+        return jsonify({'error': 'O destinatario deve ser outro funcionario.'}), 400
+    id_contrato = None
+    raw_c = payload.get('id_contrato')
+    if raw_c not in (None, ''):
+        try:
+            id_contrato = int(raw_c)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'ID contrato invalido.'}), 400
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    new_id = None
+    try:
+        cursor.execute(
+            'SELECT id FROM funcionario WHERE id = %s AND ativo = 1',
+            (dest_id,),
+        )
+        if not cursor.fetchone():
+            return jsonify({'error': 'Destinatario nao encontrado ou inativo.'}), 400
+        if id_contrato is not None:
+            cursor.execute('SELECT id FROM contrato WHERE id = %s', (id_contrato,))
+            if not cursor.fetchone():
+                return jsonify({'error': 'Contrato nao encontrado.'}), 400
+        cursor.execute(
+            'INSERT INTO protocolo (id_remetente, id_destinatario, titulo, descricao, id_contrato) '
+            'VALUES (%s, %s, %s, %s, %s)',
+            (fid, dest_id, titulo, descricao, id_contrato),
+        )
+        conn.commit()
+        new_id = cursor.lastrowid
+    except Exception as exc:
+        conn.rollback()
+        app.logger.exception('api_protocolo_post')
         return jsonify({'error': str(exc)}), 500
     finally:
         cursor.close()
