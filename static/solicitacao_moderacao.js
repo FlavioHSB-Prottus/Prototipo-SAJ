@@ -12,26 +12,65 @@
             .replace(/"/g, '&quot;');
     }
 
+    /** Rotulos amigaveis para chaves do snapshot / fluxo (UTF-8). */
+    var LABEL_CAMPO = {
+        id: 'ID',
+        carteira: 'Carteira (valor)',
+        discado: 'Discado',
+        atendido: 'Atendido',
+        tipo: 'Tipo',
+        cpc: 'CPC',
+        contato: 'Contato',
+        exito: '\u00caxito',
+        status: 'Status',
+        descricao: 'Descri\u00e7\u00e3o',
+        classificacao: 'Classifica\u00e7\u00e3o',
+        id_contrato: 'ID contrato',
+        id_funcionario: 'ID funcion\u00e1rio',
+        created_at: 'Criado em',
+        updated_at: 'Atualizado em',
+        fluxo_json: 'Fluxo (formul\u00e1rio)',
+        status_tramitacao: 'Status tramita\u00e7\u00e3o',
+        funcionario_nome: 'Funcion\u00e1rio'
+    };
+
+    var LABEL_FLUXO = {
+        carteira_devendo: 'Carteira devendo',
+        numero_discado: 'N\u00famero discado',
+        atendido: 'Atendido',
+        modo_indefinido: 'Modo indefinido',
+        cpc_correto: 'CPC correto',
+        cpc_qual: 'CPC qual',
+        cpc_quem: 'CPC quem',
+        cpc_etapa_descricao: 'CPC etapa',
+        status_final: 'Status final',
+        agenda_retorno_data: 'Agenda ù retorno',
+        agenda_retorno_atividade: 'Atividade',
+        acordo_data_pagamento: 'Acordo ù data pagamento',
+        acordo_qtd_parcelas: 'Acordo ù qtd parcelas',
+        descricao_final: 'Descri\u00e7\u00e3o final'
+    };
+
     var TIPO_LABEL = {
-        tramitacao_edit: 'Alterar tramitaùùo',
-        tramitacao_delete: 'Excluir tramitaùùo',
-        agenda_edit: 'Alterar agendamento',
-        agenda_delete: 'Excluir agendamento'
+        tramitacao_edit: 'Alterar Tramita\u00e7\u00e3o',
+        tramitacao_delete: 'Excluir Tramita\u00e7\u00e3o',
+        agenda_edit: 'Alterar Agendamento',
+        agenda_delete: 'Excluir Agendamento'
     };
 
     function fmtTipo(t) {
-        return TIPO_LABEL[t] || esc(t) || 'ù';
+        return esc(TIPO_LABEL[t] || t || '\u2014');
     }
 
     function fmtCtr(r) {
         var g = r.grupo != null ? String(r.grupo) : '';
         var ct = r.cota != null ? String(r.cota) : '';
-        if (!g && !ct) return 'ù';
+        if (!g && !ct) return '\u2014';
         return esc(g + '/' + ct);
     }
 
     function fmtDt(r) {
-        if (!r.created_at) return 'ù';
+        if (!r.created_at) return '\u2014';
         var s = String(r.created_at).replace('T', ' ');
         return esc(s.length > 19 ? s.slice(0, 19) : s);
     }
@@ -42,7 +81,94 @@
             aprovado: 'Aprovado',
             reprovado: 'Reprovado'
         };
-        return m[st] || esc(st);
+        return esc(m[st] || st);
+    }
+
+    /** Valores vindos do MySQL/bit (\u0001) viram texto legivel. */
+    function fmtValorModeracao(v) {
+        if (v === null || v === undefined) return '\u2014';
+        if (typeof v === 'boolean') return v ? 'Sim' : 'N\u00e3o';
+        if (typeof v === 'number') return String(v);
+        if (typeof v === 'string') {
+            var t = v.replace(/\u0001/g, 'Sim').replace(/\u0000/g, '').trim();
+            return t === '' ? '\u2014' : t;
+        }
+        return esc(JSON.stringify(v));
+    }
+
+    function appendDl(parts, obj, labelMap) {
+        if (!obj || typeof obj !== 'object') return;
+        Object.keys(obj).forEach(function (k) {
+            if (k === 'fluxo_json') return;
+            var raw = obj[k];
+            var lb = (labelMap && labelMap[k]) || LABEL_CAMPO[k] || k;
+            var dd;
+            if (raw !== null && typeof raw === 'object') {
+                dd = '<pre style="margin:0;font-size:0.78rem;white-space:pre-wrap">' +
+                    esc(JSON.stringify(raw, null, 2)) + '</pre>';
+            } else {
+                dd = esc(fmtValorModeracao(raw)).replace(/\r\n/g, '\n').split('\n').join('<br>');
+            }
+            parts.push('<dt>' + esc(lb) + '</dt><dd>' + dd + '</dd>');
+        });
+    }
+
+    function htmlFluxoInterno(fj) {
+        if (!fj || typeof fj !== 'object') return '';
+        var parts = ['<div class="mod-payload-sub"><strong>Detalhes do fluxo</strong><dl class="mod-payload-dl">'];
+        Object.keys(fj).forEach(function (k) {
+            var lb = LABEL_FLUXO[k] || LABEL_CAMPO[k] || k;
+            var v = fj[k];
+            var dd = v !== null && typeof v === 'object'
+                ? '<pre style="margin:0;font-size:0.76rem;white-space:pre-wrap">' +
+                  esc(JSON.stringify(v, null, 2)) + '</pre>'
+                : esc(fmtValorModeracao(v));
+            parts.push('<dt>' + esc(lb) + '</dt><dd>' + dd + '</dd>');
+        });
+        parts.push('</dl></div>');
+        return parts.join('');
+    }
+
+    /** HTML legivel para o payload (antes/depois); sem expor JSON cru na celula da tabela. */
+    function buildPayloadDetailHtml(payloadJsonStr) {
+        var o = null;
+        try {
+            if (payloadJsonStr == null || payloadJsonStr === '') {
+                return '<p class="mod-payload-detail" style="color:#64748b;margin:0">\u2014 Sem dados adicionais.</p>';
+            }
+            o = typeof payloadJsonStr === 'string' ? JSON.parse(payloadJsonStr) : payloadJsonStr;
+        } catch (e) {
+            return '<p style="color:#b91c1c;margin:0">N\u00e3o foi poss\u00edvel ler os dados do pedido.</p>';
+        }
+
+        var sections = [];
+
+        function oneBlock(title, obj) {
+            if (!obj || typeof obj !== 'object') return;
+            var parts = ['<section><h4>' + esc(title) + '</h4><dl class="mod-payload-dl">'];
+            appendDl(parts, obj, null);
+            var fjRaw = obj.fluxo_json;
+            parts.push('</dl>');
+            if (fjRaw != null && fjRaw !== '') {
+                try {
+                    var fj = typeof fjRaw === 'string' ? JSON.parse(fjRaw) : fjRaw;
+                    parts.push(htmlFluxoInterno(fj));
+                } catch (e2) {
+                    parts.push('<div class="mod-payload-sub"><strong>Fluxo (texto)</strong><p style="margin:0;word-break:break-word">' +
+                        esc(String(fjRaw)) + '</p></div>');
+                }
+            }
+            parts.push('</section>');
+            sections.push(parts.join(''));
+        }
+
+        oneBlock('Estado de refer\u00eancia (antes)', o.antes);
+        oneBlock('Altera\u00e7\u00e3o proposta (depois)', o.depois);
+
+        if (sections.length === 0) {
+            return '<p style="color:#64748b;margin:0">\u2014 Sem dados estruturados.</p>';
+        }
+        return '<div class="mod-payload-detail">' + sections.join('') + '</div>';
     }
 
     document.addEventListener('DOMContentLoaded', function () {
@@ -60,31 +186,30 @@
             var cnt = document.getElementById('moderacaoPendenteCount');
             if (!cfg.pode_revisar || !wrap || !body) return;
             wrap.style.display = '';
-            body.innerHTML = '<tr><td colspan="6" class="text-center">Carregandoù</td></tr>';
+            body.innerHTML = '<tr><td colspan="7" class="text-center">Carregando\u2026</td></tr>';
             fetch('/api/solicitacao/moderacao/pendentes', { credentials: 'same-origin' })
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     if (data.error) {
-                        body.innerHTML = '<tr><td colspan="6" class="text-center" style="color:#dc2626">' +
+                        body.innerHTML = '<tr><td colspan="7" class="text-center" style="color:#dc2626">' +
                             esc(data.error) + '</td></tr>';
                         return;
                     }
                     var rows = data.results || [];
                     if (cnt) cnt.textContent = String(rows.length);
                     if (rows.length === 0) {
-                        body.innerHTML = '<tr><td colspan="6" class="text-center">Nenhum pedido pendente.</td></tr>';
+                        body.innerHTML = '<tr><td colspan="7" class="text-center">Nenhum pedido pendente.</td></tr>';
                         return;
                     }
                     body.innerHTML = '';
                     rows.forEach(function (row) {
                         var tr = document.createElement('tr');
-                        var pj = '';
-                        try {
-                            if (row.payload_json) pj = JSON.stringify(JSON.parse(row.payload_json), null, 2);
-                        } catch (e) {
-                            pj = String(row.payload_json || '');
-                        }
                         tr.innerHTML =
+                            '<td>' +
+                            '<button type="button" class="mod-detail-toggle" aria-expanded="false" ' +
+                            'title="Mostrar ou ocultar dados do contrato">' +
+                            '<i class="fa-solid fa-chevron-down" aria-hidden="true"></i>' +
+                            '</button></td>' +
                             '<td>' + esc(row.id) + '</td>' +
                             '<td>' + fmtTipo(row.tipo) + '</td>' +
                             '<td>' + fmtCtr(row) + '</td>' +
@@ -96,17 +221,20 @@
                             '<button type="button" class="action-btn" style="background:#b91c1c;color:#fff;border:none" ' +
                             'data-mod-aprov="' + esc(row.id) + '" data-mod-acao="reprovar">Desaprovar</button>' +
                             '</td>';
+
+                        var trDetail = document.createElement('tr');
+                        trDetail.className = 'mod-pend-detail-row d-none';
+                        trDetail.innerHTML =
+                            '<td colspan="7" class="mod-pend-detail-cell">' +
+                            buildPayloadDetailHtml(row.payload_json) +
+                            '</td>';
+
                         body.appendChild(tr);
-                        if (pj) {
-                            var trd = document.createElement('tr');
-                            trd.innerHTML = '<td colspan="6" style="background:#f8fafc;font-size:0.8rem"><pre style="margin:0;white-space:pre-wrap;max-height:160px;overflow:auto">' +
-                                esc(pj) + '</pre></td>';
-                            body.appendChild(trd);
-                        }
+                        body.appendChild(trDetail);
                     });
                 })
                 .catch(function () {
-                    body.innerHTML = '<tr><td colspan="6" class="text-center" style="color:#dc2626">Erro ao carregar pedidos.</td></tr>';
+                    body.innerHTML = '<tr><td colspan="7" class="text-center" style="color:#dc2626">Erro ao carregar pedidos.</td></tr>';
                 });
         }
 
@@ -115,7 +243,7 @@
             var body = document.getElementById('moderacaoMinhasBody');
             if (!cfg.eh_cobranca || !wrap || !body) return;
             wrap.style.display = '';
-            body.innerHTML = '<tr><td colspan="5" class="text-center">Carregandoù</td></tr>';
+            body.innerHTML = '<tr><td colspan="5" class="text-center">Carregando\u2026</td></tr>';
             fetch('/api/solicitacao/moderacao/minhas', { credentials: 'same-origin' })
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
@@ -153,7 +281,7 @@
         function decisao(mid, acao) {
             var motivo = null;
             if (acao === 'reprovar') {
-                motivo = window.prompt('Motivo da reprovaùùo (obrigatùrio):');
+                motivo = window.prompt('Motivo da reprova\u00e7\u00e3o (obrigat\u00f3rio):');
                 if (motivo === null) return;
                 motivo = motivo.trim();
                 if (!motivo) {
@@ -161,7 +289,7 @@
                     return;
                 }
             }
-            if (acao === 'aprovar' && !window.confirm('Confirmar aprovaùùo e aplicar a alteraùùo no sistema?')) return;
+            if (acao === 'aprovar' && !window.confirm('Confirmar aprova\u00e7\u00e3o e aplicar a altera\u00e7\u00e3o no sistema?')) return;
 
             fetch('/api/solicitacao/moderacao/' + encodeURIComponent(mid) + '/decisao', {
                 method: 'POST',
@@ -187,6 +315,22 @@
         var pendBody = document.getElementById('moderacaoPendenteBody');
         if (pendBody) {
             pendBody.addEventListener('click', function (ev) {
+                var tbtn = ev.target.closest('.mod-detail-toggle');
+                if (tbtn && pendBody.contains(tbtn)) {
+                    ev.preventDefault();
+                    var tr = tbtn.closest('tr');
+                    if (!tr) return;
+                    var detail = tr.nextElementSibling;
+                    if (!detail || !detail.classList.contains('mod-pend-detail-row')) return;
+                    var open = detail.classList.toggle('d-none') === false;
+                    tbtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+                    var ic = tbtn.querySelector('i');
+                    if (ic) {
+                        ic.className = open ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down';
+                    }
+                    return;
+                }
+
                 var b = ev.target.closest('[data-mod-aprov]');
                 if (!b) return;
                 ev.preventDefault();

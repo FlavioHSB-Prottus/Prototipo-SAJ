@@ -39,7 +39,7 @@
     <!-- Pedidos de alteração/exclusão (tramitação e agenda) — Cobrança envia; Gestor/Admin decide -->
     <div class="results-card table-section" id="moderacaoPendenteWrap" style="display:none;margin-top:20px">
         <div class="table-header">
-            <h3><i class="fa-solid fa-user-shield"></i> Pedidos pendentes (tramitação / agenda)</h3>
+            <h3><i class="fa-solid fa-user-shield"></i> Pedidos (tramitação / agenda)</h3>
             <span class="badge bg-warning text-dark" id="moderacaoPendenteCount">0</span>
         </div>
         <p style="margin:0 0 12px;font-size:0.9rem;color:#64748b">
@@ -50,6 +50,7 @@
             <table class="styled-table" id="moderacaoPendenteTable">
                 <thead>
                     <tr>
+                        <th class="mod-col-expand" aria-label="Detalhes"></th>
                         <th>ID</th>
                         <th>Tipo</th>
                         <th>Contrato</th>
@@ -59,7 +60,7 @@
                     </tr>
                 </thead>
                 <tbody id="moderacaoPendenteBody">
-                    <tr><td colspan="6" class="text-center">Carregando…</td></tr>
+                    <tr><td colspan="7" class="text-center">Carregando…</td></tr>
                 </tbody>
             </table>
         </div>
@@ -535,5 +536,44 @@ document.addEventListener('DOMContentLoaded', function() {
 .nova-solic-form .form-group { margin-bottom: 14px; display: flex; flex-direction: column; gap: 6px; }
 .nova-solic-form label { font-size: 0.85rem; font-weight: 600; color: #2c3e50; }
 .nova-solic-form .form-control { width: 100%; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-family: inherit; font-size: 0.95rem; }
+
+/* Moderacao: expandir dados do pedido (sem JSON cru na tabela) */
+.styled-table .mod-col-expand { width: 44px; text-align: center; padding-left: 8px; padding-right: 8px; }
+.mod-detail-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    color: #475569;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+.mod-detail-toggle:hover { background: #f1f5f9; border-color: #94a3b8; color: #1e293b; }
+.mod-detail-toggle[aria-expanded="true"] { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; }
+.mod-pend-detail-cell {
+    background: #f8fafc !important;
+    border-top: none !important;
+    padding: 0 14px 14px 54px !important;
+    vertical-align: top;
+}
+.mod-payload-detail { font-size: 0.88rem; color: #334155; line-height: 1.45; }
+.mod-payload-detail h4 {
+    margin: 0 0 8px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.mod-payload-detail section + section { margin-top: 14px; padding-top: 14px; border-top: 1px solid #e2e8f0; }
+.mod-payload-dl { margin: 0; display: grid; grid-template-columns: minmax(120px, 200px) 1fr; gap: 6px 16px; align-items: start; }
+.mod-payload-dl dt { margin: 0; font-weight: 600; color: #475569; }
+.mod-payload-dl dd { margin: 0; word-break: break-word; white-space: pre-wrap; }
+.mod-payload-sub { margin: 8px 0 0; padding: 10px 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.82rem; }
+.mod-payload-sub .mod-payload-dl { grid-template-columns: minmax(100px, 180px) 1fr; }
 </style>
 {% endblock %}
