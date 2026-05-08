@@ -227,6 +227,7 @@
 
     /** Preview/disparo: rota estável sob /api/cobranca (mesmo prefixo do painel). */
     var SMS_EMAIL_PREVIEW_URL = '/api/cobranca/sms-email/preview';
+    var SMS_EMAIL_EXCEL_URL = '/api/cobranca/sms-email/excel';
 
     /** Estado do modal estilo Importação (rodapé SMS/E-mail, lista «todos»). */
     var lastCobrancaCarteiraPreview = null;
@@ -240,6 +241,7 @@
             envSms: document.getElementById('cobrancaSmsCarteiraEnvioSms'),
             envEmail: document.getElementById('cobrancaSmsCarteiraEnvioEmail'),
             envAmbos: document.getElementById('cobrancaSmsCarteiraEnvioAmbos'),
+            excel: document.getElementById('cobrancaSmsCarteiraExcel'),
         };
     }
 
@@ -266,12 +268,12 @@
         m.body.innerHTML =
             '<div class="sms-preview-loading">' +
             '<p><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Calculando resumo…</p>' +
-            '<p class="sms-preview-loading-hint">Lista visível no painel (operador e busca).</p>' +
+            '<p class="sms-preview-loading-hint">Mesmo critério da lista Excel (contratos abertos no roteiro 0, 16, 31, 61 ou 85 dias), restrito à lista visível no painel.</p>' +
             '</div>';
-        [m.envSms, m.envEmail, m.envAmbos].forEach(function (b) {
+        [m.envSms, m.envEmail, m.envAmbos, m.excel].forEach(function (b) {
             if (b) {
                 b.disabled = true;
-                b.removeAttribute('title');
+                if (b !== m.excel) b.removeAttribute('title');
             }
         });
         m.overlay.classList.remove('d-none');
@@ -286,9 +288,10 @@
             '<div class="sms-preview-erro">' +
             '<p><strong>Não foi possível calcular o resumo.</strong></p>' +
             '<p class="sms-preview-erro-msg">' + esc(msg) + '</p>' +
-            '<p class="sms-preview-loading-hint">Tente novamente ou verifique os logs do servidor.</p>' +
+            '<p class="sms-preview-loading-hint">Confira os logs do servidor ou use <strong>Lista SMS/E-mail</strong> para exportar o roteiro desta lista. ' +
+            'Use <strong>Fechar</strong> abaixo quando terminar.</p>' +
             '</div>';
-        [m.envSms, m.envEmail, m.envAmbos].forEach(function (b) {
+        [m.envSms, m.envEmail, m.envAmbos, m.excel].forEach(function (b) {
             if (b) b.disabled = true;
         });
     }
@@ -300,12 +303,12 @@
         m.body.innerHTML =
             '<div class="sms-preview-erro sms-preview-erro-info">' +
             '<p><strong>Nenhum envio previsto neste momento.</strong></p>' +
-            '<p class="sms-preview-loading-hint">Nenhum contrato da lista no roteiro (0, 16, 31, 61 ou 85 dias) com telefone e/ou e-mail válidos, ' +
+            '<p class="sms-preview-loading-hint">Nenhum contrato no roteiro (0, 16, 31, 61 ou 85 dias) com telefone e/ou e-mail válidos, ' +
             'ou todos já receberam SMS ou e-mail hoje (<strong>' +
             fmtIntPreview(ign) +
             '</strong> ignorados por duplicidade do dia).</p>' +
             '</div>';
-        [m.envSms, m.envEmail, m.envAmbos].forEach(function (b) {
+        [m.envSms, m.envEmail, m.envAmbos, m.excel].forEach(function (b) {
             if (b) b.disabled = true;
         });
     }
@@ -315,24 +318,35 @@
         if (!m.body) return;
         var prevSms = pv.sms_previstos != null ? pv.sms_previstos : 0;
         var prevMail = pv.emails_previstos != null ? pv.emails_previstos : 0;
+        var cSms = pv.contratos_com_sms != null ? pv.contratos_com_sms : 0;
+        var cMail = pv.contratos_com_email != null ? pv.contratos_com_email : 0;
+        var ignHoje = pv.ignorados_ja_enviados_hoje != null ? pv.ignorados_ja_enviados_hoje : 0;
+        var ignRota = pv.ignorados_fora_rota != null ? pv.ignorados_fora_rota : 0;
+        var ignTel = pv.ignorados_sem_telefone != null ? pv.ignorados_sem_telefone : 0;
+        var ignEm = pv.ignorados_sem_email != null ? pv.ignorados_sem_email : 0;
+        var proc = pv.carteira_ids != null ? pv.carteira_ids : 0;
+        var bloq = pv.tentativas_bloqueadas_cadastro != null ? pv.tentativas_bloqueadas_cadastro : 0;
+        var ignSemContrato = pv.ignorados_sem_contrato_aberto != null ? pv.ignorados_sem_contrato_aberto : 0;
+        var ignSemPessoa = pv.ignorados_sem_pessoa != null ? pv.ignorados_sem_pessoa : 0;
 
         m.body.innerHTML =
             '<dl class="sms-preview-stats">' +
-            '<dt>Contratos na lista (carteira)</dt><dd>' + fmtIntPreview(pv.carteira_ids) + '</dd>' +
-            '<dt>Disparos SMS previstos</dt><dd>' + fmtIntPreview(pv.sms_previstos) + '</dd>' +
-            '<dt>Contratos com pelo menos 1 SMS válido</dt><dd>' + fmtIntPreview(pv.contratos_com_sms) + '</dd>' +
-            '<dt>Disparos de e-mail previstos</dt><dd>' + fmtIntPreview(pv.emails_previstos) + '</dd>' +
-            '<dt>Contratos com pelo menos 1 e-mail válido</dt><dd>' + fmtIntPreview(pv.contratos_com_email) + '</dd>' +
-            '<dt>Fora do roteiro (dias)</dt><dd>' + fmtIntPreview(pv.ignorados_fora_rota) + '</dd>' +
-            '<dt>Já SMS ou e-mail hoje</dt><dd>' + fmtIntPreview(pv.ignorados_ja_enviados_hoje) + '</dd>' +
-            '<dt>Sem contrato aberto na lista</dt><dd>' + fmtIntPreview(pv.ignorados_sem_contrato_aberto) + '</dd>' +
-            '<dt>Sem pessoa (devedor)</dt><dd>' + fmtIntPreview(pv.ignorados_sem_pessoa) + '</dd>' +
-            '<dt>Sem telefone no cadastro</dt><dd>' + fmtIntPreview(pv.ignorados_sem_telefone) + '</dd>' +
-            '<dt>Sem e-mail no cadastro</dt><dd>' + fmtIntPreview(pv.ignorados_sem_email) + '</dd>' +
-            '<dt>Tentativas bloqueadas (validação cadastro)</dt><dd>' + fmtIntPreview(pv.tentativas_bloqueadas_cadastro) + '</dd>' +
+            '<dt>Contratos analisados (abertos)</dt><dd>' + fmtIntPreview(proc) + '</dd>' +
+            '<dt>Disparos SMS previstos</dt><dd>' + fmtIntPreview(prevSms) + '</dd>' +
+            '<dt>Contratos com pelo menos 1 SMS válido</dt><dd>' + fmtIntPreview(cSms) + '</dd>' +
+            '<dt>Disparos de e-mail previstos</dt><dd>' + fmtIntPreview(prevMail) + '</dd>' +
+            '<dt>Contratos com pelo menos 1 e-mail válido</dt><dd>' + fmtIntPreview(cMail) + '</dd>' +
+            '<dt>Ignorados (fora do roteiro 0/16/31/61/85)</dt><dd>' + fmtIntPreview(ignRota) + '</dd>' +
+            '<dt>Ignorados (já SMS ou e-mail hoje)</dt><dd>' + fmtIntPreview(ignHoje) + '</dd>' +
+            '<dt>Sem telefone no cadastro</dt><dd>' + fmtIntPreview(ignTel) + '</dd>' +
+            '<dt>Sem e-mail no cadastro</dt><dd>' + fmtIntPreview(ignEm) + '</dd>' +
+            '<dt>Tentativas bloqueadas (validação cadastro)</dt><dd>' + fmtIntPreview(bloq) + '</dd>' +
+            '<dt>Sem contrato aberto na lista</dt><dd>' + fmtIntPreview(ignSemContrato) + '</dd>' +
+            '<dt>Sem pessoa (devedor)</dt><dd>' + fmtIntPreview(ignSemPessoa) + '</dd>' +
             '</dl>' +
-            '<p class="sms-preview-note">Mesmo texto no SMS e no e-mail (templates 1–4). O envio pode levar vários minutos. ' +
-            'Escolha abaixo apenas SMS, apenas e-mail ou ambos.</p>';
+            '<p class="sms-preview-note">Na Cobrança, «Contratos analisados» são os IDs únicos da lista visível enviados ao resumo. ' +
+            'Mesmo texto no SMS e no e-mail (templates 1–4). O envio pode levar vários minutos. ' +
+            'Use <strong>Lista SMS/E-mail</strong> para exportar o roteiro desta lista em Excel. Escolha abaixo apenas SMS, apenas e-mail ou ambos.</p>';
 
         if (m.envSms) {
             m.envSms.disabled = prevSms < 1;
@@ -346,6 +360,10 @@
             m.envAmbos.disabled = prevSms < 1 && prevMail < 1;
             m.envAmbos.title =
                 prevSms < 1 && prevMail < 1 ? 'Nenhum canal previsto.' : 'Dispara SMS e e-mail no mesmo processamento.';
+        }
+        if (m.excel) {
+            m.excel.disabled = false;
+            m.excel.removeAttribute('title');
         }
     }
 
@@ -394,7 +412,7 @@
             return;
         }
 
-        lastCobrancaCarteiraPreview = { pv: null, nivel: 'todos' };
+        lastCobrancaCarteiraPreview = { pv: null, nivel: 'todos', contrato_ids: ids };
         abrirModalCarteiraSmsEmailCarregando();
 
         fetch(SMS_EMAIL_PREVIEW_URL, {
@@ -427,6 +445,62 @@
             .catch(function (err) {
                 mostrarModalCarteiraSmsEmailErro(err.message || String(err));
             });
+    }
+
+    async function downloadCarteiraSmsEmailExcel() {
+        var m = cobrancaCarteiraModalEls();
+        if (!m.excel || m.excel.disabled) return;
+        var st = lastCobrancaCarteiraPreview;
+        var ids = st && st.contrato_ids ? st.contrato_ids : [];
+        if (!ids.length) {
+            alert('Nenhuma lista de contratos disponível para exportar.');
+            return;
+        }
+        var prevHtml = m.excel.innerHTML;
+        m.excel.disabled = true;
+        m.excel.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Gerando...';
+        try {
+            var resp = await fetch(SMS_EMAIL_EXCEL_URL, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contrato_ids: ids }),
+            });
+            if (!resp.ok) {
+                var msg = 'HTTP ' + resp.status;
+                try {
+                    var errJson = await resp.json();
+                    if (errJson.error) msg = errJson.error;
+                } catch (e2) { /* ignore */ }
+                throw new Error(msg);
+            }
+            var blob = await resp.blob();
+            var cd = resp.headers.get('Content-Disposition');
+            var fname = 'sms_email_carteira_cobranca.xlsx';
+            if (cd) {
+                var mfn = /filename\*?=(?:UTF-8'')?([^;\n]+)/i.exec(cd);
+                if (mfn) fname = decodeURIComponent(mfn[1].replace(/['"]/g, '').trim());
+            }
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = fname;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            alert('Não foi possível baixar a lista Excel: ' + (err.message || err));
+        } finally {
+            m.excel.innerHTML = prevHtml;
+            var pv = lastCobrancaCarteiraPreview && lastCobrancaCarteiraPreview.pv;
+            var okExcel =
+                pv &&
+                ((pv.sms_previstos || 0) >= 1 || (pv.emails_previstos || 0) >= 1);
+            if (m.excel && okExcel) {
+                m.excel.disabled = false;
+            }
+        }
     }
 
     function bindModalCarteiraSmsEmailOnce() {
@@ -463,6 +537,11 @@
         if (m.envAmbos) {
             m.envAmbos.addEventListener('click', function () {
                 executarEnvioCarteiraSmsEmail(['sms', 'email']);
+            });
+        }
+        if (m.excel) {
+            m.excel.addEventListener('click', function () {
+                downloadCarteiraSmsEmailExcel();
             });
         }
     }
