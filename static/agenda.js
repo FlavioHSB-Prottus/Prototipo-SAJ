@@ -415,7 +415,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         html += (typeof TramitacoesDetalhe !== 'undefined')
-            ? TramitacoesDetalhe.buildSection(data.tramitacoes || [], c.id, { esc: escapeHtml, formatDateTime: formatDateTime })
+            ? TramitacoesDetalhe.buildSection(data.tramitacoes || [], c.id, {
+                    esc: escapeHtml,
+                    formatDateTime: formatDateTime,
+                    registrosSmsEmail: data.registros_sms_email || [],
+                })
             : '';
 
         modalContent.innerHTML = html;

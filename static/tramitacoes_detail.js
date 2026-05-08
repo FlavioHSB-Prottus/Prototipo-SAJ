@@ -217,17 +217,39 @@
         );
     }
 
+    function canalSmsEmailLabel(canal) {
+        var c = String(canal || '').toLowerCase();
+        if (c === 'sms') return 'SMS';
+        if (c === 'email') return 'E-mail';
+        return String(canal || '—');
+    }
+
     function buildSection(tramitacoes, contratoId, options) {
         var o = defaultOptions(options);
         var esc = o.esc;
         var formatDateTime = o.formatDateTime;
         var list = tramitacoes || [];
+        var regs = (options && options.registrosSmsEmail) || [];
         var n = list.length;
+        var nr = regs.length;
         var cid = String(contratoId);
 
         var html = '';
-        html += '<div class="detail-section tramitacao-section" data-contrato-id="' + escAttr(cid) + '">';
-        html += '<h3><i class="fa-solid fa-comments"></i> Tramitações <span class="tramitacoes-count">(' + n + ')</span></h3>';
+        html += '<div class="detail-section tramitacao-section contrato-tramit-tabs-wrap" data-contrato-id="' + escAttr(cid) + '">';
+        html += '<div class="contrato-tramit-tab-bar" role="tablist">';
+        html +=
+            '<button type="button" class="contrato-tramit-tab-btn is-active" role="tab" aria-selected="true" data-tab="tramit">' +
+            '<i class="fa-solid fa-comments" aria-hidden="true"></i> Tramitações <span class="tramitacoes-count">(' +
+            n +
+            ')</span></button>';
+        html +=
+            '<button type="button" class="contrato-tramit-tab-btn" role="tab" aria-selected="false" data-tab="regsms">' +
+            '<i class="fa-solid fa-envelope" aria-hidden="true"></i> Registros SMS e E-mail <span class="regsms-email-count">(' +
+            nr +
+            ')</span></button>';
+        html += '</div>';
+
+        html += '<div class="contrato-tramit-tab-panel is-active" data-tab-panel="tramit" role="tabpanel">';
         html += '<div class="tramitacao-container">';
 
         if (n === 0) {
@@ -331,7 +353,38 @@
         html += '<p class="tramit-form-msg" style="margin:8px 0 0;font-size:0.85rem;color:#b91c1c;display:none"></p>';
         html += '</div></div>';
 
-        html += '</div></div>';
+        html += '</div>'; /* tramitacao-container */
+        html += '</div>'; /* panel tramit */
+
+        html += '<div class="contrato-tramit-tab-panel" data-tab-panel="regsms" role="tabpanel" hidden>';
+        if (nr === 0) {
+            html +=
+                '<p class="regsms-email-empty" style="margin:0;font-size:0.9rem;color:var(--text-muted, #6b7280)">' +
+                'Nenhum registro de SMS ou e-mail para este contrato.</p>';
+        } else {
+            html += '<div class="table-responsive"><table class="styled-table modal-table regsms-email-table"><thead><tr>';
+            html += '<th>Data</th><th>Canal</th><th>Funcionário</th><th>Mensagem</th>';
+            html += '</tr></thead><tbody>';
+            regs.forEach(function (r) {
+                var dt = r.created_at != null ? r.created_at : '';
+                var canal = canalSmsEmailLabel(r.canal);
+                var fnome = r.funcionario_nome != null && String(r.funcionario_nome).trim() !== '' ? r.funcionario_nome : '—';
+                var msg = r.mensagem != null ? String(r.mensagem) : '';
+                html += '<tr>';
+                html += '<td style="white-space:nowrap">' + formatDateTime(dt) + '</td>';
+                html += '<td><span class="status-badge ' + (String(r.canal || '').toLowerCase() === 'email' ? 'status-success' : 'status-active') + '">' + esc(canal) + '</span></td>';
+                html += '<td>' + esc(fnome) + '</td>';
+                html +=
+                    '<td class="regsms-email-msg-cell"><div class="regsms-email-msg">' +
+                    esc(msg) +
+                    '</div></td>';
+                html += '</tr>';
+            });
+            html += '</tbody></table></div>';
+        }
+        html += '</div>'; /* panel regsms */
+
+        html += '</div>'; /* tramitacao-section */
         return html;
     }
 
@@ -440,9 +493,31 @@
     function attachModal(root, contratoId, options) {
         var o = defaultOptions(options);
         var onReload = o.onReload;
-        if (!onReload) return;
 
         var section = root.querySelector('.tramitacao-section');
+        if (section) {
+            var tabBar = section.querySelector('.contrato-tramit-tab-bar');
+            if (tabBar) {
+                tabBar.querySelectorAll('.contrato-tramit-tab-btn').forEach(function (btn) {
+                    btn.addEventListener('click', function () {
+                        var tab = btn.getAttribute('data-tab');
+                        if (!tab) return;
+                        tabBar.querySelectorAll('.contrato-tramit-tab-btn').forEach(function (b) {
+                            var active = b.getAttribute('data-tab') === tab;
+                            b.classList.toggle('is-active', active);
+                            b.setAttribute('aria-selected', active ? 'true' : 'false');
+                        });
+                        section.querySelectorAll('.contrato-tramit-tab-panel').forEach(function (panel) {
+                            var show = panel.getAttribute('data-tab-panel') === tab;
+                            panel.classList.toggle('is-active', show);
+                            panel.hidden = !show;
+                        });
+                    });
+                });
+            }
+        }
+
+        if (!onReload) return;
         if (!section) return;
 
         var wizardWrap = section.querySelector('[data-tramit-wizard-wrap]');
