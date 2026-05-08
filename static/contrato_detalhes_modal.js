@@ -538,7 +538,11 @@
         html += buildNegativacaoSectionHtml(data);
 
         html += (typeof TramitacoesDetalhe !== 'undefined')
-            ? TramitacoesDetalhe.buildSection(data.tramitacoes || [], c.id, { esc: esc, formatDateTime: formatDateTime })
+            ? TramitacoesDetalhe.buildSection(data.tramitacoes || [], c.id, {
+                    esc: esc,
+                    formatDateTime: formatDateTime,
+                    registrosSmsEmail: data.registros_sms_email || [],
+                })
             : '';
 
         modalContent.innerHTML = html;

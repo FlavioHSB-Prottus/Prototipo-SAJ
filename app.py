@@ -4588,6 +4588,20 @@ def api_contrato_detalhe(contrato_id):
             (contrato_id,),
         )
 
+        registros_sms_email = _safe_all(
+            "SELECT x.canal, x.id, x.created_at, x.mensagem, x.id_funcionario, f.nome AS funcionario_nome "
+            "FROM ( "
+            "  SELECT 'sms' AS canal, id, created_at, mensagem, id_funcionario "
+            "  FROM registro_sms WHERE id_contrato = %s "
+            "  UNION ALL "
+            "  SELECT 'email' AS canal, id, created_at, mensagem, id_funcionario "
+            "  FROM registro_email WHERE id_contrato = %s "
+            ") x "
+            "LEFT JOIN funcionario f ON x.id_funcionario = f.id "
+            "ORDER BY x.created_at ASC, x.id ASC",
+            (contrato_id, contrato_id),
+        )
+
         try:
             bens = _fetch_bens_para_contrato(cursor, contrato)
         except Exception as exc:
@@ -4633,6 +4647,7 @@ def api_contrato_detalhe(contrato_id):
             'parcelas': parcelas,
             'ocorrencias': ocorrencias,
             'tramitacoes': tramitacoes,
+            'registros_sms_email': registros_sms_email,
             'bens': bens,
             'negativacao_ativas': negativacao_ativas,
             'negativacao_historico': negativacao_historico,
