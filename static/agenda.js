@@ -498,6 +498,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pessoa && pessoa.id) {
             var _pEncA = encodeURIComponent(pessoa.nome_completo || '');
             var _pIdA = String(pessoa.id);
+            var _pnSms = String((pessoa && pessoa.nome_completo) || '').trim();
+            if (_pnSms) {
+                _pnSms = _pnSms.split(/\s+/)[0];
+            } else {
+                _pnSms = 'Cliente';
+            }
             html += '<div class="contact-grid" style="margin-top:12px">';
             html += '<div><div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px"><h4 style="font-size:0.85rem;color:var(--text-muted);margin:0">Telefones</h4>';
             html += '<div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="action-btn btn-add-telefone-pessoa" data-pessoa-id="' + _pIdA + '" data-pessoa-nome="' + _pEncA + '" data-recurso="telefone"><i class="fa-solid fa-plus"></i> Telefone</button></div></div>';
@@ -506,11 +512,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 telefones.forEach(function (t) {
                     html += '<li><i class="fa-solid fa-phone"></i> ' + escapeHtml(t.numero || '-');
                     if (t.ramal) html += ' (ramal ' + escapeHtml(t.ramal) + ')';
+                    var _waExtra = '';
+                    if (idContrato != null && String(idContrato) !== '') {
+                        _waExtra = ' data-wa-auto-contrato="1" data-primeiro-nome="' + escapeHtml(_pnSms) + '"';
+                    }
                     html += '<button type="button" class="btn-ligar" title="Ligar" data-numero="' + escapeHtml(t.numero || '') + '"><i class="fa-solid fa-phone-volume"></i></button>' +
-                        '<button type="button" class="btn-whatsapp" title="Enviar WhatsApp" data-numero="' + escapeHtml(t.numero || '') + '"><i class="fa-brands fa-whatsapp"></i></button>';
+                        '<button type="button" class="btn-whatsapp" title="Enviar WhatsApp" data-numero="' + escapeHtml(t.numero || '') + '"' + _waExtra + '><i class="fa-brands fa-whatsapp"></i></button>';
                     var _smsE = ' data-pessoa-id="' + escapeHtml(_pIdA) + '"';
                     if (t.id != null && t.id !== '') { _smsE += ' data-telefone-id="' + escapeHtml(String(t.id)) + '"'; }
-                    if (idContrato != null && String(idContrato) !== '') { _smsE += ' data-contrato-id="' + escapeHtml(String(idContrato)) + '"'; }
+                    if (idContrato != null && String(idContrato) !== '') {
+                        _smsE += ' data-contrato-id="' + escapeHtml(String(idContrato)) + '"';
+                        _smsE += ' data-sms-auto-contrato="1"';
+                        _smsE += ' data-primeiro-nome="' + escapeHtml(_pnSms) + '"';
+                    }
                     html += '<button type="button" class="btn-mensagem" title="Enviar SMS" data-numero="' + escapeHtml(t.numero || '') + '"' + _smsE + '"><i class="fa-solid fa-comment-dots"></i></button>';
                     html += '<span class="contact-meta">';
                     var _fonteTel = (typeof window.formatContatoFonteLabel === 'function') ? window.formatContatoFonteLabel(t.fonte) : '';
@@ -527,7 +541,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 html += '<ul class="contact-list">';
                 emails.forEach(function (em) {
                     html += '<li><i class="fa-solid fa-envelope"></i> ' + escapeHtml(em.email || '-');
-                    html += '<button class="btn-mensagem" title="Enviar Mensagem"><i class="fa-solid fa-comment-dots"></i></button>';
+                    var _emC = ' data-email="' + escapeHtml(em.email || '') + '" data-pessoa-id="' + escapeHtml(_pIdA) + '"';
+                    if (em.id != null && em.id !== '') { _emC += ' data-email-id="' + escapeHtml(String(em.id)) + '"'; }
+                    if (idContrato != null && String(idContrato) !== '') {
+                        _emC += ' data-contrato-id="' + escapeHtml(String(idContrato)) + '"';
+                        _emC += ' data-email-auto-contrato="1"';
+                        _emC += ' data-primeiro-nome="' + escapeHtml(_pnSms) + '"';
+                    }
+                    html += '<button type="button" class="btn-enviar-email-html" title="Enviar e-mail"' + _emC +
+                        '><i class="fa-solid fa-envelope"></i></button>';
                     html += '<span class="contact-meta">';
                     var _fonteEm = (typeof window.formatContatoFonteLabel === 'function') ? window.formatContatoFonteLabel(em.fonte) : '';
                     if (_fonteEm) html += '<span class="contact-fonte" title="Origem do cadastro">' + escapeHtml(_fonteEm) + '</span>';
