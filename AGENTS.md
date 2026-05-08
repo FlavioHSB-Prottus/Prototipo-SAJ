@@ -41,6 +41,7 @@ Sistema web para gestao de cobranca de consorcios, com foco em:
 - Busca por contrato: grupo/cota com filtro de status.
 - Modal de contrato deve incluir dados do contrato, devedor, avalista, parcelas, ocorrencias e tramitacoes.
 - Nos telefones, manter botoes de acao visual (ligar/mensagem) conforme implementado.
+- Detalhe de contrato (Busca, Cobranca e modulos que usam o mesmo modal): quando ha `idContrato`, WhatsApp/SMS/e-mail usam mensagem automatica partilhada via `data-wa-auto-contrato`, `data-sms-auto-contrato`, `data-email-auto-contrato` e `data-primeiro-nome` nos botoes (ver `static/busca.js` `renderPessoaSection`); sem contrato no contexto, o fluxo manual continua.
 
 ### 4.3 Relatorios
 - Filtro por tipo + range de datas.
