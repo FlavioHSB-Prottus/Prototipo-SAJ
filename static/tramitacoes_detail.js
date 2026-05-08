@@ -1159,6 +1159,11 @@
                             alert(err);
                             return;
                         }
+                        if (res.j && res.j.pendente_aprovacao) {
+                            alert(res.j.mensagem || 'Pedido enviado para aprovação em Solicitações.');
+                            onReload();
+                            return;
+                        }
                         onReload();
                     })
                     .catch(function () { alert('Falha de conexao ao excluir.'); })
@@ -1197,6 +1202,12 @@
                         if (!res.ok) {
                             var err = (res.j && (res.j.error || res.j.message)) || 'Nao foi possivel salvar.';
                             if (msgEl) { msgEl.textContent = err; msgEl.style.display = 'block'; }
+                            return;
+                        }
+                        if (res.j && res.j.pendente_aprovacao) {
+                            alert(res.j.mensagem || 'Pedido enviado para aprovação em Solicitações.');
+                            hideFormLegacy();
+                            onReload();
                             return;
                         }
                         hideFormLegacy();

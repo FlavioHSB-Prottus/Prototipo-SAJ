@@ -1,6 +1,7 @@
 import calendar
 import datetime
 import decimal
+import functools
 import html as html_module
 import io
 import json
@@ -112,6 +113,7 @@ _COBRANCA_API_PREFIXES_OK = (
     '/api/protocolos',
     '/api/protocolo',
     '/api/solicitacoes',
+    '/api/solicitacao/moderacao',
     '/api/solicitacao',
     '/api/mensagens',
     '/api/mensagem',
@@ -693,7 +695,16 @@ def protocolo():
 
 @app.route('/solicitacao')
 def solicitacao():
-    return render_template('solicitacao.html')
+    pode_revisar = False
+    eh_cobranca = False
+    if session.get('funcionario_id'):
+        n = _nivel_normalizado(session.get('funcionario_nivel_acesso'))
+        pode_revisar = n in ('gestor', 'administrador')
+        eh_cobranca = n == 'cobranca'
+    return render_template(
+        'solicitacao.html',
+        solicitacao_mod_cfg={'pode_revisar': pode_revisar, 'eh_cobranca': eh_cobranca},
+    )
 
 @app.route('/mensagem')
 def mensagem():
@@ -2617,6 +2628,302 @@ def api_distribuicao_sms_automatizados_excel():
 
     fname = (
         'sms_email_automatizados_distribuicao_'
+        + datetime.datetime.now().strftime('%Y%m%d_%H%M')
+        + '.xlsx'
+    )
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=fname,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+
+
+def _negativacao_distribuicao_excel_row(r):
+    """Colunas alinhadas à tabela da carteira no módulo Negativação (sem botões)."""
+    g = r.get('grupo')
+    c = r.get('cota')
+    gc = f'{_xlsx_cell_str(g)}/{_xlsx_cell_str(c)}'
+    tipo_ev = (r.get('tipo_evento') or '').strip()
+    status_evt = _xlsx_cell_str(tipo_ev if tipo_ev else r.get('status'))
+    da = r.get('dias_atraso')
+    try:
+        da_cell = int(da) if da is not None else ''
+    except (TypeError, ValueError):
+        da_cell = _xlsx_cell_str(da)
+    return (
+        gc,
+        _xlsx_cell_str(r.get('numero_parcela')),
+        da_cell,
+        _xlsx_cell_str(status_evt),
+        _xlsx_cell_str(r.get('data_negativacao')),
+        _xlsx_cell_str(r.get('funcionario_nome')),
+    )
+
+
+_NEG_LISTAGEM_EXCEL_SORT_COLS = frozenset({
+    'contrato', 'parcela', 'dias', 'status', 'data', 'operador',
+})
+
+
+def _negativacao_listagem_normalize_excel_sort_col(col, fallback):
+    c = (col or '').strip().lower()
+    if c in _NEG_LISTAGEM_EXCEL_SORT_COLS:
+        return c
+    fb = (fallback or 'data').strip().lower()
+    return fb if fb in _NEG_LISTAGEM_EXCEL_SORT_COLS else 'data'
+
+
+def _parse_neg_num_excel_sort(v):
+    if v is None:
+        return None
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return float(v)
+    if isinstance(v, float):
+        return v
+    s = str(v).strip().replace(',', '.')
+    if not s:
+        return None
+    try:
+        return float(s)
+    except (TypeError, ValueError):
+        return None
+
+
+def _negativacao_listagem_excel_sort_rows(rows, col, dir_):
+    """Alinhado a ``sortNegAtivosRowsCopy`` em ``static/negativacao.js``."""
+    if not rows:
+        return []
+    col = _negativacao_listagem_normalize_excel_sort_col(col, 'data')
+    dir_l = (dir_ or 'desc').strip().lower()
+    mult = -1 if dir_l == 'desc' else 1
+
+    def tie_break(ra, rb):
+        ida = _parse_neg_num_excel_sort(ra.get('id'))
+        idb = _parse_neg_num_excel_sort(rb.get('id'))
+        if ida is not None and idb is not None and ida != idb:
+            return -1 if ida < idb else (1 if ida > idb else 0)
+        pa = _parse_neg_num_excel_sort(ra.get('id_parcela'))
+        pb = _parse_neg_num_excel_sort(rb.get('id_parcela'))
+        if pa is not None and pb is not None and pa != pb:
+            return -1 if pa < pb else (1 if pa > pb else 0)
+        return 0
+
+    def cmp_str(a, b):
+        if a < b:
+            return -1 * mult
+        if a > b:
+            return 1 * mult
+        return 0
+
+    def cmp_rows(ra, rb):
+        c = col
+        if c == 'contrato':
+            ga = _parse_neg_num_excel_sort(ra.get('grupo'))
+            gb = _parse_neg_num_excel_sort(rb.get('grupo'))
+            ca = _parse_neg_num_excel_sort(ra.get('cota'))
+            cb = _parse_neg_num_excel_sort(rb.get('cota'))
+            if ga is not None and gb is not None and ga != gb:
+                return -1 if (ga - gb) * mult < 0 else (1 if (ga - gb) * mult > 0 else 0)
+            if ca is not None and cb is not None and ca != cb:
+                return -1 if (ca - cb) * mult < 0 else (1 if (ca - cb) * mult > 0 else 0)
+            sa = f'{ra.get("grupo") or ""}/{ra.get("cota") or ""}'
+            sb = f'{rb.get("grupo") or ""}/{rb.get("cota") or ""}'
+            sc = cmp_str(sa, sb)
+            if sc:
+                return sc
+            return tie_break(ra, rb)
+        if c == 'parcela':
+            pa = _parse_neg_num_excel_sort(ra.get('numero_parcela'))
+            pb = _parse_neg_num_excel_sort(rb.get('numero_parcela'))
+            if pa is None:
+                pa = float('-inf') if dir_l == 'desc' else float('inf')
+            if pb is None:
+                pb = float('-inf') if dir_l == 'desc' else float('inf')
+            if pa != pb:
+                return -1 if (pa - pb) * mult < 0 else (1 if (pa - pb) * mult > 0 else 0)
+            return tie_break(ra, rb)
+        if c == 'dias':
+            da = _parse_neg_num_excel_sort(ra.get('dias_atraso'))
+            db = _parse_neg_num_excel_sort(rb.get('dias_atraso'))
+            if da is None:
+                da = float('-inf') if dir_l == 'desc' else float('inf')
+            if db is None:
+                db = float('-inf') if dir_l == 'desc' else float('inf')
+            if da != db:
+                return -1 if (da - db) * mult < 0 else (1 if (da - db) * mult > 0 else 0)
+            return tie_break(ra, rb)
+        if c == 'status':
+            sta = str(ra.get('tipo_evento') or ra.get('status') or '')
+            stb = str(rb.get('tipo_evento') or rb.get('status') or '')
+            st = cmp_str(sta, stb)
+            if st:
+                return st
+            return tie_break(ra, rb)
+        if c == 'data':
+            dta = str(ra.get('data_negativacao') or '').replace(' ', 'T')
+            dtb = str(rb.get('data_negativacao') or '').replace(' ', 'T')
+            dt = cmp_str(dta, dtb)
+            if dt:
+                return dt
+            return tie_break(ra, rb)
+        if c == 'operador':
+            oa = str(ra.get('funcionario_nome') or '').lower()
+            ob = str(rb.get('funcionario_nome') or '').lower()
+            oc = cmp_str(oa, ob)
+            if oc:
+                return oc
+            return tie_break(ra, rb)
+        return tie_break(ra, rb)
+
+    return sorted(rows, key=functools.cmp_to_key(lambda a, b: cmp_rows(a, b)))
+
+
+def _negativacao_listagem_excel_row(r):
+    """Colunas para exportacao no modulo Negativacao (Carteira ou Geral)."""
+    g = r.get('grupo')
+    c = r.get('cota')
+    gc = f'{_xlsx_cell_str(g)}/{_xlsx_cell_str(c)}'
+    tipo_ev = (r.get('tipo_evento') or '').strip()
+    da = r.get('dias_atraso')
+    try:
+        da_cell = int(da) if da is not None else ''
+    except (TypeError, ValueError):
+        da_cell = _xlsx_cell_str(da)
+    id_contrato = r.get('id_contrato')
+    id_parcela = r.get('id_parcela')
+    id_reg = r.get('id')
+    try:
+        id_contrato_cell = int(id_contrato) if id_contrato is not None else ''
+    except (TypeError, ValueError):
+        id_contrato_cell = _xlsx_cell_str(id_contrato)
+    try:
+        id_parcela_cell = int(id_parcela) if id_parcela is not None else ''
+    except (TypeError, ValueError):
+        id_parcela_cell = _xlsx_cell_str(id_parcela)
+    try:
+        id_reg_cell = int(id_reg) if id_reg is not None else ''
+    except (TypeError, ValueError):
+        id_reg_cell = _xlsx_cell_str(id_reg)
+    return (
+        gc,
+        _xlsx_cell_str(r.get('numero_contrato')),
+        id_contrato_cell,
+        _xlsx_cell_str(r.get('numero_parcela')),
+        id_parcela_cell,
+        id_reg_cell,
+        da_cell,
+        _xlsx_cell_str(r.get('status')),
+        _xlsx_cell_str(tipo_ev),
+        _xlsx_cell_str(r.get('data_negativacao')),
+        _xlsx_cell_str(r.get('funcionario_nome')),
+        _xlsx_cell_str(r.get('contrato_status')),
+        _xlsx_cell_str(r.get('detalhe')),
+    )
+
+
+@app.route(
+    '/api/importacao/distribuicao/negativacao-positivacao/excel',
+    methods=['GET'],
+)
+def api_distribuicao_negativacao_positivacao_excel():
+    """Excel com duas folhas: lista de negativação e de positivação (carteira, todos operadores)."""
+    if not session.get('funcionario_id'):
+        return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
+    if not _pode_sms_automatizados_importacao():
+        return jsonify({'error': 'Acesso restrito a gestores ou administradores.'}), 403
+
+    try:
+        from openpyxl import Workbook
+    except ImportError:
+        return jsonify({
+            'error': 'Biblioteca openpyxl nao instalada. Execute: pip install openpyxl',
+        }), 503
+
+    hdr = (
+        'Grupo/Cota',
+        'Parcela',
+        'Dias de atraso',
+        'Status ou evento',
+        'Data',
+        'Operador',
+    )
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        payload = _negativacao_listagem_payload_interno(
+            cursor,
+            q='',
+            tipo_busca='contrato',
+            evento='todos',
+            status_ativo='',
+            data_inicio=None,
+            data_fim=None,
+            sort_at='data',
+            order_at='desc',
+            apenas_cobranca=True,
+            sem_operador_cobranca=False,
+            preview_ativos=False,
+            funcionario_id_filtro=None,
+        )
+    except Exception as exc:
+        app.logger.exception('negativacao-positivacao/excel: falha ao montar listagem')
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return jsonify({'error': f'Falha ao consultar dados para o Excel: {exc}'}), 500
+
+    try:
+        cursor.close()
+    except Exception:
+        pass
+    try:
+        conn.close()
+    except Exception:
+        pass
+
+    neg_rows = payload.get('ativos_negativados') or []
+    pos_rows = payload.get('ativos_positivados') or []
+
+    try:
+        wb = Workbook()
+        ws_neg = wb.active
+        ws_neg.title = 'NEGATIVAÇÃO'
+        ws_neg.append(hdr)
+        if not neg_rows:
+            ws_neg.append(
+                ('Nenhum registro na lista de negativação neste momento.', '', '', '', '', '')
+            )
+        else:
+            for r in neg_rows:
+                ws_neg.append(_negativacao_distribuicao_excel_row(r))
+
+        ws_pos = wb.create_sheet(title='POSITIVAÇÃO')
+        ws_pos.append(hdr)
+        if not pos_rows:
+            ws_pos.append(
+                ('Nenhum registro na lista de positivação neste momento.', '', '', '', '', '')
+            )
+        else:
+            for r in pos_rows:
+                ws_pos.append(_negativacao_distribuicao_excel_row(r))
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+    except Exception as exc:
+        app.logger.exception('negativacao-positivacao/excel: falha ao montar ficheiro')
+        return jsonify({'error': f'Falha ao gerar o Excel: {exc}'}), 500
+
+    fname = (
+        'negativacao_positivacao_distribuicao_'
         + datetime.datetime.now().strftime('%Y%m%d_%H%M')
         + '.xlsx'
     )
@@ -4920,6 +5227,118 @@ def _tramitacao_row_by_id(cursor, tramitacao_id):
     return _clean_row(cursor.fetchone())
 
 
+def _json_safe(val):
+    """Serializa valores para JSON em payload de moderacao."""
+    if val is None:
+        return None
+    if isinstance(val, (datetime.datetime, datetime.date)):
+        return val.isoformat()
+    if isinstance(val, decimal.Decimal):
+        return float(val)
+    if isinstance(val, (bytes, bytearray)):
+        try:
+            return val.decode('utf-8', errors='replace')
+        except Exception:
+            return str(val)
+    return val
+
+
+def _tramrow_dict_jsonable(row):
+    if not row:
+        return {}
+    out = {}
+    for k, v in row.items():
+        out[k] = _json_safe(v)
+    return out
+
+
+def _tramitacao_validar_put_body(data):
+    """Valida corpo PUT tramitacao legado. Retorna None se OK ou mensagem de erro."""
+    tipo = (data.get('tipo') or '').strip().lower()
+    cpc = (data.get('cpc') or '').strip().lower()
+    descricao = (data.get('descricao') or '')
+    if isinstance(descricao, str) and len(descricao) > 20000:
+        return 'Descricao muito longa.'
+    if tipo not in TRAMITACAO_TIPOS:
+        return 'Tipo invalido.'
+    if cpc not in TRAMITACAO_CPCS:
+        return 'CPC invalido.'
+    ts = _parse_tramitacao_timestamp(data.get('data'))
+    if not ts:
+        return 'Data invalida.'
+    return None
+
+
+def _tramitacao_aplicar_put_payload(cursor, tramitacao_id, data):
+    """Aplica atualizacao legado em tramitacao. Retorna (tramitacao_row_or_None, erro_str_or_None)."""
+    err_v = _tramitacao_validar_put_body(data)
+    if err_v:
+        return None, err_v
+    tipo = (data.get('tipo') or '').strip().lower()
+    cpc = (data.get('cpc') or '').strip().lower()
+    descricao = (data.get('descricao') or '')
+    ts = _parse_tramitacao_timestamp(data.get('data'))
+    canal = tipo
+    tcols = {c.lower(): c for c in _tramitacao_column_names(cursor)}
+    sets = []
+    vals = []
+    if 'forma' in tcols:
+        sets.append('forma = %s')
+        vals.append(canal if canal in TRAMITACAO_TIPOS else 'ligacao')
+    if 'tipo' in tcols:
+        sets.append('tipo = %s')
+        vals.append('ativo')
+    sets.extend(['cpc = %s', 'data = %s', 'descricao = %s'])
+    vals.extend([cpc, ts, descricao or None, tramitacao_id])
+    cursor.execute(
+        f"UPDATE tramitacao SET {', '.join(sets)} WHERE id = %s",
+        vals,
+    )
+    return _tramitacao_row_by_id(cursor, tramitacao_id), None
+
+
+def _moderacao_row_snapshot(cursor, mid):
+    cursor.execute(
+        """
+        SELECT m.*, c.grupo, c.cota,
+               fs.nome AS solicitante_nome, fr.nome AS revisor_nome
+        FROM solicitacao_moderacao m
+        INNER JOIN contrato c ON c.id = m.id_contrato
+        LEFT JOIN funcionario fs ON fs.id = m.id_solicitante
+        LEFT JOIN funcionario fr ON fr.id = m.id_revisor
+        WHERE m.id = %s
+        """,
+        (mid,),
+    )
+    return _clean_row(cursor.fetchone())
+
+
+def _moderacao_contagem_pendente_tramitacao(cursor, ref_id):
+    cursor.execute(
+        """
+        SELECT COUNT(*) AS c FROM solicitacao_moderacao
+        WHERE status = 'pendente' AND ref_id = %s
+          AND tipo IN ('tramitacao_edit', 'tramitacao_delete')
+        """,
+        (ref_id,),
+    )
+    r = cursor.fetchone()
+    return int((r or {}).get('c') or 0)
+
+
+def _moderacao_contagem_pendente_agenda(cursor, ref_id):
+    cursor.execute(
+        """
+        SELECT COUNT(*) AS c FROM solicitacao_moderacao
+        WHERE status = 'pendente' AND ref_id = %s
+          AND tipo IN ('agenda_edit', 'agenda_delete')
+        """,
+        (ref_id,),
+    )
+    r = cursor.fetchone()
+    return int((r or {}).get('c') or 0)
+
+
 @app.route('/api/contrato/<int:contrato_id>/tramitacao', methods=['POST'])
 def api_tramitacao_criar(contrato_id):
     fid = session.get('funcionario_id')
@@ -5001,47 +5420,80 @@ def api_tramitacao_item(tramitacao_id):
     cursor = conn.cursor()
     try:
         _ensure_tramitacao_fluxo_columns(cursor)
-        cursor.execute("SELECT id FROM tramitacao WHERE id = %s", (tramitacao_id,))
+        _ensure_solicitacao_moderacao_table(cursor)
+        cursor.execute(
+            "SELECT id, id_contrato FROM tramitacao WHERE id = %s",
+            (tramitacao_id,),
+        )
         t_row = cursor.fetchone()
         if not t_row:
             return jsonify({'error': 'Tramitacao nao encontrada.'}), 404
+        id_contrato = int(t_row['id_contrato'])
+
+        eh_cobranca = _nivel_normalizado(session.get('funcionario_nivel_acesso')) == 'cobranca'
 
         if request.method == 'DELETE':
+            if eh_cobranca:
+                if _moderacao_contagem_pendente_tramitacao(cursor, tramitacao_id) > 0:
+                    return jsonify({'error': 'Ja existe solicitacao pendente para esta tramitacao.'}), 409
+                antes = _tramrow_dict_jsonable(_tramitacao_row_by_id(cursor, tramitacao_id))
+                payload = json.dumps({'antes': antes}, ensure_ascii=False)
+                cursor.execute(
+                    """
+                    INSERT INTO solicitacao_moderacao
+                    (id_solicitante, tipo, id_contrato, ref_id, payload_json, status)
+                    VALUES (%s, 'tramitacao_delete', %s, %s, %s, 'pendente')
+                    """,
+                    (int(fid), id_contrato, tramitacao_id, payload),
+                )
+                mid = cursor.lastrowid
+                conn.commit()
+                return jsonify({
+                    'success': True,
+                    'pendente_aprovacao': True,
+                    'moderacao_id': mid,
+                    'mensagem': 'Pedido enviado para aprovacao do gestor ou administrador (pagina Solicitacoes).',
+                })
             cursor.execute("DELETE FROM tramitacao WHERE id = %s", (tramitacao_id,))
             conn.commit()
             return jsonify({'success': True})
 
         data = request.get_json(silent=True) or {}
-        tipo = (data.get('tipo') or '').strip().lower()
-        cpc = (data.get('cpc') or '').strip().lower()
-        descricao = (data.get('descricao') or '')
-        if isinstance(descricao, str) and len(descricao) > 20000:
-            return jsonify({'error': 'Descricao muito longa.'}), 400
-        if tipo not in TRAMITACAO_TIPOS:
-            return jsonify({'error': 'Tipo invalido.'}), 400
-        if cpc not in TRAMITACAO_CPCS:
-            return jsonify({'error': 'CPC invalido.'}), 400
-        ts = _parse_tramitacao_timestamp(data.get('data'))
-        if not ts:
-            return jsonify({'error': 'Data invalida.'}), 400
-        canal = tipo
-        tcols = {c.lower(): c for c in _tramitacao_column_names(cursor)}
-        sets = []
-        vals = []
-        if 'forma' in tcols:
-            sets.append('forma = %s')
-            vals.append(canal if canal in TRAMITACAO_TIPOS else 'ligacao')
-        if 'tipo' in tcols:
-            sets.append('tipo = %s')
-            vals.append('ativo')
-        sets.extend(['cpc = %s', 'data = %s', 'descricao = %s'])
-        vals.extend([cpc, ts, descricao or None, tramitacao_id])
-        cursor.execute(
-            f"UPDATE tramitacao SET {', '.join(sets)} WHERE id = %s",
-            vals,
-        )
+        if eh_cobranca:
+            err_val = _tramitacao_validar_put_body(data)
+            if err_val:
+                return jsonify({'error': err_val}), 400
+            if _moderacao_contagem_pendente_tramitacao(cursor, tramitacao_id) > 0:
+                return jsonify({'error': 'Ja existe solicitacao pendente para esta tramitacao.'}), 409
+            antes = _tramrow_dict_jsonable(_tramitacao_row_by_id(cursor, tramitacao_id))
+            proposta = {
+                'tipo': (data.get('tipo') or '').strip().lower(),
+                'cpc': (data.get('cpc') or '').strip().lower(),
+                'data': data.get('data'),
+                'descricao': data.get('descricao'),
+            }
+            payload = json.dumps({'antes': antes, 'proposta': proposta}, ensure_ascii=False)
+            cursor.execute(
+                """
+                INSERT INTO solicitacao_moderacao
+                (id_solicitante, tipo, id_contrato, ref_id, payload_json, status)
+                VALUES (%s, 'tramitacao_edit', %s, %s, %s, 'pendente')
+                """,
+                (int(fid), id_contrato, tramitacao_id, payload),
+            )
+            mid = cursor.lastrowid
+            conn.commit()
+            return jsonify({
+                'success': True,
+                'pendente_aprovacao': True,
+                'moderacao_id': mid,
+                'mensagem': 'Pedido de alteracao enviado para aprovacao do gestor ou administrador (pagina Solicitacoes).',
+            })
+
+        row, err_val = _tramitacao_aplicar_put_payload(cursor, tramitacao_id, data)
+        if err_val:
+            return jsonify({'error': err_val}), 400
         conn.commit()
-        row = _tramitacao_row_by_id(cursor, tramitacao_id)
         return jsonify({'tramitacao': row})
     except Exception as exc:
         if conn:
@@ -8554,51 +9006,122 @@ def api_agenda():
         cursor.close()
         conn.close()
 
+def _agenda_carregar_basico(cursor, id_agenda):
+    cursor.execute(
+        """
+        SELECT a.id, a.id_funcionario, a.id_contrato, a.atividade, a.descricao, a.data,
+               a.prioridade, a.status,
+               f.nome AS funcionario_nome, c.numero_contrato, c.grupo, c.cota
+        FROM agenda a
+        LEFT JOIN funcionario f ON a.id_funcionario = f.id
+        LEFT JOIN contrato c ON a.id_contrato = c.id
+        WHERE a.id = %s
+        """,
+        (id_agenda,),
+    )
+    return _clean_row(cursor.fetchone())
+
+
+def _agenda_sessao_pode_agir(row):
+    """Dono do compromisso ou gestor/administrador."""
+    if not row:
+        return False
+    fid_sess = session.get('funcionario_id')
+    if fid_sess is None:
+        return False
+    dono = int(row.get('id_funcionario') or 0)
+    return dono == int(fid_sess) or _nivel_normalizado(
+        session.get('funcionario_nivel_acesso')
+    ) in ('gestor', 'administrador')
+
+
 @app.route('/api/agenda/<int:id_agenda>', methods=['GET', 'PATCH', 'DELETE'])
 def api_agenda_item(id_agenda):
     conn = _get_db()
     cursor = conn.cursor()
     try:
         if request.method == 'GET':
-            cursor.execute(
-                """
-                SELECT a.*, f.nome AS funcionario_nome, c.numero_contrato, c.grupo, c.cota
-                FROM agenda a
-                LEFT JOIN funcionario f ON a.id_funcionario = f.id
-                LEFT JOIN contrato c ON a.id_contrato = c.id
-                WHERE a.id = %s
-                """,
-                (id_agenda,),
-            )
-            row = _clean_row(cursor.fetchone())
+            row = _agenda_carregar_basico(cursor, id_agenda)
             if not row:
                 return jsonify({'error': 'Agenda não encontrada.'}), 404
-            fid_sess = session.get('funcionario_id')
-            dono = int(row.get('id_funcionario') or 0)
-            pode = False
-            if fid_sess is not None:
-                pode = dono == int(fid_sess) or _nivel_normalizado(
-                    session.get('funcionario_nivel_acesso')
-                ) in ('gestor', 'administrador')
-            if not pode:
+            if not _agenda_sessao_pode_agir(row):
                 return jsonify({'error': 'Acesso negado.'}), 403
             return jsonify(row)
 
+        row = _agenda_carregar_basico(cursor, id_agenda)
+        if not row:
+            return jsonify({'error': 'Agenda não encontrada.'}), 404
+        if not _agenda_sessao_pode_agir(row):
+            return jsonify({'error': 'Acesso negado.'}), 403
+
+        nivel = _nivel_normalizado(session.get('funcionario_nivel_acesso'))
+        eh_cobranca = nivel == 'cobranca'
+        fid_sess = int(session.get('funcionario_id'))
+        id_ctr = row.get('id_contrato')
+
         if request.method == 'PATCH':
-            data = request.json
+            data = request.json or {}
             status = data.get('status')
-            if status in ('pendente', 'concluido'):
-                cursor.execute("UPDATE agenda SET status = %s WHERE id = %s", (status, id_agenda))
+            if status not in ('pendente', 'concluido'):
+                return jsonify({'error': 'status invalid'}), 400
+            if eh_cobranca and id_ctr is not None:
+                _ensure_solicitacao_moderacao_table(cursor)
+                if _moderacao_contagem_pendente_agenda(cursor, id_agenda) > 0:
+                    return jsonify({'error': 'Ja existe solicitacao pendente para este agendamento.'}), 409
+                antes = _tramrow_dict_jsonable(row)
+                payload = json.dumps(
+                    {'antes': antes, 'proposta': {'status': status}},
+                    ensure_ascii=False,
+                )
+                cursor.execute(
+                    """
+                    INSERT INTO solicitacao_moderacao
+                    (id_solicitante, tipo, id_contrato, ref_id, payload_json, status)
+                    VALUES (%s, 'agenda_edit', %s, %s, %s, 'pendente')
+                    """,
+                    (fid_sess, int(id_ctr), id_agenda, payload),
+                )
+                mid = cursor.lastrowid
                 conn.commit()
-                return jsonify({'success': True})
-            return jsonify({'error': 'status invalid'}), 400
+                return jsonify({
+                    'success': True,
+                    'pendente_aprovacao': True,
+                    'moderacao_id': mid,
+                    'mensagem': 'Pedido enviado para aprovacao do gestor ou administrador (pagina Solicitacoes).',
+                })
+            cursor.execute("UPDATE agenda SET status = %s WHERE id = %s", (status, id_agenda))
+            conn.commit()
+            return jsonify({'success': True})
 
         # DELETE
+        if eh_cobranca and id_ctr is not None:
+            _ensure_solicitacao_moderacao_table(cursor)
+            if _moderacao_contagem_pendente_agenda(cursor, id_agenda) > 0:
+                return jsonify({'error': 'Ja existe solicitacao pendente para este agendamento.'}), 409
+            antes = _tramrow_dict_jsonable(row)
+            payload = json.dumps({'antes': antes}, ensure_ascii=False)
+            cursor.execute(
+                """
+                INSERT INTO solicitacao_moderacao
+                (id_solicitante, tipo, id_contrato, ref_id, payload_json, status)
+                VALUES (%s, 'agenda_delete', %s, %s, %s, 'pendente')
+                """,
+                (fid_sess, int(id_ctr), id_agenda, payload),
+            )
+            mid = cursor.lastrowid
+            conn.commit()
+            return jsonify({
+                'success': True,
+                'pendente_aprovacao': True,
+                'moderacao_id': mid,
+                'mensagem': 'Pedido de exclusao enviado para aprovacao do gestor ou administrador (pagina Solicitacoes).',
+            })
         cursor.execute("DELETE FROM agenda WHERE id = %s", (id_agenda,))
         conn.commit()
         return jsonify({'success': True})
 
     except Exception as e:
+        app.logger.exception('api_agenda_item')
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
@@ -8643,6 +9166,33 @@ def _ensure_notificacao_usuario_table(cursor):
             KEY idx_notif_funcionario (id_funcionario),
             CONSTRAINT fk_notificacao_usuario_funcionario
                 FOREIGN KEY (id_funcionario) REFERENCES funcionario (id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+    )
+
+
+def _ensure_solicitacao_moderacao_table(cursor):
+    """Pedidos de alteracao/exclusao de tramitacao/agenda (perfil Cobranca -> aprovacao Gestor/Admin)."""
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS solicitacao_moderacao (
+            id BIGINT PRIMARY KEY AUTO_INCREMENT,
+            id_solicitante INT NOT NULL,
+            tipo VARCHAR(32) NOT NULL,
+            id_contrato BIGINT NOT NULL,
+            ref_id BIGINT NOT NULL,
+            payload_json TEXT NULL,
+            status ENUM('pendente', 'aprovado', 'reprovado') NOT NULL DEFAULT 'pendente',
+            id_revisor INT NULL,
+            revisado_em DATETIME NULL,
+            motivo_reprovacao VARCHAR(512) NULL,
+            created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+            KEY idx_sol_mod_status (status),
+            KEY idx_sol_mod_solicitante (id_solicitante),
+            KEY idx_sol_mod_ref (tipo, ref_id),
+            CONSTRAINT fk_sol_mod_solicitante FOREIGN KEY (id_solicitante) REFERENCES funcionario (id),
+            CONSTRAINT fk_sol_mod_revisor FOREIGN KEY (id_revisor) REFERENCES funcionario (id),
+            CONSTRAINT fk_sol_mod_contrato FOREIGN KEY (id_contrato) REFERENCES contrato (id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """
     )
@@ -10440,7 +10990,7 @@ def _negativacao_listagem_fetch_positivacao_rows(
     cursor.execute(
         f"""
         SELECT h.id AS id_historico, h.id_contrato, h.id_parcela, h.numero_parcela,
-               h.tipo_evento, h.data_evento, h.dias_atraso, h.status_snapshot,
+               h.tipo_evento, h.data_evento, h.dias_atraso, h.status_snapshot, h.detalhe,
                c.grupo, c.cota, c.numero_contrato, c.status AS contrato_status,
                f.nome AS funcionario_nome
         FROM negativacao_historico h
@@ -10536,6 +11086,292 @@ def _split_negativacao_ativos_negativados_positivados(rows):
     return negativados, positivados
 
 
+
+
+def _negativacao_listagem_payload_interno(
+    cursor,
+    *,
+    q='',
+    tipo_busca='contrato',
+    evento='todos',
+    status_ativo='',
+    data_inicio=None,
+    data_fim=None,
+    sort_at='data',
+    order_at='desc',
+    apenas_cobranca=False,
+    sem_operador_cobranca=False,
+    preview_ativos=False,
+    funcionario_id_filtro=None,
+):
+    """Mesmo dict da API GET /api/negativacao/listagem (sem jsonify)."""
+    order_at_sql = _negativacao_listagem_order_at(sort_at, order_at)
+    _ensure_negativacao_table(cursor)
+    _ensure_negativacao_historico_table(cursor)
+
+    where_at = []
+    params_at = []
+
+    data_ref_cobranca_resp = None
+    clause_cob = None
+    params_cob = []
+    if apenas_cobranca:
+        fid_clause = None if sem_operador_cobranca else funcionario_id_filtro
+        clause_cob, params_cob, data_ref_cobranca_resp = (
+            _negativacao_apenas_cobranca_exists_clause(cursor, fid_clause)
+        )
+        if sem_operador_cobranca:
+            clause_cob, params_cob = None, []
+
+    carteira_dn_ini = data_inicio
+    carteira_dn_fim = data_fim
+    carteira_usou_data_padrao_gm = False
+    if apenas_cobranca and not carteira_dn_ini and not carteira_dn_fim:
+        carteira_dn_fim = data_ref_cobranca_resp
+        carteira_usou_data_padrao_gm = bool(data_ref_cobranca_resp)
+
+    if q:
+        like = f"%{q}%"
+        if tipo_busca == 'contrato':
+            clause = (
+                "(CAST(c.grupo AS CHAR) LIKE %s OR CAST(c.cota AS CHAR) LIKE %s "
+                "OR CONCAT(c.grupo, '/', c.cota) LIKE %s OR CAST(c.numero_contrato AS CHAR) LIKE %s)"
+            )
+            where_at.append(clause)
+            params_at.extend([like, like, like, like])
+        else:
+            where_at.append(
+                "EXISTS (SELECT 1 FROM negativacao_historico h2 WHERE h2.id_contrato = n.id_contrato "
+                "AND (h2.detalhe LIKE %s OR h2.tipo_evento LIKE %s))"
+            )
+            params_at.extend([like, like])
+
+    frag_dn_carteira = ''
+    frag_geral_dn = ''
+    if apenas_cobranca:
+        frag_dn_carteira, par_dn = _negativacao_carteira_where_data_negativacao_efetiva(
+            carteira_dn_ini, carteira_dn_fim
+        )
+        if frag_dn_carteira:
+            where_at.append(frag_dn_carteira)
+            params_at.extend(par_dn)
+    elif data_inicio or data_fim:
+        frag_geral_dn, par_g = _negativacao_carteira_where_data_negativacao_efetiva(
+            data_inicio, data_fim
+        )
+        if frag_geral_dn:
+            where_at.append(frag_geral_dn)
+            params_at.extend(par_g)
+
+    if evento not in ('', 'todos', 'all'):
+        if apenas_cobranca:
+            if evento in ('positivado', 'observacao', 'removido_pagamento', 'removido_manual'):
+                where_at.append('1=0')
+            elif evento == 'negativado_tracker':
+                where_at.append("n.status = 'registrado_tracker'")
+            elif evento == 'negativado_manual':
+                where_at.append("n.status IN ('enviado', 'falhou')")
+        else:
+            if evento in ('positivado', 'observacao', 'removido_pagamento', 'removido_manual'):
+                where_at.append('1=0')
+            elif evento == 'negativado_tracker':
+                where_at.append("n.status = 'registrado_tracker'")
+            elif evento == 'negativado_manual':
+                where_at.append("n.status IN ('enviado', 'falhou')")
+
+    if status_ativo:
+        where_at.append('n.status = %s')
+        params_at.append(status_ativo)
+
+    if apenas_cobranca:
+        if sem_operador_cobranca and data_ref_cobranca_resp:
+            frag_sem, par_sem = _negativacao_sem_operador_cobranca_contrato_fragment(
+                data_ref_cobranca_resp
+            )
+            where_at.append(frag_sem)
+            params_at.extend(par_sem)
+        elif clause_cob:
+            where_at.append(clause_cob)
+            params_at.extend(params_cob)
+
+    wh_at = ("WHERE " + " AND ".join(where_at)) if where_at else ""
+
+    total_hist = 0
+    historico = []
+
+    # Visao geral + filtros padrao + preview: so as 20 parcelas ativas mais recentes.
+    # Carteira cobranca ou pesquisa com filtros: todas as linhas que batem no WHERE.
+    limite_ativos = None
+    if not apenas_cobranca and preview_ativos:
+        limite_ativos = 20
+    limit_sql_at = ''
+    params_limit_at = []
+    if limite_ativos is not None:
+        limit_sql_at = ' LIMIT %s'
+        params_limit_at.append(limite_ativos)
+
+    cursor.execute(
+        f"""
+        SELECT COUNT(*) AS total
+        FROM negativacao n
+        JOIN contrato c ON c.id = n.id_contrato
+        {wh_at}
+        """,
+        params_at,
+    )
+    total_ativos = int((cursor.fetchone() or {}).get('total') or 0)
+
+    cursor.execute(
+        f"""
+        SELECT n.*, c.grupo, c.cota, c.numero_contrato, c.status AS contrato_status,
+               f.nome AS funcionario_nome
+        FROM negativacao n
+        JOIN contrato c ON c.id = n.id_contrato
+        LEFT JOIN funcionario f ON n.id_funcionario = f.id
+        {wh_at}
+        {order_at_sql}
+        {limit_sql_at}
+        """,
+        params_at + params_limit_at,
+    )
+    ativos = _dedupe_negativacao_ativas_exibicao(_clean_rows(cursor.fetchall()))
+    for r in ativos:
+        _negativacao_row_serasa_flags(r)
+
+    frag_dn_para_posit = frag_dn_carteira if apenas_cobranca else frag_geral_dn
+    dn_ini_posit = carteira_dn_ini if apenas_cobranca else data_inicio
+    dn_fim_posit = carteira_dn_fim if apenas_cobranca else data_fim
+    if frag_dn_para_posit and _negativacao_carteira_deve_incluir_positivas(evento):
+        if apenas_cobranca:
+            posit_kwargs = {}
+            if sem_operador_cobranca and data_ref_cobranca_resp:
+                posit_kwargs['filtro_sem_operador_cobranca'] = data_ref_cobranca_resp
+            elif funcionario_id_filtro is not None and data_ref_cobranca_resp:
+                posit_kwargs['filtro_operador_carteira'] = (
+                    funcionario_id_filtro,
+                    data_ref_cobranca_resp,
+                )
+            ativos.extend(
+                _negativacao_listagem_fetch_positivacao_rows(
+                    cursor,
+                    dn_ini_posit,
+                    dn_fim_posit,
+                    q,
+                    tipo_busca,
+                    evento,
+                    status_ativo,
+                    **posit_kwargs,
+                )
+            )
+        else:
+            ativos.extend(
+                _negativacao_listagem_fetch_positivacao_rows(
+                    cursor,
+                    dn_ini_posit,
+                    dn_fim_posit,
+                    q,
+                    tipo_busca,
+                    evento,
+                    status_ativo,
+                )
+            )
+
+    if apenas_cobranca or frag_geral_dn:
+        total_ativos = len(ativos)
+
+    payload = {
+        'historico': historico,
+        'total_historico': total_hist,
+        'ativos': ativos,
+        'total_ativos': total_ativos,
+        'modo_cobranca': bool(apenas_cobranca),
+        'ativos_em_preview': bool(not apenas_cobranca and limite_ativos == 20),
+    }
+    if apenas_cobranca:
+        payload['carteira_filtro_data_negativacao'] = {
+            'data_inicio': carteira_dn_ini,
+            'data_fim': carteira_dn_fim,
+            'usou_data_padrao_ultimo_gm': carteira_usou_data_padrao_gm,
+        }
+    if apenas_cobranca and data_ref_cobranca_resp:
+        payload['data_referencia_cobranca'] = data_ref_cobranca_resp
+        neg_n, pos_n = _split_negativacao_ativos_negativados_positivados(ativos)
+        payload['ativos_negativados'] = neg_n
+        payload['ativos_positivados'] = pos_n
+        payload['total_ativos_negativados'] = len(neg_n)
+        payload['total_ativos_positivados'] = len(pos_n)
+        try:
+            cursor.execute(
+                "SELECT id, nome FROM funcionario WHERE "
+                + _WHERE_FUNCIONARIO_COBRANCA
+                + " ORDER BY nome"
+            )
+            payload['funcionarios_cobranca'] = [
+                {'id': int(x['id']), 'nome': x['nome']}
+                for x in cursor.fetchall()
+            ]
+        except Exception:
+            payload['funcionarios_cobranca'] = []
+    return payload
+
+
+def _negativacao_listagem_kwargs_from_request(req, *, preview_ativos_force=None):
+    """Argumentos de ``_negativacao_listagem_payload_interno`` a partir da query string."""
+    q = (req.args.get('q') or '').strip()
+    tipo_busca = (req.args.get('tipo_busca') or 'contrato').strip().lower()
+    if tipo_busca not in ('contrato', 'texto'):
+        tipo_busca = 'contrato'
+
+    evento = (req.args.get('evento') or 'todos').strip().lower()
+    status_ativo = (req.args.get('status_ativo') or '').strip()
+    data_inicio = _negativacao_listagem_data_iso(req.args.get('data_inicio'))
+    data_fim = _negativacao_listagem_data_iso(req.args.get('data_fim'))
+
+    sort_at = (req.args.get('sort_ativos') or 'data').strip().lower()
+    order_at = (req.args.get('order_ativos') or 'desc').strip().lower()
+
+    _ac = (req.args.get('apenas_cobranca') or '').strip().lower()
+    apenas_cobranca = _ac in ('1', 'true', 'yes', 'sim', 'on')
+
+    _so = (req.args.get('sem_operador_cobranca') or '').strip().lower()
+    sem_operador_cobranca = bool(apenas_cobranca) and _so in (
+        '1',
+        'true',
+        'yes',
+        'sim',
+        'on',
+    )
+
+    _pv = (req.args.get('preview_ativos') or '').strip().lower()
+    preview_ativos = _pv in ('1', 'true', 'yes', 'sim', 'on')
+    if preview_ativos_force is not None:
+        preview_ativos = bool(preview_ativos_force)
+
+    funcionario_id_filtro = None
+    if not sem_operador_cobranca:
+        fid_raw = (req.args.get('funcionario_id') or '').strip()
+        if fid_raw:
+            try:
+                funcionario_id_filtro = int(fid_raw)
+            except (TypeError, ValueError):
+                funcionario_id_filtro = None
+
+    return {
+        'q': q,
+        'tipo_busca': tipo_busca,
+        'evento': evento,
+        'status_ativo': status_ativo,
+        'data_inicio': data_inicio,
+        'data_fim': data_fim,
+        'sort_at': sort_at,
+        'order_at': order_at,
+        'apenas_cobranca': apenas_cobranca,
+        'sem_operador_cobranca': sem_operador_cobranca,
+        'preview_ativos': preview_ativos,
+        'funcionario_id_filtro': funcionario_id_filtro,
+    }
+
+
 @app.route('/api/negativacao/listagem')
 def api_negativacao_listagem():
     """Lista parcelas negativadas / positivações no período (painel do módulo).
@@ -10550,254 +11386,12 @@ def api_negativacao_listagem():
     (negativação + fallback `data_negativacao`) e acrescenta positivações (`removido_*`) no intervalo.
     A resposta inclui `historico` e `total_historico` vazios (compatibilidade; UI unificada na lista).
     """
-    q = (request.args.get('q') or '').strip()
-    tipo_busca = (request.args.get('tipo_busca') or 'contrato').strip().lower()
-    if tipo_busca not in ('contrato', 'texto'):
-        tipo_busca = 'contrato'
-
-    evento = (request.args.get('evento') or 'todos').strip().lower()
-    status_ativo = (request.args.get('status_ativo') or '').strip()
-    data_inicio = _negativacao_listagem_data_iso(request.args.get('data_inicio'))
-    data_fim = _negativacao_listagem_data_iso(request.args.get('data_fim'))
-
-    sort_at = (request.args.get('sort_ativos') or 'data').strip().lower()
-    order_at = (request.args.get('order_ativos') or 'desc').strip().lower()
-
-    _ac = (request.args.get('apenas_cobranca') or '').strip().lower()
-    apenas_cobranca = _ac in ('1', 'true', 'yes', 'sim', 'on')
-
-    _so = (request.args.get('sem_operador_cobranca') or '').strip().lower()
-    sem_operador_cobranca = bool(apenas_cobranca) and _so in (
-        '1',
-        'true',
-        'yes',
-        'sim',
-        'on',
-    )
-
-    _pv = (request.args.get('preview_ativos') or '').strip().lower()
-    preview_ativos = _pv in ('1', 'true', 'yes', 'sim', 'on')
-
-    funcionario_id_filtro = None
-    if not sem_operador_cobranca:
-        fid_raw = (request.args.get('funcionario_id') or '').strip()
-        if fid_raw:
-            try:
-                funcionario_id_filtro = int(fid_raw)
-            except (TypeError, ValueError):
-                funcionario_id_filtro = None
-
-    order_at_sql = _negativacao_listagem_order_at(sort_at, order_at)
+    kw = _negativacao_listagem_kwargs_from_request(request)
 
     conn = _get_db()
     cursor = conn.cursor()
     try:
-        _ensure_negativacao_table(cursor)
-        _ensure_negativacao_historico_table(cursor)
-
-        where_at = []
-        params_at = []
-
-        data_ref_cobranca_resp = None
-        clause_cob = None
-        params_cob = []
-        if apenas_cobranca:
-            fid_clause = None if sem_operador_cobranca else funcionario_id_filtro
-            clause_cob, params_cob, data_ref_cobranca_resp = (
-                _negativacao_apenas_cobranca_exists_clause(cursor, fid_clause)
-            )
-            if sem_operador_cobranca:
-                clause_cob, params_cob = None, []
-
-        carteira_dn_ini = data_inicio
-        carteira_dn_fim = data_fim
-        carteira_usou_data_padrao_gm = False
-        if apenas_cobranca and not carteira_dn_ini and not carteira_dn_fim:
-            carteira_dn_fim = data_ref_cobranca_resp
-            carteira_usou_data_padrao_gm = bool(data_ref_cobranca_resp)
-
-        if q:
-            like = f"%{q}%"
-            if tipo_busca == 'contrato':
-                clause = (
-                    "(CAST(c.grupo AS CHAR) LIKE %s OR CAST(c.cota AS CHAR) LIKE %s "
-                    "OR CONCAT(c.grupo, '/', c.cota) LIKE %s OR CAST(c.numero_contrato AS CHAR) LIKE %s)"
-                )
-                where_at.append(clause)
-                params_at.extend([like, like, like, like])
-            else:
-                where_at.append(
-                    "EXISTS (SELECT 1 FROM negativacao_historico h2 WHERE h2.id_contrato = n.id_contrato "
-                    "AND (h2.detalhe LIKE %s OR h2.tipo_evento LIKE %s))"
-                )
-                params_at.extend([like, like])
-
-        frag_dn_carteira = ''
-        frag_geral_dn = ''
-        if apenas_cobranca:
-            frag_dn_carteira, par_dn = _negativacao_carteira_where_data_negativacao_efetiva(
-                carteira_dn_ini, carteira_dn_fim
-            )
-            if frag_dn_carteira:
-                where_at.append(frag_dn_carteira)
-                params_at.extend(par_dn)
-        elif data_inicio or data_fim:
-            frag_geral_dn, par_g = _negativacao_carteira_where_data_negativacao_efetiva(
-                data_inicio, data_fim
-            )
-            if frag_geral_dn:
-                where_at.append(frag_geral_dn)
-                params_at.extend(par_g)
-
-        if evento not in ('', 'todos', 'all'):
-            if apenas_cobranca:
-                if evento in ('positivado', 'observacao', 'removido_pagamento', 'removido_manual'):
-                    where_at.append('1=0')
-                elif evento == 'negativado_tracker':
-                    where_at.append("n.status = 'registrado_tracker'")
-                elif evento == 'negativado_manual':
-                    where_at.append("n.status IN ('enviado', 'falhou')")
-            else:
-                if evento in ('positivado', 'observacao', 'removido_pagamento', 'removido_manual'):
-                    where_at.append('1=0')
-                elif evento == 'negativado_tracker':
-                    where_at.append("n.status = 'registrado_tracker'")
-                elif evento == 'negativado_manual':
-                    where_at.append("n.status IN ('enviado', 'falhou')")
-
-        if status_ativo:
-            where_at.append('n.status = %s')
-            params_at.append(status_ativo)
-
-        if apenas_cobranca:
-            if sem_operador_cobranca and data_ref_cobranca_resp:
-                frag_sem, par_sem = _negativacao_sem_operador_cobranca_contrato_fragment(
-                    data_ref_cobranca_resp
-                )
-                where_at.append(frag_sem)
-                params_at.extend(par_sem)
-            elif clause_cob:
-                where_at.append(clause_cob)
-                params_at.extend(params_cob)
-
-        wh_at = ("WHERE " + " AND ".join(where_at)) if where_at else ""
-
-        total_hist = 0
-        historico = []
-
-        # Visao geral + filtros padrao + preview: so as 20 parcelas ativas mais recentes.
-        # Carteira cobranca ou pesquisa com filtros: todas as linhas que batem no WHERE.
-        limite_ativos = None
-        if not apenas_cobranca and preview_ativos:
-            limite_ativos = 20
-        limit_sql_at = ''
-        params_limit_at = []
-        if limite_ativos is not None:
-            limit_sql_at = ' LIMIT %s'
-            params_limit_at.append(limite_ativos)
-
-        cursor.execute(
-            f"""
-            SELECT COUNT(*) AS total
-            FROM negativacao n
-            JOIN contrato c ON c.id = n.id_contrato
-            {wh_at}
-            """,
-            params_at,
-        )
-        total_ativos = int((cursor.fetchone() or {}).get('total') or 0)
-
-        cursor.execute(
-            f"""
-            SELECT n.*, c.grupo, c.cota, c.numero_contrato, c.status AS contrato_status,
-                   f.nome AS funcionario_nome
-            FROM negativacao n
-            JOIN contrato c ON c.id = n.id_contrato
-            LEFT JOIN funcionario f ON n.id_funcionario = f.id
-            {wh_at}
-            {order_at_sql}
-            {limit_sql_at}
-            """,
-            params_at + params_limit_at,
-        )
-        ativos = _dedupe_negativacao_ativas_exibicao(_clean_rows(cursor.fetchall()))
-        for r in ativos:
-            _negativacao_row_serasa_flags(r)
-
-        frag_dn_para_posit = frag_dn_carteira if apenas_cobranca else frag_geral_dn
-        dn_ini_posit = carteira_dn_ini if apenas_cobranca else data_inicio
-        dn_fim_posit = carteira_dn_fim if apenas_cobranca else data_fim
-        if frag_dn_para_posit and _negativacao_carteira_deve_incluir_positivas(evento):
-            if apenas_cobranca:
-                posit_kwargs = {}
-                if sem_operador_cobranca and data_ref_cobranca_resp:
-                    posit_kwargs['filtro_sem_operador_cobranca'] = data_ref_cobranca_resp
-                elif funcionario_id_filtro is not None and data_ref_cobranca_resp:
-                    posit_kwargs['filtro_operador_carteira'] = (
-                        funcionario_id_filtro,
-                        data_ref_cobranca_resp,
-                    )
-                ativos.extend(
-                    _negativacao_listagem_fetch_positivacao_rows(
-                        cursor,
-                        dn_ini_posit,
-                        dn_fim_posit,
-                        q,
-                        tipo_busca,
-                        evento,
-                        status_ativo,
-                        **posit_kwargs,
-                    )
-                )
-            else:
-                ativos.extend(
-                    _negativacao_listagem_fetch_positivacao_rows(
-                        cursor,
-                        dn_ini_posit,
-                        dn_fim_posit,
-                        q,
-                        tipo_busca,
-                        evento,
-                        status_ativo,
-                    )
-                )
-
-        if apenas_cobranca or frag_geral_dn:
-            total_ativos = len(ativos)
-
-        payload = {
-            'historico': historico,
-            'total_historico': total_hist,
-            'ativos': ativos,
-            'total_ativos': total_ativos,
-            'modo_cobranca': bool(apenas_cobranca),
-            'ativos_em_preview': bool(not apenas_cobranca and limite_ativos == 20),
-        }
-        if apenas_cobranca:
-            payload['carteira_filtro_data_negativacao'] = {
-                'data_inicio': carteira_dn_ini,
-                'data_fim': carteira_dn_fim,
-                'usou_data_padrao_ultimo_gm': carteira_usou_data_padrao_gm,
-            }
-        if apenas_cobranca and data_ref_cobranca_resp:
-            payload['data_referencia_cobranca'] = data_ref_cobranca_resp
-            neg_n, pos_n = _split_negativacao_ativos_negativados_positivados(ativos)
-            payload['ativos_negativados'] = neg_n
-            payload['ativos_positivados'] = pos_n
-            payload['total_ativos_negativados'] = len(neg_n)
-            payload['total_ativos_positivados'] = len(pos_n)
-            try:
-                cursor.execute(
-                    "SELECT id, nome FROM funcionario WHERE "
-                    + _WHERE_FUNCIONARIO_COBRANCA
-                    + " ORDER BY nome"
-                )
-                payload['funcionarios_cobranca'] = [
-                    {'id': int(x['id']), 'nome': x['nome']}
-                    for x in cursor.fetchall()
-                ]
-            except Exception:
-                payload['funcionarios_cobranca'] = []
+        payload = _negativacao_listagem_payload_interno(cursor, **kw)
         return jsonify(payload)
     finally:
         try:
@@ -10808,6 +11402,132 @@ def api_negativacao_listagem():
             conn.close()
         except Exception:
             pass
+
+
+@app.route('/api/negativacao/listagem/excel', methods=['GET'])
+def api_negativacao_listagem_excel():
+    """Excel com duas folhas (NEGATIVAÇÃO / POSITIVAÇÃO), mesmos filtros que a listagem na UI.
+
+    Ignora ``preview_ativos``: exporta sempre o conjunto completo para os filtros atuais.
+    Opcional: ``excel_sort_neg_col``, ``excel_sort_neg_dir``, ``excel_sort_pos_col``,
+    ``excel_sort_pos_dir`` (asc/desc), alinhados ao ordenamento das tabelas no navegador.
+    """
+    if not session.get('funcionario_id'):
+        return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
+
+    try:
+        from openpyxl import Workbook
+    except ImportError:
+        return jsonify({
+            'error': 'Biblioteca openpyxl nao instalada. Execute: pip install openpyxl',
+        }), 503
+
+    kw = _negativacao_listagem_kwargs_from_request(request, preview_ativos_force=False)
+    fb_sort = kw['sort_at']
+    fb_order = kw['order_at']
+    if fb_order not in ('asc', 'desc'):
+        fb_order = 'desc'
+
+    neg_sc = _negativacao_listagem_normalize_excel_sort_col(
+        request.args.get('excel_sort_neg_col'), fb_sort)
+    neg_od = (request.args.get('excel_sort_neg_dir') or fb_order).strip().lower()
+    if neg_od not in ('asc', 'desc'):
+        neg_od = fb_order
+
+    pos_sc = _negativacao_listagem_normalize_excel_sort_col(
+        request.args.get('excel_sort_pos_col'), fb_sort)
+    pos_od = (request.args.get('excel_sort_pos_dir') or fb_order).strip().lower()
+    if pos_od not in ('asc', 'desc'):
+        pos_od = fb_order
+
+    hdr = (
+        'Grupo/Cota',
+        'Nº contrato',
+        'ID contrato',
+        'Parcela',
+        'ID parcela',
+        'ID registro',
+        'Dias de atraso',
+        'Status parcela',
+        'Tipo de evento',
+        'Data',
+        'Operador',
+        'Status contrato',
+        'Detalhe',
+    )
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        payload = _negativacao_listagem_payload_interno(cursor, **kw)
+    except Exception as exc:
+        app.logger.exception('negativacao/listagem/excel: falha ao montar listagem')
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return jsonify({'error': f'Falha ao consultar dados para o Excel: {exc}'}), 500
+
+    try:
+        cursor.close()
+    except Exception:
+        pass
+    try:
+        conn.close()
+    except Exception:
+        pass
+
+    if kw['apenas_cobranca']:
+        neg_rows = list(payload.get('ativos_negativados') or [])
+        pos_rows = list(payload.get('ativos_positivados') or [])
+    else:
+        ativos = payload.get('ativos') or []
+        neg_rows, pos_rows = _split_negativacao_ativos_negativados_positivados(ativos)
+
+    neg_rows = _negativacao_listagem_excel_sort_rows(neg_rows, neg_sc, neg_od)
+    pos_rows = _negativacao_listagem_excel_sort_rows(pos_rows, pos_sc, pos_od)
+
+    try:
+        wb = Workbook()
+        ws_neg = wb.active
+        ws_neg.title = 'NEGATIVAÇÃO'
+        ws_neg.append(hdr)
+        if not neg_rows:
+            ws_neg.append(
+                ('Nenhum registro na lista de negativação para os filtros atuais.',) + ('',) * 12
+            )
+        else:
+            for r in neg_rows:
+                ws_neg.append(_negativacao_listagem_excel_row(r))
+
+        ws_pos = wb.create_sheet(title='POSITIVAÇÃO')
+        ws_pos.append(hdr)
+        if not pos_rows:
+            ws_pos.append(
+                ('Nenhum registro na lista de positivação para os filtros atuais.',) + ('',) * 12
+            )
+        else:
+            for r in pos_rows:
+                ws_pos.append(_negativacao_listagem_excel_row(r))
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+    except Exception as exc:
+        app.logger.exception('negativacao/listagem/excel: falha ao montar ficheiro')
+        return jsonify({'error': f'Falha ao gerar o Excel: {exc}'}), 500
+
+    fname = 'negativacao_listagem_' + datetime.datetime.now().strftime('%Y%m%d_%H%M') + '.xlsx'
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=fname,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
 
 
 @app.route('/api/negativacao/positivar-lote-serasa', methods=['POST'])
@@ -11491,6 +12211,185 @@ def api_protocolo_post():
         cursor.close()
         conn.close()
     return jsonify({'ok': True, 'id': new_id})
+
+
+@app.route('/api/solicitacao/moderacao/pendentes', methods=['GET'])
+def api_solicitacao_moderacao_pendentes():
+    """Lista pedidos pendentes de alteracao/exclusao (tramitacao/agenda) para Gestor/Administrador."""
+    forb = _admin_json_forbidden()
+    if forb:
+        return forb
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        _ensure_solicitacao_moderacao_table(cursor)
+        cursor.execute(
+            """
+            SELECT m.*, c.grupo, c.cota, fs.nome AS solicitante_nome
+            FROM solicitacao_moderacao m
+            INNER JOIN contrato c ON c.id = m.id_contrato
+            LEFT JOIN funcionario fs ON fs.id = m.id_solicitante
+            WHERE m.status = 'pendente'
+            ORDER BY m.created_at DESC
+            """
+        )
+        rows = _clean_rows(cursor.fetchall())
+        return jsonify({'results': rows, 'total': len(rows)})
+    except Exception as exc:
+        app.logger.exception('api_solicitacao_moderacao_pendentes')
+        return jsonify({'error': str(exc)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/solicitacao/moderacao/minhas', methods=['GET'])
+def api_solicitacao_moderacao_minhas():
+    """Historico do usuario logado (perfil Cobranca): pedidos de moderacao enviados."""
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Nao autenticado.'}), 401
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        _ensure_solicitacao_moderacao_table(cursor)
+        cursor.execute(
+            """
+            SELECT m.*, c.grupo, c.cota
+            FROM solicitacao_moderacao m
+            INNER JOIN contrato c ON c.id = m.id_contrato
+            WHERE m.id_solicitante = %s
+            ORDER BY m.created_at DESC
+            LIMIT 300
+            """,
+            (int(fid),),
+        )
+        rows = _clean_rows(cursor.fetchall())
+        return jsonify({'results': rows, 'total': len(rows)})
+    except Exception as exc:
+        app.logger.exception('api_solicitacao_moderacao_minhas')
+        return jsonify({'error': str(exc)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/solicitacao/moderacao/<int:mid>/decisao', methods=['POST'])
+def api_solicitacao_moderacao_decisao(mid):
+    """Gestor/Administrador: aprovar ou reprovar pedido de moderacao."""
+    forb = _admin_json_forbidden()
+    if forb:
+        return forb
+    body = request.get_json(silent=True) or {}
+    acao = (body.get('acao') or '').strip().lower()
+    motivo = (body.get('motivo') or '').strip()[:512] or None
+    if acao not in ('aprovar', 'reprovar'):
+        return jsonify({'error': 'Informe acao: aprovar ou reprovar.'}), 400
+    if acao == 'reprovar' and not motivo:
+        return jsonify({'error': 'Informe o motivo da reprovacao.'}), 400
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        _ensure_solicitacao_moderacao_table(cursor)
+        _ensure_tramitacao_fluxo_columns(cursor)
+        cursor.execute(
+            'SELECT * FROM solicitacao_moderacao WHERE id = %s',
+            (mid,),
+        )
+        mod = _clean_row(cursor.fetchone())
+        if not mod:
+            return jsonify({'error': 'Solicitacao nao encontrada.'}), 404
+        if (mod.get('status') or '').lower() != 'pendente':
+            return jsonify({'error': 'Esta solicitacao ja foi tratada.'}), 409
+
+        rev_id = int(session.get('funcionario_id'))
+        now = datetime.datetime.now()
+
+        if acao == 'reprovar':
+            cursor.execute(
+                """
+                UPDATE solicitacao_moderacao
+                SET status = 'reprovado', id_revisor = %s, revisado_em = %s,
+                    motivo_reprovacao = %s
+                WHERE id = %s AND status = 'pendente'
+                """,
+                (rev_id, now, motivo, mid),
+            )
+            conn.commit()
+            if cursor.rowcount == 0:
+                return jsonify({'error': 'Nao foi possivel atualizar o registro.'}), 409
+            return jsonify({'ok': True})
+
+        tipo = (mod.get('tipo') or '').strip()
+        ref_id = int(mod['ref_id'])
+        id_ctr = int(mod['id_contrato'])
+        payload = {}
+        pj = mod.get('payload_json')
+        if pj:
+            try:
+                payload = json.loads(pj)
+            except Exception:
+                payload = {}
+
+        if tipo == 'tramitacao_delete':
+            cursor.execute('SELECT id FROM tramitacao WHERE id = %s', (ref_id,))
+            if not cursor.fetchone():
+                return jsonify({'error': 'Tramitacao ja foi removida ou nao existe.'}), 409
+            cursor.execute('DELETE FROM tramitacao WHERE id = %s', (ref_id,))
+        elif tipo == 'tramitacao_edit':
+            prop = payload.get('proposta') or {}
+            _row, err = _tramitacao_aplicar_put_payload(cursor, ref_id, prop)
+            if err:
+                return jsonify({'error': 'Falha ao aplicar alteracao: ' + err}), 400
+        elif tipo == 'agenda_delete':
+            cursor.execute(
+                'SELECT id FROM agenda WHERE id = %s AND id_contrato = %s',
+                (ref_id, id_ctr),
+            )
+            if not cursor.fetchone():
+                return jsonify({'error': 'Agendamento nao encontrado ou ja removido.'}), 409
+            cursor.execute('DELETE FROM agenda WHERE id = %s', (ref_id,))
+        elif tipo == 'agenda_edit':
+            prop = payload.get('proposta') or {}
+            st = prop.get('status')
+            if st not in ('pendente', 'concluido'):
+                return jsonify({'error': 'Payload da solicitacao invalido.'}), 400
+            cursor.execute(
+                """
+                UPDATE agenda SET status = %s
+                WHERE id = %s AND id_contrato = %s
+                """,
+                (st, ref_id, id_ctr),
+            )
+            if cursor.rowcount == 0:
+                return jsonify({'error': 'Agendamento nao encontrado ou contrato divergente.'}), 409
+        else:
+            return jsonify({'error': 'Tipo de moderacao desconhecido.'}), 400
+
+        cursor.execute(
+            """
+            UPDATE solicitacao_moderacao
+            SET status = 'aprovado', id_revisor = %s, revisado_em = %s, motivo_reprovacao = NULL
+            WHERE id = %s AND status = 'pendente'
+            """,
+            (rev_id, now, mid),
+        )
+        conn.commit()
+        if cursor.rowcount == 0:
+            return jsonify({'error': 'Nao foi possivel concluir a aprovacao.'}), 409
+        return jsonify({'ok': True})
+    except Exception as exc:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        app.logger.exception('api_solicitacao_moderacao_decisao')
+        return jsonify({'error': str(exc)}), 500
+    finally:
+        cursor.close()
+        conn.close()
 
 
 @app.route('/api/protocolos')

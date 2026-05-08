@@ -62,7 +62,7 @@
             <!-- Blocos por funcionario -->
             <div class="distribuicao-funcionarios" id="distribuicaoFuncionarios"></div>
 
-            <!-- Rodape: SMS automáticos (modal inclui lista Excel), Negativação/Positivação, Recarregar, Restaurar, Aprovar -->
+            <!-- Rodape: SMS automáticos, Negativação/Positivação (Carteira), Recarregar, Restaurar, Aprovar -->
             <div class="distribuicao-actions distribuicao-actions-footer">
                 <button type="button" class="btn-secondary-dist btn-sms-automatizados-dist" id="btnSmsAutomatizadosDistribuicao" disabled title="SMS e e-mail automáticos (MessageCenter): mesmos contratos e critérios; ignora contratos que já tiveram SMS ou e-mail hoje">
                     <i class="fa-solid fa-comment-sms"></i> SMS/E-mail Automáticos
@@ -126,14 +126,14 @@
         </div>
     </div>
 
-    <!-- Modal: escolha de filtro antes de abrir Negativação (Carteira) -->
+    <!-- Modal: escolha de filtro antes de abrir Negativação (Carteira) — apenas Importação -->
     <div class="transfer-modal-overlay d-none" id="negPosEscolhaModal" role="dialog" aria-modal="true" aria-labelledby="negPosEscolhaTitle">
         <div class="transfer-modal neg-pos-modal">
             <header class="transfer-modal-header">
                 <div>
                     <h3 id="negPosEscolhaTitle"><i class="fa-solid fa-scale-balanced"></i> Negativação / Positivação</h3>
                     <p class="transfer-modal-sub" id="negPosEscolhaSub">
-                        Você quer visualizar todos positivados e negativados ou você quer apenas visualizar os que não têm cobrança?
+                        Abrir o módulo na carteira de cobrança com todos os operadores (positivados e negativados).
                     </p>
                 </div>
                 <button type="button" class="transfer-close" id="negPosEscolhaFechar" aria-label="Fechar">&times;</button>
@@ -143,9 +143,9 @@
                     <strong>Todos</strong>
                     <span>Carteira cobrança com todos os operadores</span>
                 </button>
-                <button type="button" class="neg-pos-choice-btn neg-pos-choice-alt" id="negPosEscolhaSemCobranca">
-                    <strong>Sem Cobrança</strong>
-                    <span>Somente contratos sem operador em cobrança</span>
+                <button type="button" class="neg-pos-choice-btn neg-pos-choice-alt" id="negPosEscolhaListaExcel">
+                    <strong>Lista de Negativação e Positivação</strong>
+                    <span>Baixar Excel com duas abas (negativação e positivação)</span>
                 </button>
             </div>
             <footer class="transfer-modal-footer">

@@ -1782,28 +1782,6 @@
     padding: 6px 12px;
 }
 
-/* Separador visual entre o botão Negativação e SMS / E-mail ------------------ */
-.footer-bulk-sep {
-    display: inline-block;
-    width: 1px;
-    height: 22px;
-    margin: 0 8px;
-    background: #cbd5e1;
-}
-
-/* Negativação (ação séria) - vermelho escuro --------------------------------- */
-.bulk-btn-negativacao {
-    background: rgba(220, 38, 38, 0.10);
-    color: #b91c1c;
-    border-color: rgba(220, 38, 38, 0.30);
-}
-
-.bulk-btn-negativacao:hover {
-    background: #b91c1c;
-    color: #fff;
-    border-color: #b91c1c;
-}
-
 /* pill para nivel "todos" (automacao geral) no modal de confirmacao ---------- */
 .auto-pill-todos {
     background: rgba(59, 130, 246, 0.12);

@@ -15,30 +15,22 @@ document.addEventListener('DOMContentLoaded', function () {
     var negUrlBootstrap = (function () {
         try {
             var p = new URLSearchParams(window.location.search);
-            var semRaw = (p.get('sem_operador_cobranca') || '').trim().toLowerCase();
-            var semOn = ['1', 'true', 'yes', 'sim', 'on'].indexOf(semRaw) !== -1;
             return {
                 forceCarteira: p.get('carteira') === '1' ||
                     (p.get('modo') || '').toLowerCase() === 'carteira',
                 autoPesquisar: p.get('pesquisar') === '1' || p.get('auto') === '1',
-                funcionarioId: (p.get('funcionario_id') || p.get('operador') || '').trim(),
-                semOperadorCobranca: semOn
+                funcionarioId: (p.get('funcionario_id') || p.get('operador') || '').trim()
             };
         } catch (err) {
             return {
                 forceCarteira: false,
                 autoPesquisar: false,
-                funcionarioId: '',
-                semOperadorCobranca: false
+                funcionarioId: ''
             };
         }
     }());
 
-    /** Primeira requisição com filtro antes do select de operador existir (deep link). */
-    var negInitialUrlSemOperador = !!(negUrlBootstrap.semOperadorCobranca && !cfg.perfilCobranca);
-
-    var negDeepLinkOperadorId =
-        negUrlBootstrap.semOperadorCobranca ? null : (negUrlBootstrap.funcionarioId || null);
+    var negDeepLinkOperadorId = negUrlBootstrap.funcionarioId || null;
     var negStripDeepLinkAfterLoad = !!(negUrlBootstrap.forceCarteira && negUrlBootstrap.autoPesquisar);
 
     function stripNegativacaoDeepLinkParams() {
@@ -134,6 +126,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var negDataInicio = document.getElementById('neg_data_inicio');
     var negDataFim = document.getElementById('neg_data_fim');
     var negBtnLimpar = document.getElementById('negBtnLimpar');
+    var negBtnExportarExcel = document.getElementById('negBtnExportarExcel');
     var negResultsSection = document.getElementById('negResultsSection');
     var negNoResults = document.getElementById('negNoResults');
     var negAtivosMeta = document.getElementById('negAtivosMeta');
@@ -370,10 +363,6 @@ document.addEventListener('DOMContentLoaded', function () {
             o.textContent = f.nome || ('#' + f.id);
             negOperadorCobranca.appendChild(o);
         });
-        var semOp = document.createElement('option');
-        semOp.value = 'sem_operador';
-        semOp.textContent = 'Sem Operador em Cobrança';
-        negOperadorCobranca.appendChild(semOp);
         if (prev && negOperadorCobranca.querySelector('option[value="' + prev + '"]')) {
             negOperadorCobranca.value = prev;
         }
@@ -1026,7 +1015,11 @@ document.addEventListener('DOMContentLoaded', function () {
             .catch(function (err) { alert(err.message || String(err)); });
     }
 
-    function load() {
+    /**
+     * Query string para GET /api/negativacao/listagem e /api/negativacao/listagem/excel.
+     * @param {boolean} forExcel exportação: sem preview limitado; envia ordenação por folha do Excel.
+     */
+    function buildNegListagemApiParams(forExcel) {
         var tipoBusca = negTipoBusca ? negTipoBusca.value : 'contrato';
         var q = negTermo ? negTermo.value.trim() : '';
         var params = new URLSearchParams({
@@ -1042,7 +1035,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         if (negDataFim && negDataFim.value) params.set('data_fim', negDataFim.value);
 
-        if (!modoCobranca && isNegFiltersDefault() && !negAtivosListagemCompleta) {
+        if (!forExcel && !modoCobranca && isNegFiltersDefault() && !negAtivosListagemCompleta) {
             params.set('preview_ativos', '1');
         }
 
@@ -1051,16 +1044,79 @@ document.addEventListener('DOMContentLoaded', function () {
             var fidOp = null;
             if (cfg.perfilCobranca && cfg.defaultFuncionarioCobrancaId != null) {
                 fidOp = cfg.defaultFuncionarioCobrancaId;
-            } else if (negOperadorCobranca && negOperadorCobranca.value === 'sem_operador') {
-                params.set('sem_operador_cobranca', '1');
-            } else if (negInitialUrlSemOperador) {
-                params.set('sem_operador_cobranca', '1');
             } else if (negOperadorCobranca && negOperadorCobranca.value) {
-                var parsed = parseInt(negOperadorCobranca.value, 10);
-                fidOp = parsed > 0 ? parsed : null;
+                var parsedFo = parseInt(negOperadorCobranca.value, 10);
+                fidOp = parsedFo > 0 ? parsedFo : null;
             }
             if (fidOp != null) params.set('funcionario_id', String(fidOp));
         }
+
+        if (forExcel) {
+            if (modoCobranca) {
+                params.set('excel_sort_neg_col', sortCarteiraBloco.negativados.col);
+                params.set('excel_sort_neg_dir', sortCarteiraBloco.negativados.dir);
+                params.set('excel_sort_pos_col', sortCarteiraBloco.positivados.col);
+                params.set('excel_sort_pos_dir', sortCarteiraBloco.positivados.dir);
+            } else {
+                params.set('excel_sort_neg_col', sortAtivos.col);
+                params.set('excel_sort_neg_dir', sortAtivos.dir);
+                params.set('excel_sort_pos_col', sortAtivos.col);
+                params.set('excel_sort_pos_dir', sortAtivos.dir);
+            }
+        }
+
+        return params;
+    }
+
+    function exportNegativacaoExcel() {
+        if (!negBtnExportarExcel || negBtnExportarExcel.disabled) return;
+        var prevHtml = negBtnExportarExcel.innerHTML;
+        negBtnExportarExcel.disabled = true;
+        negBtnExportarExcel.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Gerando...';
+        var params = buildNegListagemApiParams(true);
+        fetch('/api/negativacao/listagem/excel?' + params.toString(), { credentials: 'same-origin' })
+            .then(function (resp) {
+                if (!resp.ok) {
+                    return resp.json().then(function (j) {
+                        throw new Error((j && j.error) ? j.error : ('HTTP ' + resp.status));
+                    }, function () {
+                        throw new Error('HTTP ' + resp.status);
+                    });
+                }
+                return resp.blob().then(function (blob) {
+                    return { blob: blob, resp: resp };
+                });
+            })
+            .then(function (o) {
+                var blob = o.blob;
+                var resp = o.resp;
+                var cd = resp.headers.get('Content-Disposition');
+                var fname = 'negativacao_listagem.xlsx';
+                if (cd) {
+                    var m = /filename\*?=(?:UTF-8'')?([^;\n]+)/i.exec(cd);
+                    if (m) fname = decodeURIComponent(m[1].replace(/['"]/g, '').trim());
+                }
+                var url = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = url;
+                a.download = fname;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            })
+            .catch(function (err) {
+                alert('Não foi possível exportar o Excel: ' + (err.message || err));
+            })
+            .finally(function () {
+                negBtnExportarExcel.disabled = false;
+                negBtnExportarExcel.innerHTML = prevHtml;
+            });
+    }
+
+    function load() {
+        var q = negTermo ? negTermo.value.trim() : '';
+        var params = buildNegListagemApiParams(false);
 
         if (negAtivosMeta) negAtivosMeta.textContent = 'Carregando...';
 
@@ -1087,12 +1143,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (modoCobranca) {
                     negUltimoPayloadGeralAtivos = null;
                     populateOperadorSelect(data);
-                    if (negInitialUrlSemOperador && negOperadorCobranca && !cfg.perfilCobranca) {
-                        negInitialUrlSemOperador = false;
-                        if (negOperadorCobranca.querySelector('option[value="sem_operador"]')) {
-                            negOperadorCobranca.value = 'sem_operador';
-                        }
-                    }
                     if (tryApplyDeepLinkOperador()) {
                         load();
                         return;
@@ -1249,6 +1299,10 @@ document.addEventListener('DOMContentLoaded', function () {
             if (negNoResults) negNoResults.classList.add('d-none');
             updateSortIndicators();
         });
+    }
+
+    if (negBtnExportarExcel) {
+        negBtnExportarExcel.addEventListener('click', exportNegativacaoExcel);
     }
 
     bindNegSplitPanels();
