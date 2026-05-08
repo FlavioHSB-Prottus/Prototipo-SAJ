@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import importlib.util
 
 import pymysql
 import requests
@@ -32,6 +33,22 @@ except ImportError:
     pass
 PYTHON_DIR = os.path.join(PROJECT_DIR, 'Python')
 PYTHON_EXE = sys.executable
+
+_serasa_conv_txt_module = None
+
+
+def _get_serasa_conv_txt():
+    """Carrega ``Python/serasa_conv_txt.py`` sob demanda (layout SERASA-CONVEM 600 chars)."""
+    global _serasa_conv_txt_module
+    if _serasa_conv_txt_module is None:
+        path = os.path.join(PYTHON_DIR, 'serasa_conv_txt.py')
+        spec = importlib.util.spec_from_file_location('serasa_conv_txt', path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f'Nao foi possivel carregar {path}')
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _serasa_conv_txt_module = mod
+    return _serasa_conv_txt_module
 
 _SUBPROCESS_ENV = {**os.environ, 'PYTHONUNBUFFERED': '1'}
 _POPEN_EXTRA = {}
@@ -4464,6 +4481,129 @@ def _negativacao_row_serasa_flags(row):
     st = (row.get('status') or '').strip().lower()
     row['serasa_elegivel_negativar'] = st in _NEG_STATUS_SERASA_ELEGIVEL_NEGATIVAR
     row['serasa_elegivel_positivar'] = st == _NEG_STATUS_AGUARDANDO_POS_SERASA
+
+
+def _negativacao_serasa_status_por_parcela(cursor, ids):
+    """Mapa id_parcela -> status em ``negativacao`` (lower-case)."""
+    if not ids:
+        return {}
+    ph = ','.join(['%s'] * len(ids))
+    cursor.execute(
+        f'SELECT id_parcela, status FROM negativacao WHERE id_parcela IN ({ph})',
+        ids,
+    )
+    out = {}
+    for r in cursor.fetchall() or []:
+        try:
+            ip = int(r.get('id_parcela'))
+        except (TypeError, ValueError):
+            continue
+        out[ip] = (r.get('status') or '').strip().lower()
+    return out
+
+
+def _negativacao_serasa_erro_elegibilidade_txt(tipo, ids, por_parcela):
+    """Mesma regra que o mock ``/api/negativacao/positivar-lote-serasa`` (sem atualizar BD)."""
+    if tipo == 'negativar':
+        if len(por_parcela) != len(ids):
+            return 'Uma ou mais parcelas nao possuem negativacao ativa no cadastro.'
+        for ip in ids:
+            st = por_parcela.get(ip, '')
+            if st not in _NEG_STATUS_SERASA_ELEGIVEL_NEGATIVAR:
+                return (
+                    'Uma ou mais parcelas nao estao elegiveis '
+                    '(negativar: apenas tracker ou falha de envio).'
+                )
+    else:
+        for ip in ids:
+            st = por_parcela.get(ip)
+            if st is None:
+                continue
+            if st == _NEG_STATUS_AGUARDANDO_POS_SERASA:
+                continue
+            return (
+                'Uma ou mais parcelas nao estao elegiveis '
+                '(positivar: sem cadastro ativo ou apenas aguardando envio Serasa).'
+            )
+    return None
+
+
+def _negativacao_date_only_sql(val):
+    if val is None:
+        return None
+    if isinstance(val, datetime.datetime):
+        return val.date()
+    return val
+
+
+def _negativacao_fetch_serasa_inclusao_payloads(cursor, ids_ordered):
+    """Monta lista de dicts para ``montar_linha_detalhe_inclusao`` na ordem de ``ids_ordered``."""
+    if not ids_ordered:
+        return []
+    ph = ','.join(['%s'] * len(ids_ordered))
+    field_ord = ','.join(['%s'] * len(ids_ordered))
+    cursor.execute(
+        f"""
+        SELECT
+          p.id AS id_parcela,
+          p.vencimento,
+          n.data_negativacao,
+          dev.cpf_cnpj,
+          dev.nome_completo,
+          dev.data_nascimento,
+          e.logradouro,
+          e.cidade,
+          e.estado AS uf,
+          e.cep,
+          c.grupo,
+          c.cota,
+          COALESCE(
+            NULLIF(TRIM(cred.nome_completo), ''),
+            'GMAC ADMINISTRADORA DE CONSORCIO LTDA'
+          ) AS nome_credor
+        FROM parcela p
+        INNER JOIN contrato c ON c.id = p.id_contrato
+        INNER JOIN pessoa dev ON dev.id = c.id_pessoa
+        INNER JOIN negativacao n ON n.id_parcela = p.id
+        LEFT JOIN endereco e ON e.id = (
+          SELECT x.id FROM endereco x
+          WHERE x.id_pessoa = dev.id
+          ORDER BY CASE x.tipo
+            WHEN 'principal' THEN 1
+            WHEN 'secundario' THEN 2
+            ELSE 9
+          END, x.id ASC
+          LIMIT 1
+        )
+        LEFT JOIN empresa emp ON emp.id = c.id_empresa
+        LEFT JOIN pessoa cred ON cred.id = emp.id_pessoa
+        WHERE p.id IN ({ph})
+        ORDER BY FIELD(p.id, {field_ord})
+        """,
+        list(ids_ordered) + list(ids_ordered),
+    )
+    rows = _clean_rows(cursor.fetchall())
+    payloads = []
+    for r in rows:
+        ref = _negativacao_date_only_sql(r.get('data_negativacao'))
+        if ref is None:
+            ref = datetime.date.today()
+        venc = _negativacao_date_only_sql(r.get('vencimento'))
+        payloads.append({
+            'data_ref': ref,
+            'data_vencimento': venc or ref,
+            'cpf_cnpj': r.get('cpf_cnpj'),
+            'nome': r.get('nome_completo'),
+            'data_nasc': _negativacao_date_only_sql(r.get('data_nascimento')),
+            'logradouro': r.get('logradouro'),
+            'cidade': r.get('cidade'),
+            'uf': r.get('uf'),
+            'cep': r.get('cep'),
+            'grupo': r.get('grupo'),
+            'cota': r.get('cota'),
+            'nome_credor': r.get('nome_credor'),
+        })
+    return payloads
 
 
 def _dedupe_negativacao_ativas_exibicao(rows):
@@ -11681,6 +11821,99 @@ def api_negativacao_positivar_lote_serasa_placeholder():
             'Estado interno atualizado; substituir por chamada real à API quando disponível.'
         ),
     })
+
+
+@app.route('/api/negativacao/serasa-arquivo-txt', methods=['POST'])
+def api_negativacao_serasa_arquivo_txt():
+    """Gera ficheiro TXT SERASA-CONVEM para download.
+
+    Negativar: inclusão (linhas ``1E`` por parcela). Positivar: exclusão sem corpo, como o modelo
+    ``SERASA_GM_*4910*.TXT`` (apenas cabeçalho e rodapé); os ``ids`` servem só para validação de
+    elegibilidade alinhada à UI e ao mock ``positivar-lote-serasa``.
+    """
+    if not session.get('funcionario_id'):
+        return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
+
+    payload = request.get_json(silent=True) or {}
+    tipo = (payload.get('tipo_operacao') or '').strip().lower()
+    if tipo not in ('positivar', 'negativar'):
+        return jsonify({'error': 'tipo_operacao deve ser "positivar" ou "negativar".'}), 400
+    raw_ids = payload.get('ids_parcela')
+    if not isinstance(raw_ids, list) or len(raw_ids) == 0:
+        return jsonify({'error': 'ids_parcela deve ser uma lista nao vazia.'}), 400
+    ids = []
+    for x in raw_ids:
+        try:
+            ids.append(int(x))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'ids_parcela contem valor invalido.'}), 400
+    ids = list(dict.fromkeys(ids))
+    if len(ids) > 20000:
+        return jsonify({'error': 'Quantidade de parcelas acima do limite para um unico arquivo.'}), 400
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        _ensure_negativacao_table(cursor)
+        por_parcela = _negativacao_serasa_status_por_parcela(cursor, ids)
+        err_elig = _negativacao_serasa_erro_elegibilidade_txt(tipo, ids, por_parcela)
+        if err_elig:
+            return jsonify({'error': err_elig}), 400
+
+        try:
+            mod = _get_serasa_conv_txt()
+        except Exception as exc:
+            app.logger.exception('serasa_conv_txt: falha ao carregar modulo')
+            return jsonify({'error': f'Modulo de layout SERASA indisponivel: {exc}'}), 500
+
+        if tipo == 'negativar':
+            linhas = _negativacao_fetch_serasa_inclusao_payloads(cursor, ids)
+            if len(linhas) != len(ids):
+                return jsonify({
+                    'error': 'Nao foi possivel obter dados de todas as parcelas para o arquivo.',
+                }), 400
+            modo = 'inclusao'
+        else:
+            modo = 'exclusao'
+            linhas = []
+
+        body, fname_sug = mod.montar_arquivo_txt(modo, linhas)
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except FileNotFoundError as exc:
+        app.logger.warning('serasa templates ausentes: %s', exc)
+        return jsonify({
+            'error': (
+                'Modelos TXT SERASA nao encontrados. Coloque SERASA_GM_*4912*.TXT e *4910*.TXT '
+                'na pasta TXT Negativacao e Positivacao ou defina SERASA_CONV_TEMPLATE_DIR.'
+            ),
+        }), 404
+    except Exception as exc:
+        app.logger.exception('api_negativacao_serasa_arquivo_txt')
+        return jsonify({'error': str(exc)}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    fname = secure_filename(fname_sug) or 'serasa_conv.txt'
+    app.logger.info(
+        'negativacao serasa-arquivo-txt: tipo_operacao=%s qtd_ids=%s modo=%s',
+        tipo,
+        len(ids),
+        modo,
+    )
+    return send_file(
+        io.BytesIO(body),
+        as_attachment=True,
+        download_name=fname,
+        mimetype='text/plain; charset=iso-8859-1',
+    )
 
 
 @app.route('/api/negativacao/observacao', methods=['POST'])

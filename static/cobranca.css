@@ -1209,18 +1209,6 @@
     border-color: #f59e0b;
 }
 
-.bulk-btn-sms-email {
-    background: linear-gradient(135deg, rgba(139, 92, 246, 0.14) 0%, rgba(245, 158, 11, 0.14) 100%);
-    color: #5b21b6;
-    border-color: rgba(124, 58, 237, 0.35);
-}
-
-.bulk-btn-sms-email:hover {
-    background: linear-gradient(135deg, #8b5cf6 0%, #f59e0b 100%);
-    color: #fff;
-    border-color: transparent;
-}
-
 @media (max-width: 720px) {
     .bulk-btn span { display: none; }
     .bulk-btn { padding: 7px 9px; }
@@ -1769,17 +1757,6 @@
 @media (max-width: 600px) {
     .auto-modal-footer { flex-wrap: wrap; }
     .auto-result-stats { gap: 16px; }
-}
-
-/* === FOOTER BULK ACTIONS === */
-.footer-bulk-actions {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.footer-bulk-actions .bulk-btn {
-    padding: 6px 12px;
 }
 
 /* pill para nivel "todos" (automacao geral) no modal de confirmacao ---------- */
