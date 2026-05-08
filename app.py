@@ -2219,6 +2219,20 @@ WHERE c.status = 'aberto'
 ORDER BY dias_atraso DESC
 """
 
+
+def _sms_autom_excel_linhas_carteira(cursor, contrato_ids):
+    """Mesmo critério que `_SMS_AUTOM_EXCEL_SQL`, restrito aos IDs informados (lista visível Cobrança)."""
+    if not contrato_ids:
+        return []
+    placeholders = ','.join(['%s'] * len(contrato_ids))
+    sql = _SMS_AUTOM_EXCEL_SQL.strip().replace(
+        'ORDER BY dias_atraso DESC',
+        'AND c.id IN (' + placeholders + ') ORDER BY dias_atraso DESC',
+    )
+    cursor.execute(sql, tuple(contrato_ids))
+    return cursor.fetchall() or []
+
+
 # Mesmo filtro que `_SMS_AUTOM_EXCEL_SQL`, com `id_pessoa` para o preview (resumo = mesma lista).
 _SMS_AUTOM_PREVIEW_ROTEIRO_SQL = """
 WITH MenorVencimento AS (
@@ -9747,6 +9761,80 @@ def api_automacao_preview():
         conn.close()
 
     return jsonify({'ok': True, **data})
+
+
+@app.route('/api/cobranca/sms-email/excel', methods=['POST'])
+def api_cobranca_sms_email_excel():
+    """Excel Grupo/Cota/dias: mesmo roteiro que o Excel da Importação, filtrado aos IDs da carteira."""
+    if not session.get('funcionario_id'):
+        return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
+    payload = request.get_json(silent=True) or {}
+    ids, err = _validar_ids_contratos(payload.get('contrato_ids'))
+    if err:
+        return jsonify({'error': err}), 400
+
+    try:
+        from openpyxl import Workbook
+    except ImportError:
+        return jsonify({
+            'error': 'Biblioteca openpyxl nao instalada. Execute: pip install openpyxl',
+        }), 503
+
+    conn = _get_db()
+    linhas = []
+    try:
+        with conn.cursor() as cursor:
+            linhas = _sms_autom_excel_linhas_carteira(cursor, ids)
+    except Exception as exc:
+        app.logger.exception('cobranca/sms-email/excel')
+        return jsonify({'error': f'Falha ao consultar dados para o Excel: {exc}'}), 500
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    try:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = 'SMS e e-mail previstos'
+        hdr = ('Grupo', 'Cota', 'Dias de atraso')
+        ws.append(hdr)
+        if not linhas:
+            ws.append(
+                ('Nenhum contrato no roteiro de dias (0, 16, 31, 61, 85) nesta lista.', '', '')
+            )
+        else:
+            for row in linhas:
+                da = row.get('dias_atraso')
+                try:
+                    da_cell = int(da) if da is not None else ''
+                except (TypeError, ValueError):
+                    da_cell = _xlsx_cell_str(da)
+                ws.append((
+                    _xlsx_cell_str(row.get('grupo')),
+                    _xlsx_cell_str(row.get('cota')),
+                    da_cell,
+                ))
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+    except Exception as exc:
+        app.logger.exception('cobranca/sms-email/excel: falha ao montar ficheiro')
+        return jsonify({'error': f'Falha ao gerar o Excel: {exc}'}), 500
+
+    fname = (
+        'sms_email_carteira_cobranca_'
+        + datetime.datetime.now().strftime('%Y%m%d_%H%M')
+        + '.xlsx'
+    )
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=fname,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
 
 
 @app.route('/api/automacao/<tipo>', methods=['POST'])
