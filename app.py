@@ -5947,6 +5947,9 @@ def api_cobranca():
     """Retorna contratos abertos divididos em 3 faixas de prioridade
     baseadas no vencimento mais antigo de parcelas em aberto.
 
+    Universo: snapshot `cobranca` na data do ultimo GM (`data_arquivo`).
+    dias_atraso: DATEDIFF(CURRENT_DATE, vencimento mais antigo em aberto).
+
     O filtro de "operador" agora usa a tabela `funcionario_cobranca`
     (id_funcionario + id_contrato). Aceita tanto `funcionario_id`
     (numerico, preferencial) quanto `operador` (string, retrocompat).
@@ -5987,6 +5990,8 @@ def api_cobranca():
     # opcional em funcionario_cobranca/funcionario para expor o
     # responsavel de cobranca e (se a tabela existir) com a descricao
     # do bem associado ao contrato.
+    # Universo filtrado por cob.data_arquivo = ultimo GM; dias_atraso = dias ate hoje
+    # (CURRENT_DATE vs vencimento mais antigo em aberto), alinhado a SMS/automacao.
     data_ref = _get_data_referencia_arquivos_gm(cursor)
 
     bem_info = _get_bem_schema()
@@ -6012,7 +6017,7 @@ def api_cobranca():
         "       p.nome_completo AS nome_devedor, p.cpf_cnpj, "
         "       c.valor_credito, "
         "       MIN(par.vencimento) AS vencimento_mais_antigo, "
-        "       DATEDIFF(%s, MIN(par.vencimento)) AS dias_atraso, "
+        "       DATEDIFF(CURRENT_DATE, MIN(par.vencimento)) AS dias_atraso, "
         # DISTINCT: o JOIN com `bens` pode duplicar linhas (varios bens no mesmo
         # contrato); o numero de parcelas abertas e por id de parcela, nao por linha.
         "       COUNT(DISTINCT par.id) AS parcelas_abertas, "
@@ -6038,7 +6043,7 @@ def api_cobranca():
         + bem_join +
         "WHERE c.status = 'aberto' "
     )
-    params = [data_ref, data_ref]
+    params = [data_ref]
 
     if funcionario_id is not None:
         base_sql += " AND fc.id_funcionario = %s "
@@ -6290,8 +6295,8 @@ def api_operadores_dashboard():
 
     Contratos considerados: snapshot `cobranca` na data do ultimo `arquivos_gm`
     (mesma base do KPI "Em cobranca" do Dashboard e do modulo Cobranca), cruzado
-    com `funcionario_cobranca`. dias_atraso = DATEDIFF(data_GM, vencimento mais
-    antigo em aberto), nao CURDATE().
+    com `funcionario_cobranca`. dias_atraso = dias ate hoje (CURRENT_DATE vs
+    vencimento mais antigo em aberto), igual a /api/cobranca.
     """
     forbidden = _admin_json_forbidden()
     if forbidden:
@@ -6339,15 +6344,14 @@ def api_operadores_dashboard():
             'stats': {'total': 0, 'critico': 0, 'atencao': 0, 'recente': 0},
         }
 
-    # 2) Mesma logica de /api/cobranca e do KPI Dashboard: so contratos no
-    #    snapshot `cobranca` na data do ultimo GM; atraso com DATEDIFF nessa
-    #    data (nao CURDATE()).
+    # 2) Mesma logica de /api/cobranca: snapshot na data do ultimo GM;
+    #    dias_atraso ate CURRENT_DATE (nao data_GM).
     cursor.execute(
         """
         SELECT fc.id_funcionario,
                c.id, c.grupo, c.cota, c.numero_contrato, c.valor_credito,
                p.nome_completo AS nome_devedor, p.cpf_cnpj,
-               (SELECT DATEDIFF(%s, MIN(vencimento))
+               (SELECT DATEDIFF(CURRENT_DATE, MIN(vencimento))
                   FROM parcela
                  WHERE id_contrato = c.id AND status = 'aberto') AS dias_atraso,
                (SELECT COUNT(*)
@@ -6363,7 +6367,7 @@ def api_operadores_dashboard():
         WHERE c.status = 'aberto'
         ORDER BY fc.id_funcionario, c.valor_credito DESC
         """,
-        (s_ref, s_ref),
+        (s_ref,),
     )
     rows = _clean_rows(cursor.fetchall())
 
