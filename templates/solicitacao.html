@@ -35,6 +35,57 @@
             </table>
         </div>
     </div>
+
+    <!-- Pedidos de alteração/exclusão (tramitação e agenda) — Cobrança envia; Gestor/Admin decide -->
+    <div class="results-card table-section" id="moderacaoPendenteWrap" style="display:none;margin-top:20px">
+        <div class="table-header">
+            <h3><i class="fa-solid fa-user-shield"></i> Pedidos pendentes (tramitação / agenda)</h3>
+            <span class="badge bg-warning text-dark" id="moderacaoPendenteCount">0</span>
+        </div>
+        <p style="margin:0 0 12px;font-size:0.9rem;color:#64748b">
+            Operadores de cobrança não alteram nem excluem registros vinculados a contrato diretamente.
+            Aprove para aplicar no banco ou reprove informando o motivo.
+        </p>
+        <div class="table-responsive">
+            <table class="styled-table" id="moderacaoPendenteTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Tipo</th>
+                        <th>Contrato</th>
+                        <th>Solicitante</th>
+                        <th>Data</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody id="moderacaoPendenteBody">
+                    <tr><td colspan="6" class="text-center">Carregando…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="results-card table-section" id="moderacaoMinhasWrap" style="display:none;margin-top:20px">
+        <div class="table-header">
+            <h3><i class="fa-solid fa-paper-plane"></i> Meus pedidos de alteração / exclusão</h3>
+        </div>
+        <div class="table-responsive">
+            <table class="styled-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Tipo</th>
+                        <th>Contrato</th>
+                        <th>Status</th>
+                        <th>Data</th>
+                    </tr>
+                </thead>
+                <tbody id="moderacaoMinhasBody">
+                    <tr><td colspan="5" class="text-center">Carregando…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
 </div>
 
 <!-- Modal Nova Solicitação -->
@@ -124,6 +175,8 @@
 {% endblock %}
 
 {% block scripts %}
+<script id="solic-moderacao-cfg" type="application/json">{{ solicitacao_mod_cfg | default({'pode_revisar': false, 'eh_cobranca': false}) | tojson }}</script>
+<script src="{{ url_for('static', filename='solicitacao_moderacao.js') }}"></script>
 <script src="{{ url_for('static', filename='notificacao-deep-link.js') }}"></script>
 <script>
 /** Linhas cuja id_resposta e igual ao id do item aberto (respostas diretas), por data. */

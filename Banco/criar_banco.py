@@ -673,6 +673,27 @@ CREATE TABLE `solicitacao` (
   CONSTRAINT `assunto_constraint` CHECK (trim(`assunto`) <> '')
 );
 
+CREATE TABLE `solicitacao_moderacao` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `id_solicitante` int(11) NOT NULL,
+  `tipo` varchar(32) NOT NULL COMMENT 'tramitacao_edit|tramitacao_delete|agenda_edit|agenda_delete',
+  `id_contrato` bigint(20) NOT NULL,
+  `ref_id` bigint(20) NOT NULL COMMENT 'id tramitacao ou agenda',
+  `payload_json` text DEFAULT NULL COMMENT 'antes/proposta em JSON',
+  `status` enum('pendente','aprovado','reprovado') NOT NULL DEFAULT 'pendente',
+  `id_revisor` int(11) DEFAULT NULL,
+  `revisado_em` datetime DEFAULT NULL,
+  `motivo_reprovacao` varchar(512) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_sol_mod_status` (`status`),
+  KEY `idx_sol_mod_solicitante` (`id_solicitante`),
+  KEY `idx_sol_mod_ref` (`tipo`,`ref_id`),
+  CONSTRAINT `fk_sol_mod_solicitante` FOREIGN KEY (`id_solicitante`) REFERENCES `funcionario` (`id`),
+  CONSTRAINT `fk_sol_mod_revisor` FOREIGN KEY (`id_revisor`) REFERENCES `funcionario` (`id`),
+  CONSTRAINT `fk_sol_mod_contrato` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`)
+);
+
 CREATE TABLE `tramitacao` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `carteira` double NOT NULL,

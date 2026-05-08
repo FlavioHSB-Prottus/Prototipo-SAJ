@@ -1105,22 +1105,11 @@ document.addEventListener('DOMContentLoaded', function () {
     // ---- Ações de automação geral no rodapé (SMS / E-mail) ----
     function bindFooterBulkActions() {
         var btnSmsEmail = document.getElementById('footerBulkSmsEmail');
-        var btnNeg = document.getElementById('footerBulkNegativacao');
         if (btnSmsEmail) {
             btnSmsEmail.addEventListener('click', function () {
                 dispararFooterLote('sms_email');
             });
         }
-        // Abre o módulo Negativação (Carteira) com o mesmo operador selecionado.
-        if (btnNeg) btnNeg.addEventListener('click', function () {
-            var qs = new URLSearchParams();
-            qs.set('carteira', '1');
-            qs.set('pesquisar', '1');
-            if (operadorSelect && operadorSelect.value) {
-                qs.set('funcionario_id', operadorSelect.value);
-            }
-            window.location.href = '/negativacao?' + qs.toString();
-        });
     }
 
     function dispararFooterLote(tipo) {

@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnRecarregarDistribuicao = document.getElementById('btnRecarregarDistribuicao');
     const btnRestaurarDistribuicao = document.getElementById('btnRestaurarDistribuicao');
     const btnNegPosDistribuicao = document.getElementById('btnNegPosDistribuicao');
+    const btnNegPosListaExcel = document.getElementById('negPosEscolhaListaExcel');
     const negPosEscolhaModal = document.getElementById('negPosEscolhaModal');
     const smsAutomPreviewOverlay = document.getElementById('smsAutomPreviewOverlay');
     const smsAutomPreviewBody = document.getElementById('smsAutomPreviewBody');
@@ -420,6 +421,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const en = !!c;
         if (btnSmsAutomatizadosDistribuicao) btnSmsAutomatizadosDistribuicao.disabled = !en;
         if (btnSmsAutomatizadosExcel) btnSmsAutomatizadosExcel.disabled = !en;
+        if (btnNegPosDistribuicao) btnNegPosDistribuicao.disabled = !en;
+        if (btnNegPosListaExcel) btnNegPosListaExcel.disabled = !en;
     }
 
     async function loadDistribuicao(scrollIntoView = false) {
@@ -1000,7 +1003,6 @@ document.addEventListener('DOMContentLoaded', () => {
         var fecharBtn = document.getElementById('negPosEscolhaFechar');
         var cancelarBtn = document.getElementById('negPosEscolhaCancelar');
         var btnTodos = document.getElementById('negPosEscolhaTodos');
-        var btnSemCobranca = document.getElementById('negPosEscolhaSemCobranca');
         if (fecharBtn) fecharBtn.addEventListener('click', fecharNegPosModal);
         if (cancelarBtn) cancelarBtn.addEventListener('click', fecharNegPosModal);
         negPosEscolhaModal.addEventListener('click', function (e) {
@@ -1012,11 +1014,51 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.location.href = '/negativacao?carteira=1&pesquisar=1';
             });
         }
-        if (btnSemCobranca) {
-            btnSemCobranca.addEventListener('click', function () {
+        async function downloadNegPosDistribuicaoExcel() {
+            if (!btnNegPosListaExcel || btnNegPosListaExcel.disabled) return;
+            const prevHtml = btnNegPosListaExcel.innerHTML;
+            btnNegPosListaExcel.disabled = true;
+            if (btnTodos) btnTodos.disabled = true;
+            btnNegPosListaExcel.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Gerando...';
+            try {
+                const resp = await fetch(
+                    '/api/importacao/distribuicao/negativacao-positivacao/excel',
+                    { credentials: 'same-origin' },
+                );
+                if (!resp.ok) {
+                    let msg = 'HTTP ' + resp.status;
+                    try {
+                        const errJson = await resp.json();
+                        if (errJson.error) msg = errJson.error;
+                    } catch (e2) { /* ignore */ }
+                    throw new Error(msg);
+                }
+                const blob = await resp.blob();
+                const cd = resp.headers.get('Content-Disposition');
+                let fname = 'negativacao_positivacao_distribuicao.xlsx';
+                if (cd) {
+                    const m = /filename\*?=(?:UTF-8'')?([^;\n]+)/i.exec(cd);
+                    if (m) fname = decodeURIComponent(m[1].replace(/['"]/g, '').trim());
+                }
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fname;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
                 fecharNegPosModal();
-                window.location.href = '/negativacao?carteira=1&pesquisar=1&sem_operador_cobranca=1';
-            });
+            } catch (err) {
+                alert('Não foi possível baixar o Excel: ' + (err.message || err));
+            } finally {
+                btnNegPosListaExcel.innerHTML = prevHtml;
+                if (btnTodos) btnTodos.disabled = false;
+                syncSmsDistribuicaoFooterButtons();
+            }
+        }
+        if (btnNegPosListaExcel) {
+            btnNegPosListaExcel.addEventListener('click', downloadNegPosDistribuicaoExcel);
         }
     }());
 
@@ -1034,6 +1076,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btnAprovarDistribuicao) btnAprovarDistribuicao.disabled = true;
         if (btnSmsAutomatizadosDistribuicao) btnSmsAutomatizadosDistribuicao.disabled = true;
         if (btnSmsAutomatizadosExcel) btnSmsAutomatizadosExcel.disabled = true;
+        if (btnNegPosDistribuicao) btnNegPosDistribuicao.disabled = true;
+        if (btnNegPosListaExcel) btnNegPosListaExcel.disabled = true;
 
         try {
             const resp = await fetch('/api/importacao/distribuicao/restaurar', { method: 'POST' });

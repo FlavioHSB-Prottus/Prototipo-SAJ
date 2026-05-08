@@ -38,9 +38,9 @@ const TUTORIAIS = [
                 icone: "fa-solid fa-users-gear",
             },
             {
-                titulo: "SMS/E-mail e atalho para negativação",
+                titulo: "SMS/E-mail e Negativação/Positivação",
                 texto:
-                    "\"Lista SMS/E-mail\" gera Excel com grupo, cota e dias de atraso no roteiro. \"SMS/E-mail Automáticos\" dispara SMS e e-mail (MessageCenter) com o mesmo texto para contratos elegíveis; contratos que já receberam SMS ou e-mail no dia são ignorados. \"Negativação/Positivação\" abre o módulo correspondente.",
+                    "\"Lista SMS/E-mail\" gera Excel com grupo, cota e dias de atraso no roteiro. \"SMS/E-mail Automáticos\" dispara SMS e e-mail (MessageCenter) com o mesmo texto para contratos elegíveis; contratos que já receberam SMS ou e-mail no dia são ignorados. \"Negativação/Positivação\" abre o módulo na carteira com todos os operadores.",
                 icone: "fa-solid fa-comment-sms",
             },
             {
@@ -59,9 +59,9 @@ const TUTORIAIS = [
         bg: "#ecfdf5",
         rota: "/cobranca",
         descricaoCurta:
-            "Carteira por operador, busca integrada, Kanban e ações em massa no rodapé (SMS/E-mail, negativação).",
+            "Carteira por operador, busca integrada, Kanban e SMS/E-mail em massa no rodapé.",
         paraQueServe:
-            "É o dia a dia do cobrador: visualizar contratos em cobrança por operador, priorizar por faixa de atraso, registrar tramitações no detalhe do contrato e usar o rodapé para SMS/E-mail (resumo antes de confirmar) ou abrir a negativação. Os disparos em lote seguem o mesmo roteiro de dias da distribuição e ignoram contratos que já tiveram SMS ou e-mail no dia.",
+            "É o dia a dia do cobrador: visualizar contratos em cobrança por operador, priorizar por faixa de atraso, registrar tramitações no detalhe do contrato e usar o rodapé para SMS/E-mail (resumo antes de confirmar). Os disparos em lote seguem o mesmo roteiro de dias da distribuição e ignoram contratos que já tiveram SMS ou e-mail no dia.",
         passos: [
             {
                 titulo: "Filtrar por operador",
@@ -90,7 +90,7 @@ const TUTORIAIS = [
             {
                 titulo: "Ações em massa no rodapé",
                 texto:
-                    "\"Negativação\" abre o módulo já focado na carteira cobrança com o mesmo operador e filtros. \"SMS / E-mail\" abre um pop-up (mesmo estilo da Importação) com resumo do preview (`/api/cobranca/sms-email/preview`) e opções de enviar só SMS, só e-mail ou ambos. Os blocos Crítico/Atenção/Recente mantêm só o botão Ligar em lote.",
+                    "\"SMS / E-mail\" abre um pop-up (mesmo estilo da Importação) com resumo do preview (`/api/cobranca/sms-email/preview`) e opções de enviar só SMS, só e-mail ou ambos. Os blocos Crítico/Atenção/Recente mantêm só o botão Ligar em lote.",
                 icone: "fa-solid fa-bolt",
             },
         ],

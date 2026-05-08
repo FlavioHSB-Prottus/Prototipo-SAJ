@@ -208,14 +208,21 @@ document.addEventListener('DOMContentLoaded', () => {
     window.toggleTaskStatus = async function(id, isChecked) {
         const newStatus = isChecked ? 'concluido' : 'pendente';
         try {
-            await fetch(`/api/agenda/${id}`, {
+            const res = await fetch(`/api/agenda/${id}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ status: newStatus })
             });
-            await renderCalendar(); // reload state
+            const j = await res.json().catch(function () { return {}; });
+            if (res.ok && j.pendente_aprovacao) {
+                alert(j.mensagem || 'Pedido enviado para aprovação em Solicitações.');
+            } else if (!res.ok) {
+                alert(j.error || 'Erro ao atualizar agendamento.');
+            }
+            await renderCalendar();
         } catch(e) {
             console.error('Erro ao atualizar status', e);
+            await renderCalendar();
         }
     };
 
