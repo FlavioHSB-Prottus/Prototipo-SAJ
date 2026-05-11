@@ -257,6 +257,7 @@ def montar_arquivo_txt(
         out_lines.append(montar_linha_trailer(2))
 
     body = '\r\n'.join(out_lines) + '\r\n'
-    tag = 'INCLUSAO' if modo == 'inclusao' else 'EXCLUSAO'
+    # Nome do ficheiro para o operador (layout interno segue inclusao/exclusao SERASA-CONVEM).
+    tag = 'NEGATIVACAO' if modo == 'inclusao' else 'POSITIVACAO'
     nome = f"SERASA_GM_{datetime.now().strftime('%d%m%Y%H%M')}_{tag}.TXT"
     return body.encode('latin-1', errors='replace'), nome
