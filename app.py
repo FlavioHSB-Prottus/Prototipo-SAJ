@@ -2300,8 +2300,8 @@ def _sms_autom_fill_rota_excel_duas_folhas(cursor, wb, linhas, msg_vazio):
     Coluna ``SMS e e-mail?`` indica se o devedor tem ambos os canais válidos (alinha ao preview).
     """
     flags, tel_por_pessoa, em_por_pessoa = _sms_autom_excel_maps_por_pessoa(cursor, linhas)
-    hdr_sms = ('Grupo', 'Cota', 'Dias de atraso', 'Telefone(s) disparo', 'SMS e e-mail?')
-    hdr_mail = ('Grupo', 'Cota', 'Dias de atraso', 'E-mail(s) disparo', 'SMS e e-mail?')
+    hdr_sms = ('Grupo', 'Cota', 'Grupo/Cota', 'Atraso', 'Telefone(s) disparo', 'SMS e e-mail?')
+    hdr_mail = ('Grupo', 'Cota', 'Grupo/Cota', 'Atraso', 'E-mail(s) disparo', 'SMS e e-mail?')
     ws_sms = wb.active
     ws_sms.title = 'SMS'
     ws_mail = wb.create_sheet(title='EMAIL')
@@ -2309,7 +2309,7 @@ def _sms_autom_fill_rota_excel_duas_folhas(cursor, wb, linhas, msg_vazio):
     ws_mail.append(hdr_mail)
 
     def _empty_msg_row(msg):
-        return (_xlsx_cell_str(msg), '', '', '', '')
+        return (_xlsx_cell_str(msg), '', '', '', '', '', '')
 
     if not linhas:
         ws_sms.append(_empty_msg_row(msg_vazio))
@@ -2338,11 +2338,12 @@ def _sms_autom_fill_rota_excel_duas_folhas(cursor, wb, linhas, msg_vazio):
                 pass
         g = _xlsx_cell_str(row.get('grupo'))
         c = _xlsx_cell_str(row.get('cota'))
+        gc = f'{g}/{c}' if (g or c) else ''
         if tel_cell.strip():
-            ws_sms.append((g, c, da_cell, _xlsx_cell_str(tel_cell), col_sim))
+            ws_sms.append((g, c, gc, da_cell, _xlsx_cell_str(tel_cell), col_sim))
             n_sms += 1
         if em_cell.strip():
-            ws_mail.append((g, c, da_cell, _xlsx_cell_str(em_cell), col_sim))
+            ws_mail.append((g, c, gc, da_cell, _xlsx_cell_str(em_cell), col_sim))
             n_mail += 1
 
     msg_sem_sms = (
@@ -2774,7 +2775,9 @@ def _negativacao_distribuicao_excel_row(r):
     """Colunas alinhadas à tabela da carteira no módulo Negativação (sem botões)."""
     g = r.get('grupo')
     c = r.get('cota')
-    gc = f'{_xlsx_cell_str(g)}/{_xlsx_cell_str(c)}'
+    g_str = _xlsx_cell_str(g)
+    c_str = _xlsx_cell_str(c)
+    gc = f'{g_str}/{c_str}' if (g_str or c_str) else ''
     tipo_ev = (r.get('tipo_evento') or '').strip()
     status_evt = _xlsx_cell_str(tipo_ev if tipo_ev else r.get('status'))
     da = r.get('dias_atraso')
@@ -2783,6 +2786,8 @@ def _negativacao_distribuicao_excel_row(r):
     except (TypeError, ValueError):
         da_cell = _xlsx_cell_str(da)
     return (
+        g_str,
+        c_str,
         gc,
         _xlsx_cell_str(r.get('numero_parcela')),
         da_cell,
@@ -2916,7 +2921,9 @@ def _negativacao_listagem_excel_row(r):
     """Colunas para exportacao no modulo Negativacao (Carteira ou Geral)."""
     g = r.get('grupo')
     c = r.get('cota')
-    gc = f'{_xlsx_cell_str(g)}/{_xlsx_cell_str(c)}'
+    g_str = _xlsx_cell_str(g)
+    c_str = _xlsx_cell_str(c)
+    gc = f'{g_str}/{c_str}' if (g_str or c_str) else ''
     tipo_ev = (r.get('tipo_evento') or '').strip()
     da = r.get('dias_atraso')
     try:
@@ -2939,6 +2946,8 @@ def _negativacao_listagem_excel_row(r):
     except (TypeError, ValueError):
         id_reg_cell = _xlsx_cell_str(id_reg)
     return (
+        g_str,
+        c_str,
         gc,
         _xlsx_cell_str(r.get('numero_contrato')),
         id_contrato_cell,
@@ -2974,9 +2983,11 @@ def api_distribuicao_negativacao_positivacao_excel():
         }), 503
 
     hdr = (
+        'Grupo',
+        'Cota',
         'Grupo/Cota',
         'Parcela',
-        'Dias de atraso',
+        'Atraso',
         'Status ou evento',
         'Data',
         'Operador',
@@ -3030,7 +3041,7 @@ def api_distribuicao_negativacao_positivacao_excel():
         ws_neg.append(hdr)
         if not neg_rows:
             ws_neg.append(
-                ('Nenhum registro na lista de negativação neste momento.', '', '', '', '', '')
+                ('Nenhum registro na lista de negativação neste momento.', '', '', '', '', '', '', '')
             )
         else:
             for r in neg_rows:
@@ -3040,7 +3051,7 @@ def api_distribuicao_negativacao_positivacao_excel():
         ws_pos.append(hdr)
         if not pos_rows:
             ws_pos.append(
-                ('Nenhum registro na lista de positivação neste momento.', '', '', '', '', '')
+                ('Nenhum registro na lista de positivação neste momento.', '', '', '', '', '', '', '')
             )
         else:
             for r in pos_rows:
@@ -5912,10 +5923,12 @@ def api_tramitacao_fluxo_criar(contrato_id):
 _RELATORIO_COLUMNS = [
     ('Grupo', 'grupo'),
     ('Cota', 'cota'),
+    ('Grupo/Cota', 'grupo_cota'),
     ('CPF / CNPJ', 'cpf_cnpj'),
     ('Nome Devedor', 'nome_devedor'),
     ('Status', 'status'),
     ('Data Arquivo', 'data_arquivo'),
+    ('Atraso', 'atraso'),
 ]
 
 
@@ -5927,11 +5940,19 @@ def _build_relatorio_query(tipo, data_inicial, data_final, prioridade=None):
     params = [data_inicial, data_final]
 
     base = (
-        "SELECT DISTINCT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
-        "       p.nome_completo AS nome_devedor, p.cpf_cnpj, o.data_arquivo "
+        "SELECT DISTINCT c.id, c.grupo, c.cota, "
+        "       CONCAT_WS('/', c.grupo, c.cota) AS grupo_cota, "
+        "       c.numero_contrato, c.status, "
+        "       p.nome_completo AS nome_devedor, p.cpf_cnpj, o.data_arquivo, "
+        "       (CASE WHEN parc_ab.min_v_aberto IS NOT NULL "
+        "             THEN DATEDIFF(CURRENT_DATE, parc_ab.min_v_aberto) END) AS atraso "
         "FROM ocorrencia o "
         "LEFT JOIN contrato c ON c.id = o.id_contrato "
         "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
+        "LEFT JOIN ( "
+        "  SELECT id_contrato, MIN(vencimento) AS min_v_aberto "
+        "  FROM parcela WHERE status = 'aberto' GROUP BY id_contrato "
+        ") parc_ab ON parc_ab.id_contrato = c.id "
     )
 
     if tipo == 'novos':
@@ -5945,9 +5966,13 @@ def _build_relatorio_query(tipo, data_inicial, data_final, prioridade=None):
     elif tipo == 'pagos_parcialmente':
         # Performado (mesma regra do Performance): parcela quitada com atraso 0–90 d na quitação.
         sql = (
-            "SELECT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
+            "SELECT c.id, c.grupo, c.cota, "
+            "       CONCAT_WS('/', c.grupo, c.cota) AS grupo_cota, "
+            "       c.numero_contrato, c.status, "
             "       pes.nome_completo AS nome_devedor, pes.cpf_cnpj, "
-            "       DATE(pq.mx_dt) AS data_arquivo "
+            "       DATE(pq.mx_dt) AS data_arquivo, "
+            "       (CASE WHEN parc_ab.min_v_aberto IS NOT NULL "
+            "             THEN DATEDIFF(CURRENT_DATE, parc_ab.min_v_aberto) END) AS atraso "
             "FROM ( "
             "  SELECT id_contrato, MAX(data_pagamento) AS mx_dt "
             "  FROM parcela "
@@ -5958,6 +5983,10 @@ def _build_relatorio_query(tipo, data_inicial, data_final, prioridade=None):
             ") pq "
             "JOIN contrato c ON c.id = pq.id_contrato "
             "LEFT JOIN pessoa pes ON c.id_pessoa = pes.id "
+            "LEFT JOIN ( "
+            "  SELECT id_contrato, MIN(vencimento) AS min_v_aberto "
+            "  FROM parcela WHERE status = 'aberto' GROUP BY id_contrato "
+            ") parc_ab ON parc_ab.id_contrato = c.id "
             "ORDER BY pq.mx_dt, c.grupo, c.cota"
         )
         return sql, [data_inicial, data_final]
@@ -6149,8 +6178,7 @@ def api_relatorios_pdf():
     pdf.cell(0, 6, f'Periodo: {periodo_titulo}', ln=True, align='C')
     pdf.ln(6)
 
-    # Grupo, Cota, CPF, Nome, Status, Data
-    col_widths = [22, 16, 24, 35, 78, 32, 32]
+    col_widths = [16, 14, 22, 24, 34, 70, 28, 16]
     headers = [label for label, _key in _RELATORIO_COLUMNS]
 
     pdf.set_font('Helvetica', 'B', 9)
@@ -6613,12 +6641,16 @@ def _build_relatorio_query_abertos(data_ref, prioridade=None):
     s = d.isoformat()
 
     sql = (
-        "SELECT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
+        "SELECT c.id, c.grupo, c.cota, "
+        "       CONCAT_WS('/', c.grupo, c.cota) AS grupo_cota, "
+        "       c.numero_contrato, c.status, "
         "       p.nome_completo AS nome_devedor, p.cpf_cnpj, "
         "       snap.data_arquivo AS data_arquivo, "
         "       parc.min_v AS vencimento_mais_antigo, "
         "       (CASE WHEN parc.min_v IS NOT NULL "
-        "             THEN DATEDIFF(snap.data_arquivo, parc.min_v) END) AS dias_atraso "
+        "             THEN DATEDIFF(snap.data_arquivo, parc.min_v) END) AS dias_atraso, "
+        "       (CASE WHEN parc.min_v IS NOT NULL "
+        "             THEN DATEDIFF(CURRENT_DATE, parc.min_v) END) AS atraso "
         "FROM contrato c "
         "INNER JOIN ( "
         "  SELECT id, id_contrato, data_arquivo "
@@ -7938,11 +7970,19 @@ def _fetch_export_dataset(cursor, ctx):
         ordered_ids = list(by_id.keys())
         ph = ','.join(['%s'] * len(ordered_ids))
         cursor.execute(
-            f"SELECT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
+            f"SELECT c.id, c.grupo, c.cota, "
+            f"       CONCAT_WS('/', c.grupo, c.cota) AS grupo_cota, "
+            f"       (CASE WHEN pv.min_v_aberto IS NOT NULL "
+            f"             THEN DATEDIFF(CURRENT_DATE, pv.min_v_aberto) END) AS atraso, "
+            f"       c.numero_contrato, c.status, "
             f"c.valor_credito, c.data_adesao, "
             f"p.nome_completo AS devedor, p.cpf_cnpj AS devedor_cpf_cnpj "
             f"FROM contrato c "
             f"LEFT JOIN pessoa p ON p.id = c.id_pessoa "
+            f"LEFT JOIN ( "
+            f"  SELECT id_contrato, MIN(vencimento) AS min_v_aberto "
+            f"  FROM parcela WHERE status = 'aberto' GROUP BY id_contrato "
+            f") pv ON pv.id_contrato = c.id "
             f"WHERE c.id IN ({ph}) "
             f"ORDER BY c.grupo, c.cota",
             tuple(ordered_ids),
@@ -7961,6 +8001,8 @@ def _fetch_export_dataset(cursor, ctx):
                 'valor_parcela_entrada_brl': meta['valor_parcela_entrada_brl'],
                 'grupo': row.get('grupo'),
                 'cota': row.get('cota'),
+                'grupo_cota': row.get('grupo_cota'),
+                'atraso': row.get('atraso'),
                 'numero_contrato': row.get('numero_contrato'),
                 'status': row.get('status'),
                 'valor_credito': row.get('valor_credito'),
@@ -8080,12 +8122,12 @@ def _export_to_xlsx(ctx, dataset):
     contratos = dataset['contratos']
     headers = [
         'ID', 'Faixa (calendario)', 'Desempenho', 'Prazo (atraso)', 'Valor parcela (metrica) (R$)',
-        'Grupo', 'Cota', 'Nro Contrato', 'Status', 'Valor do Credito',
+        'Grupo', 'Cota', 'Grupo/Cota', 'Atraso', 'Nro Contrato', 'Status', 'Valor do Credito',
         'Data de Adesao', 'Devedor', 'CPF/CNPJ',
     ]
     keys = [
         'id', 'faixa_calendario', 'desempenho', 'prazo_atraso', 'valor_parcela_entrada_brl',
-        'grupo', 'cota', 'numero_contrato', 'status', 'valor_credito',
+        'grupo', 'cota', 'grupo_cota', 'atraso', 'numero_contrato', 'status', 'valor_credito',
         'data_adesao', 'devedor', 'devedor_cpf_cnpj',
     ]
     _monetary_key = {'valor_parcela_entrada_brl', 'valor_credito'}
@@ -8148,7 +8190,8 @@ def _export_to_csv_powerbi(ctx, dataset):
     writer.writerow([])
     writer.writerow([
         'tabela', 'id', 'faixa_calendario', 'desempenho', 'prazo_atraso', 'valor_parcela',
-        'grupo_cota', 'data_adesao', 'status', 'valor_credito', 'devedor', 'cpf_cnpj', 'nro_contrato',
+        'grupo', 'cota', 'grupo_cota', 'atraso', 'data_adesao', 'status', 'valor_credito',
+        'devedor', 'cpf_cnpj', 'nro_contrato',
     ])
     for c in dataset['contratos']:
         writer.writerow([
@@ -8158,7 +8201,10 @@ def _export_to_csv_powerbi(ctx, dataset):
             c.get('desempenho') or '',
             c.get('prazo_atraso') or '',
             c.get('valor_parcela_entrada_brl') if c.get('valor_parcela_entrada_brl') is not None else 0,
-            str(c.get('grupo') or '') + '/' + str(c.get('cota') or ''),
+            c.get('grupo') or '',
+            c.get('cota') or '',
+            c.get('grupo_cota') or (str(c.get('grupo') or '') + '/' + str(c.get('cota') or '')),
+            c.get('atraso') if c.get('atraso') is not None else '',
             c.get('data_adesao') or '',
             c.get('status') or '',
             c.get('valor_credito') or 0,
@@ -8257,8 +8303,8 @@ def _export_to_pdf(ctx, dataset):
         pdf.cell(0, 7, 'Contratos selecionados (' + str(len(dataset['contratos'])) + ' total, mostrando ' + str(len(contratos)) + ')', ln=True)
         pdf.set_font('Helvetica', 'B', 7)
         pdf.set_fill_color(59, 130, 246); pdf.set_text_color(255, 255, 255)
-        ch = ['Faixa', 'Desemp.', 'Prazo', 'G/C', 'Nro', 'R$ parcela', 'R$ cred.', 'St.', 'Devedor']
-        cw = [36, 18, 28, 20, 22, 20, 22, 10, 62]
+        ch = ['Faixa', 'Desemp.', 'Prazo', 'G/C', 'Atraso', 'Nro', 'R$ parc.', 'R$ cr.', 'St.', 'Devedor']
+        cw = [30, 16, 22, 18, 12, 18, 18, 18, 8, 54]
         for i, h in enumerate(ch):
             pdf.cell(cw[i], 5, h, border=1, align='C', fill=True)
         pdf.ln()
@@ -8278,16 +8324,19 @@ def _export_to_pdf(ctx, dataset):
                 valor_fmt = 'R$ ' + f"{float(valor):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
             except Exception:
                 valor_fmt = str(valor or '-')
+            atr = c.get('atraso')
+            atr_s = '' if atr is None else str(int(atr)) if isinstance(atr, (int, float)) else str(atr)[:8]
             row = [
-                str(c.get('faixa_calendario') or '')[:20],
-                str(c.get('desempenho') or '-')[:10],
-                (str(c.get('prazo_atraso') or ''))[:22],
-                str(c.get('grupo') or '') + '/' + str(c.get('cota') or ''),
+                str(c.get('faixa_calendario') or '')[:18],
+                str(c.get('desempenho') or '-')[:8],
+                (str(c.get('prazo_atraso') or ''))[:18],
+                str(c.get('grupo_cota') or (str(c.get('grupo') or '') + '/' + str(c.get('cota') or '')))[:14],
+                atr_s[:8],
                 str(c.get('numero_contrato') or '-')[:8],
                 vparcf,
                 valor_fmt,
                 (str(c.get('status') or ''))[:4],
-                (str(c.get('devedor') or '-'))[:32],
+                (str(c.get('devedor') or '-'))[:28],
             ]
             for i, v in enumerate(row):
                 pdf.cell(cw[i], 5, v, border=1, align='C', fill=True)
@@ -8598,7 +8647,11 @@ def _fetch_dash_export_dataset(cursor, ctx):
     where_series = f"c.id IN {union_sql}" if union_sql else '1=0'
 
     sql = (
-        "SELECT DISTINCT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
+        "SELECT DISTINCT c.id, c.grupo, c.cota, "
+        "       CONCAT_WS('/', c.grupo, c.cota) AS grupo_cota, "
+        "       (CASE WHEN dash_pvat.min_v_aberto IS NOT NULL "
+        "             THEN DATEDIFF(CURRENT_DATE, dash_pvat.min_v_aberto) END) AS atraso, "
+        "       c.numero_contrato, c.status, "
         "       c.valor_credito, c.data_adesao, "
         "       CASE "
         "         WHEN dash_pq.id_contrato IS NOT NULL THEN dash_pq.valor_total "
@@ -8611,6 +8664,10 @@ def _fetch_dash_export_dataset(cursor, ctx):
         "       p.nome_completo AS devedor, p.cpf_cnpj AS devedor_cpf_cnpj "
         "FROM contrato c "
         "LEFT JOIN pessoa p ON p.id = c.id_pessoa "
+        "LEFT JOIN ( "
+        "  SELECT id_contrato, MIN(vencimento) AS min_v_aberto "
+        "  FROM parcela WHERE status = 'aberto' GROUP BY id_contrato "
+        ") dash_pvat ON dash_pvat.id_contrato = c.id "
         "LEFT JOIN ( "
         "  SELECT p1.id_contrato, p1.vencimento, p1.valor_total "
         "  FROM parcela p1 INNER JOIN ( "
@@ -8716,10 +8773,11 @@ def _dash_export_to_xlsx(ctx, dataset):
     _write_sheet(ws3, ['Status', 'Total'], [[r['status'], r['total']] for r in dataset['pie_rows']])
 
     ws4 = wb.create_sheet('Contratos')
-    headers = ['ID', 'Grupo', 'Cota', 'Nro Contrato', 'Status', 'Valor parcela (metrica) (R$)',
-               'Valor credito (ref.) (R$)', 'Data de Adesao', 'Devedor', 'CPF/CNPJ']
-    keys = ['id', 'grupo', 'cota', 'numero_contrato', 'status', 'valor_metrica_parcela',
-            'valor_credito', 'data_adesao', 'devedor', 'devedor_cpf_cnpj']
+    headers = ['ID', 'Grupo', 'Cota', 'Grupo/Cota', 'Atraso', 'Nro Contrato', 'Status',
+               'Valor parcela (metrica) (R$)', 'Valor credito (ref.) (R$)', 'Data de Adesao',
+               'Devedor', 'CPF/CNPJ']
+    keys = ['id', 'grupo', 'cota', 'grupo_cota', 'atraso', 'numero_contrato', 'status',
+            'valor_metrica_parcela', 'valor_credito', 'data_adesao', 'devedor', 'devedor_cpf_cnpj']
     _dash_m = {'valor_credito', 'valor_metrica_parcela'}
 
     def _row_dash_contrato(c):
@@ -8767,17 +8825,26 @@ def _dash_export_to_csv_powerbi(ctx, dataset):
         writer.writerow(['pie', '-', r['status'], r['total']])
 
     # Contratos
+    writer.writerow([
+        'tabela', 'id', 'grupo', 'cota', 'grupo_cota', 'atraso', 'numero_contrato', 'status',
+        'valor_metrica_parcela', 'valor_credito', 'data_adesao', 'devedor', 'cpf_cnpj',
+    ])
     for c in dataset['contratos']:
         writer.writerow([
             'contratos',
-            str(c.get('grupo') or '') + '/' + str(c.get('cota') or ''),
-            c.get('data_adesao') or '',
+            c.get('id') or '',
+            c.get('grupo') or '',
+            c.get('cota') or '',
+            c.get('grupo_cota') or (str(c.get('grupo') or '') + '/' + str(c.get('cota') or '')),
+            c.get('atraso') if c.get('atraso') is not None else '',
+            c.get('numero_contrato') or '',
             c.get('status') or '',
             c.get('valor_metrica_parcela') if c.get('valor_metrica_parcela') is not None else (
                 c.get('valor_credito') or 0),
+            c.get('valor_credito') or 0,
+            c.get('data_adesao') or '',
             c.get('devedor') or '',
             c.get('devedor_cpf_cnpj') or '',
-            c.get('numero_contrato') or '',
         ])
 
     data = buf.getvalue().encode('utf-8-sig')
@@ -8856,8 +8923,8 @@ def _dash_export_to_pdf(ctx, dataset):
         pdf.cell(0, 7, 'Contratos envolvidos (' + str(len(dataset['contratos'])) + ' total, mostrando ' + str(len(contratos)) + ')', ln=True)
         pdf.set_font('Helvetica', 'B', 8)
         pdf.set_fill_color(59, 130, 246); pdf.set_text_color(255, 255, 255)
-        ch = ['Grupo/Cota', 'Nro Contrato', 'Status', 'R$ parcela (m.)', 'R$ credito', 'Adesao', 'Devedor', 'CPF/CNPJ']
-        cw = [26, 30, 18, 26, 26, 22, 82, 38]
+        ch = ['Grupo/Cota', 'Atraso', 'Nro Contrato', 'Status', 'R$ parcela (m.)', 'R$ credito', 'Adesao', 'Devedor', 'CPF/CNPJ']
+        cw = [22, 12, 26, 16, 24, 24, 20, 68, 34]
         for i, h in enumerate(ch):
             pdf.cell(cw[i], 6, h, border=1, align='C', fill=True)
         pdf.ln()
@@ -8876,14 +8943,25 @@ def _dash_export_to_pdf(ctx, dataset):
                 vc_fmt = 'R$ ' + f"{float(vc):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
             except Exception:
                 vc_fmt = str(vc or '-')
+            atr = c.get('atraso')
+            atr_s = ''
+            if atr is not None:
+                try:
+                    atr_s = str(int(atr))
+                except (TypeError, ValueError):
+                    atr_s = str(atr)[:8]
+            gc_dash = c.get('grupo_cota') or (
+                str(c.get('grupo') or '') + '/' + str(c.get('cota') or '')
+            )
             row = [
-                str(c.get('grupo') or '') + '/' + str(c.get('cota') or ''),
+                str(gc_dash)[:22],
+                atr_s[:12],
                 str(c.get('numero_contrato') or '-'),
                 str(c.get('status') or '-'),
                 vm_fmt,
                 vc_fmt,
                 str(c.get('data_adesao') or '-'),
-                (str(c.get('devedor') or '-'))[:50],
+                (str(c.get('devedor') or '-'))[:44],
                 str(c.get('devedor_cpf_cnpj') or '-'),
             ]
             for i, v in enumerate(row):
@@ -11787,13 +11865,15 @@ def api_negativacao_listagem_excel():
         pos_od = fb_order
 
     hdr = (
+        'Grupo',
+        'Cota',
         'Grupo/Cota',
         'Nº contrato',
         'ID contrato',
         'Parcela',
         'ID parcela',
         'ID registro',
-        'Dias de atraso',
+        'Atraso',
         'Status parcela',
         'Tipo de evento',
         'Data',
@@ -11844,7 +11924,7 @@ def api_negativacao_listagem_excel():
         ws_neg.append(hdr)
         if not neg_rows:
             ws_neg.append(
-                ('Nenhum registro na lista de negativação para os filtros atuais.',) + ('',) * 12
+                ('Nenhum registro na lista de negativação para os filtros atuais.',) + ('',) * 14
             )
         else:
             for r in neg_rows:
@@ -11854,7 +11934,7 @@ def api_negativacao_listagem_excel():
         ws_pos.append(hdr)
         if not pos_rows:
             ws_pos.append(
-                ('Nenhum registro na lista de positivação para os filtros atuais.',) + ('',) * 12
+                ('Nenhum registro na lista de positivação para os filtros atuais.',) + ('',) * 14
             )
         else:
             for r in pos_rows:
