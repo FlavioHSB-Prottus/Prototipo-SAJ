@@ -18,6 +18,24 @@ document.addEventListener('DOMContentLoaded', function () {
     var modalTitle = document.getElementById('modalTitle');
     var modalContent = document.getElementById('modalContent');
 
+    var podeEmailMassa = !!window.RELATORIOS_EMAIL_MASSA;
+    var tableColspan = podeEmailMassa ? 8 : 7;
+    /** @type {Set<number>} */
+    var selectedContratoIds = new Set();
+
+    var btnRelEmailSelecionarTodos = document.getElementById('btnRelEmailSelecionarTodos');
+    var btnRelEmailLimparSel = document.getElementById('btnRelEmailLimparSel');
+    var btnRelEmailAbrirEnvio = document.getElementById('btnRelEmailAbrirEnvio');
+    var relEmailSelSummary = document.getElementById('relEmailSelSummary');
+    var relEmailSelectAll = document.getElementById('relEmailSelectAll');
+    var relEmailLoteModal = document.getElementById('relEmailLoteModal');
+    var relEmailLoteFechar = document.getElementById('relEmailLoteFechar');
+    var relEmailLoteCancelar = document.getElementById('relEmailLoteCancelar');
+    var relEmailLoteConfirmar = document.getElementById('relEmailLoteConfirmar');
+    var relEmailLoteMensagem = document.getElementById('relEmailLoteMensagem');
+    var relEmailLoteCountContratos = document.getElementById('relEmailLoteCountContratos');
+    var relEmailLoteCharCount = document.getElementById('relEmailLoteCharCount');
+
     var currentResults = [];
     var sortConfig = { column: null, order: 'asc' };
 
@@ -101,7 +119,10 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!validar()) return;
         var params = getParams();
 
-        resultsBody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text-muted)"><i class="fa-solid fa-spinner fa-spin"></i> Buscando...</td></tr>';
+        resultsBody.innerHTML =
+            '<tr><td colspan="' +
+            tableColspan +
+            '" style="text-align:center;padding:24px;color:var(--text-muted)"><i class="fa-solid fa-spinner fa-spin"></i> Buscando...</td></tr>';
         noResults.classList.add('d-none');
         resultsSection.classList.remove('d-none');
 
@@ -109,16 +130,29 @@ document.addEventListener('DOMContentLoaded', function () {
             var resp = await fetch(buildUrl('/api/relatorios', params));
             var data = await resp.json();
             if (data.error) {
-                resultsBody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:#ef4444">' + esc(data.error) + '</td></tr>';
+                resultsBody.innerHTML =
+                    '<tr><td colspan="' +
+                    tableColspan +
+                    '" style="text-align:center;padding:24px;color:#ef4444">' +
+                    esc(data.error) +
+                    '</td></tr>';
                 return;
             }
             currentResults = data.results || [];
+            if (podeEmailMassa) {
+                selectedContratoIds.clear();
+            }
             // Reset order on new search
             sortConfig = { column: null, order: 'asc' };
             resetSortHeaders();
             renderResults(currentResults);
         } catch (err) {
-            resultsBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:#ef4444">Erro: ' + esc(err.message) + '</td></tr>';
+            resultsBody.innerHTML =
+                '<tr><td colspan="' +
+                tableColspan +
+                '" style="text-align:center;padding:24px;color:#ef4444">Erro: ' +
+                esc(err.message) +
+                '</td></tr>';
         }
     });
 
@@ -134,6 +168,189 @@ document.addEventListener('DOMContentLoaded', function () {
         window.location.href = buildUrl('/api/relatorios/pdf', getParams());
     });
 
+    if (podeEmailMassa) {
+        resultsBody.addEventListener('change', function (e) {
+            var t = e.target;
+            if (!t || !t.classList || !t.classList.contains('rel-email-row-cb')) return;
+            var id = parseContratoId(t.getAttribute('data-id'));
+            if (id == null) return;
+            if (t.checked) selectedContratoIds.add(id);
+            else selectedContratoIds.delete(id);
+            updateRelEmailToolbarSummary();
+            syncRelEmailSelectAllCheckbox();
+        });
+
+        if (relEmailSelectAll) {
+            relEmailSelectAll.addEventListener('change', function () {
+                var checked = relEmailSelectAll.checked;
+                currentResults.forEach(function (c) {
+                    var id = parseContratoId(c.id);
+                    if (id == null) return;
+                    if (checked) selectedContratoIds.add(id);
+                    else selectedContratoIds.delete(id);
+                });
+                renderResults(currentResults);
+            });
+        }
+
+        if (btnRelEmailSelecionarTodos) {
+            btnRelEmailSelecionarTodos.addEventListener('click', function () {
+                currentResults.forEach(function (c) {
+                    var id = parseContratoId(c.id);
+                    if (id != null) selectedContratoIds.add(id);
+                });
+                renderResults(currentResults);
+            });
+        }
+
+        if (btnRelEmailLimparSel) {
+            btnRelEmailLimparSel.addEventListener('click', function () {
+                selectedContratoIds.clear();
+                renderResults(currentResults);
+            });
+        }
+
+        if (btnRelEmailAbrirEnvio) {
+            btnRelEmailAbrirEnvio.addEventListener('click', function () {
+                abrirRelEmailLoteModal();
+            });
+        }
+
+        if (relEmailLoteFechar) relEmailLoteFechar.addEventListener('click', fecharRelEmailLoteModal);
+        if (relEmailLoteCancelar) relEmailLoteCancelar.addEventListener('click', fecharRelEmailLoteModal);
+
+        if (relEmailLoteModal) {
+            relEmailLoteModal.addEventListener('click', function (e) {
+                if (e.target === relEmailLoteModal) fecharRelEmailLoteModal();
+            });
+        }
+
+        if (relEmailLoteMensagem && relEmailLoteCharCount) {
+            relEmailLoteMensagem.addEventListener('input', function () {
+                relEmailLoteCharCount.textContent = String(relEmailLoteMensagem.value.length);
+            });
+        }
+
+        if (relEmailLoteConfirmar) {
+            relEmailLoteConfirmar.addEventListener('click', async function () {
+                var msg = relEmailLoteMensagem ? relEmailLoteMensagem.value.trim() : '';
+                if (!msg) {
+                    alert('Digite a mensagem do e-mail.');
+                    return;
+                }
+                var ids = Array.from(selectedContratoIds);
+                relEmailLoteConfirmar.disabled = true;
+                try {
+                    var resp = await fetch('/api/relatorios/email-lote', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contrato_ids: ids, mensagem: msg }),
+                    });
+                    var data = await resp.json().catch(function () {
+                        return {};
+                    });
+                    if (!resp.ok || data.error) {
+                        throw new Error(data.error || 'HTTP ' + resp.status);
+                    }
+                    var lines = [
+                        'Envio concluído.',
+                        'E-mails disparados (API): ' + (data.envios_email != null ? data.envios_email : 0),
+                        'Contratos com ao menos um e-mail enviado: ' +
+                            (data.contratos_com_envio != null ? data.contratos_com_envio : 0),
+                        'Falhas: ' + (data.falhas != null ? data.falhas : 0),
+                        'Ignorados — sem contrato: ' +
+                            (data.ignorados_sem_contrato != null ? data.ignorados_sem_contrato : 0),
+                        'Ignorados — sem pessoa: ' +
+                            (data.ignorados_sem_pessoa != null ? data.ignorados_sem_pessoa : 0),
+                        'Ignorados — sem e-mail: ' +
+                            (data.ignorados_sem_email != null ? data.ignorados_sem_email : 0),
+                        'E-mails inválidos no cadastro: ' +
+                            (data.ignorados_email_invalido != null ? data.ignorados_email_invalido : 0),
+                    ];
+                    if (data.erros_amostra && data.erros_amostra.length) {
+                        lines.push('', 'Amostra de erros:');
+                        data.erros_amostra.slice(0, 15).forEach(function (row) {
+                            lines.push(
+                                '- contrato ' +
+                                    (row.id_contrato != null ? row.id_contrato : '?') +
+                                    ': ' +
+                                    (row.erro || '')
+                            );
+                        });
+                    }
+                    alert(lines.join('\n'));
+                    fecharRelEmailLoteModal();
+                } catch (errLote) {
+                    alert('Falha no envio: ' + (errLote.message || String(errLote)));
+                } finally {
+                    relEmailLoteConfirmar.disabled = false;
+                }
+            });
+        }
+    }
+
+    function parseContratoId(val) {
+        var n = parseInt(val, 10);
+        return !isNaN(n) && n > 0 ? n : null;
+    }
+
+    function updateRelEmailToolbarSummary() {
+        if (!podeEmailMassa || !relEmailSelSummary || !btnRelEmailAbrirEnvio) return;
+        var n = selectedContratoIds.size;
+        if (n === 0) {
+            relEmailSelSummary.textContent = 'Nenhum contrato selecionado';
+            btnRelEmailAbrirEnvio.disabled = true;
+        } else {
+            relEmailSelSummary.textContent =
+                n === 1 ? '1 contrato selecionado' : n.toLocaleString('pt-BR') + ' contratos selecionados';
+            btnRelEmailAbrirEnvio.disabled = false;
+        }
+    }
+
+    function syncRelEmailSelectAllCheckbox() {
+        if (!podeEmailMassa || !relEmailSelectAll || !currentResults.length) {
+            if (relEmailSelectAll) {
+                relEmailSelectAll.checked = false;
+                relEmailSelectAll.indeterminate = false;
+            }
+            return;
+        }
+        var total = currentResults.length;
+        var marcados = 0;
+        currentResults.forEach(function (c) {
+            var id = parseContratoId(c.id);
+            if (id != null && selectedContratoIds.has(id)) marcados += 1;
+        });
+        relEmailSelectAll.checked = marcados === total && total > 0;
+        relEmailSelectAll.indeterminate = marcados > 0 && marcados < total;
+    }
+
+    function fecharRelEmailLoteModal() {
+        if (!relEmailLoteModal) return;
+        relEmailLoteModal.classList.remove('active');
+        relEmailLoteModal.setAttribute('aria-hidden', 'true');
+        document.body.style.overflow = '';
+    }
+
+    function abrirRelEmailLoteModal() {
+        if (!relEmailLoteModal || !relEmailLoteCountContratos) return;
+        var n = selectedContratoIds.size;
+        if (n < 1) {
+            alert('Selecione ao menos um contrato na tabela (caixas à esquerda).');
+            return;
+        }
+        relEmailLoteCountContratos.textContent = String(n);
+        if (relEmailLoteMensagem) {
+            relEmailLoteMensagem.value = '';
+            if (relEmailLoteCharCount) relEmailLoteCharCount.textContent = '0';
+        }
+        relEmailLoteModal.classList.add('active');
+        relEmailLoteModal.setAttribute('aria-hidden', 'false');
+        document.body.style.overflow = 'hidden';
+        if (relEmailLoteMensagem) relEmailLoteMensagem.focus();
+    }
+
     // --- Renderizar tabela ---
     function renderResults(results) {
         resultsBody.innerHTML = '';
@@ -141,6 +358,10 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!results || results.length === 0) {
             resultsTitle.textContent = 'Contratos do Relatório (0 encontrados)';
             noResults.classList.remove('d-none');
+            if (podeEmailMassa) {
+                updateRelEmailToolbarSummary();
+                syncRelEmailSelectAllCheckbox();
+            }
             return;
         }
 
@@ -149,18 +370,35 @@ document.addEventListener('DOMContentLoaded', function () {
 
         results.forEach(function (c) {
             var tr = document.createElement('tr');
+            var cid = parseContratoId(c.id);
+            var chk = '';
+            if (podeEmailMassa && cid != null) {
+                chk =
+                    '<td class="rel-check-cell"><input type="checkbox" class="rel-email-row-cb" data-id="' +
+                    esc(String(cid)) +
+                    '"' +
+                    (selectedContratoIds.has(cid) ? ' checked' : '') +
+                    '></td>';
+            } else if (podeEmailMassa) {
+                chk = '<td class="rel-check-cell"></td>';
+            }
             tr.innerHTML =
+                chk +
                 '<td class="fw-bold">' + esc(c.grupo) + '</td>' +
                 '<td class="fw-bold">' + esc(c.cota) + '</td>' +
                 '<td>' + esc(c.cpf_cnpj || '-') + '</td>' +
                 '<td>' + esc(c.nome_devedor || '-') + '</td>' +
                 '<td><span class="status-badge ' + getStatusClass(c.status) + '">' + esc(c.status || '-') + '</span></td>' +
                 '<td>' + formatDate(c.data_arquivo) + '</td>' +
-                '<td class="text-right"><button class="action-btn" data-id="' + c.id + '"><i class="fa-solid fa-file-lines"></i> Detalhes</button></td>';
+                '<td class="text-right"><button type="button" class="action-btn" data-id="' + esc(String(c.id)) + '"><i class="fa-solid fa-file-lines"></i> Detalhes</button></td>';
             resultsBody.appendChild(tr);
         });
 
         bindDetailButtons();
+        if (podeEmailMassa) {
+            updateRelEmailToolbarSummary();
+            syncRelEmailSelectAllCheckbox();
+        }
     }
 
     function bindDetailButtons() {

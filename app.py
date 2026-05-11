@@ -637,7 +637,8 @@ def busca():
 
 @app.route('/relatorios')
 def relatorios():
-    return render_template('relatorios.html')
+    pode_email_massa = _session_pode_gerir_operadores()
+    return render_template('relatorios.html', relatorios_email_massa=pode_email_massa)
 
 @app.route('/performance')
 def performance():
@@ -6014,6 +6015,222 @@ def _fetch_relatorio_rows(tipo, data_inicial, data_final, prioridade=None):
         cursor.close()
         conn.close()
     return rows
+
+
+_RELATORIO_EMAIL_LOTE_MAX_CONTRATOS = 2000
+_RELATORIO_EMAIL_LOTE_MAX_MSG_PLAIN = 15000
+
+
+def _relatorio_parse_contrato_ids_lote(payload):
+    """Normaliza lista de ids de contrato do JSON (dedup, ordem preservada, limite)."""
+    raw = payload.get('contrato_ids')
+    if raw is None:
+        return None, 'Lista contrato_ids obrigatoria.'
+    if not isinstance(raw, list):
+        return None, 'contrato_ids deve ser uma lista.'
+    out = []
+    seen = set()
+    for x in raw:
+        try:
+            n = int(x)
+        except (TypeError, ValueError):
+            continue
+        if n < 1 or n in seen:
+            continue
+        seen.add(n)
+        out.append(n)
+        if len(out) >= _RELATORIO_EMAIL_LOTE_MAX_CONTRATOS:
+            break
+    if not out:
+        return None, 'Informe ao menos um id de contrato valido.'
+    return out, None
+
+
+def _relatorio_email_lote_disparar(fid, contrato_ids, mensagem_plain):
+    """Envia e-mail (MessageCenter + registro_email) para cada endereco valido dos devedores dos contratos."""
+    msg_plain = (mensagem_plain or '').strip()
+    if not msg_plain:
+        return None, 'Mensagem vazia.'
+    if len(msg_plain) > _RELATORIO_EMAIL_LOTE_MAX_MSG_PLAIN:
+        return None, (
+            f'Mensagem muito longa (max {_RELATORIO_EMAIL_LOTE_MAX_MSG_PLAIN} caracteres).'
+        )
+
+    corpo_html = _plain_para_corpo_email_html(msg_plain)
+    if len(corpo_html) > 200000:
+        return None, 'Corpo HTML gerado excede o limite.'
+
+    remetente_nome = _primeiro_nome(session.get('funcionario_nome'))
+    stats = {
+        'envios_email': 0,
+        'falhas': 0,
+        'ignorados_sem_contrato': 0,
+        'ignorados_sem_pessoa': 0,
+        'ignorados_sem_email': 0,
+        'ignorados_email_invalido': 0,
+        'contratos_com_envio': 0,
+    }
+    erros_amostra = []
+
+    conn = _get_db()
+    try:
+        placeholders = ','.join(['%s'] * len(contrato_ids))
+        with conn.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT c.id AS id_contrato, c.id_pessoa, p.nome_completo
+                FROM contrato c
+                LEFT JOIN pessoa p ON p.id = c.id_pessoa
+                WHERE c.id IN ({placeholders})
+                """,
+                tuple(contrato_ids),
+            )
+            por_id = {int(r['id_contrato']): r for r in (cursor.fetchall() or [])}
+
+        pessoa_ids = []
+        for cid in contrato_ids:
+            row = por_id.get(int(cid))
+            if not row:
+                stats['ignorados_sem_contrato'] += 1
+                continue
+            pid = row.get('id_pessoa')
+            if pid is None:
+                stats['ignorados_sem_pessoa'] += 1
+                continue
+            pessoa_ids.append(int(pid))
+        pessoa_ids = list(dict.fromkeys(pessoa_ids))
+
+        with conn.cursor() as cursor:
+            email_map = _emails_por_pessoas(cursor, pessoa_ids)
+
+        for cid in contrato_ids:
+            cid_i = int(cid)
+            row = por_id.get(cid_i)
+            if not row:
+                continue
+            pid = row.get('id_pessoa')
+            if pid is None:
+                continue
+            id_pessoa = int(pid)
+            primeiro = _primeiro_nome(row.get('nome_completo'))
+            emails_rows = email_map.get(id_pessoa, [])
+            if not emails_rows:
+                stats['ignorados_sem_email'] += 1
+                continue
+
+            enviou_contrato = False
+            for em in emails_rows:
+                em_addr = (em.get('email') or '').strip()
+                if not _email_basico_valido(em_addr):
+                    stats['ignorados_email_invalido'] += 1
+                    continue
+
+                ok_mc, err_mc, det_mc = _messagecenter_post_email_html(
+                    remetente_nome,
+                    em_addr,
+                    primeiro or 'Cliente',
+                    corpo_html,
+                )
+                if not ok_mc:
+                    stats['falhas'] += 1
+                    if len(erros_amostra) < 25:
+                        erros_amostra.append({
+                            'id_contrato': cid_i,
+                            'erro': err_mc or 'Falha MessageCenter',
+                            'detalhe': det_mc,
+                        })
+                    continue
+
+                msg_reg = corpo_html[:1600]
+                try:
+                    with conn.cursor() as cursor:
+                        ids_reg, err_reg = _resolve_ids_registro_email(
+                            cursor,
+                            id_pessoa,
+                            int(em['id']),
+                            cid_i,
+                        )
+                        if err_reg:
+                            stats['falhas'] += 1
+                            if len(erros_amostra) < 25:
+                                erros_amostra.append({
+                                    'id_contrato': cid_i,
+                                    'erro': err_reg,
+                                })
+                            continue
+                        cursor.execute(
+                            'INSERT INTO registro_email '
+                            '(id_contrato, id_pessoa, id_email, id_funcionario, mensagem) '
+                            'VALUES (%s, %s, %s, %s, %s)',
+                            (
+                                ids_reg['id_contrato'],
+                                ids_reg['id_pessoa'],
+                                ids_reg['id_email'],
+                                int(fid),
+                                msg_reg,
+                            ),
+                        )
+                        conn.commit()
+                except Exception as exc:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                    stats['falhas'] += 1
+                    app.logger.warning(
+                        'relatorio email lote: insert registro_email falhou: %s', exc
+                    )
+                    if len(erros_amostra) < 25:
+                        erros_amostra.append({
+                            'id_contrato': cid_i,
+                            'erro': f'Falha ao registrar e-mail: {exc}',
+                        })
+                    continue
+
+                stats['envios_email'] += 1
+                enviou_contrato = True
+
+            if enviou_contrato:
+                stats['contratos_com_envio'] += 1
+
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    stats['erros_amostra'] = erros_amostra
+    return stats, None
+
+
+@app.route('/api/relatorios/email-lote', methods=['POST'])
+def api_relatorios_email_lote():
+    """E-mail em lote para contratos listados em Relatorios (mesma API MessageCenter que /api/enviar-email-html).
+
+    Apenas Gestor ou Administrador. Corpo: texto plano convertido para HTML simples.
+    """
+    forbidden = _admin_json_forbidden()
+    if forbidden:
+        return forbidden
+
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
+
+    payload = request.get_json(silent=True) or {}
+    contrato_ids, err = _relatorio_parse_contrato_ids_lote(payload)
+    if err:
+        return jsonify({'error': err}), 400
+
+    mensagem = payload.get('mensagem')
+    if mensagem is None:
+        mensagem = payload.get('mensagem_texto') or payload.get('corpo')
+
+    stats, err = _relatorio_email_lote_disparar(int(fid), contrato_ids, mensagem)
+    if err:
+        return jsonify({'error': err}), 400
+
+    return jsonify({'ok': True, **stats})
 
 
 def _validate_relatorio_params():
