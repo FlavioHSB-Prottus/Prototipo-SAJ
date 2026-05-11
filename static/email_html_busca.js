@@ -1,9 +1,11 @@
 /**
  * Busca: envio de e-mail HTML via MessageCenter (proxy POST /api/enviar-email-html).
- * Botıes .btn-enviar-email-html com data-email, data-pessoa-id, data-email-id e opcional data-contrato-id.
+ * Botùes .btn-enviar-email-html com data-email, data-pessoa-id, data-email-id e opcional data-contrato-id.
  */
 (function () {
     'use strict';
+
+    var MSG_SEM_PERMISSAO_EMAIL = 'voce nao tem permissao';
 
     function escapeHtml(s) {
         return String(s)
@@ -82,16 +84,17 @@
                                 (text ? String(text).slice(0, 200) : '(vazio)'),
                         };
                     }
-                    return { ok: r.ok, d: d };
+                    return { ok: r.ok, status: r.status, d: d };
                 });
             })
             .then(function (res) {
-                if (res.d.error) {
-                    window.alert('Falha: ' + res.d.error);
-                    return;
-                }
-                if (!res.ok) {
-                    window.alert('Falha: ' + (res.d.error || 'erro desconhecido'));
+                var err = res.d.error;
+                if (err || !res.ok) {
+                    if (res.status === 403 || err === MSG_SEM_PERMISSAO_EMAIL) {
+                        window.alert(MSG_SEM_PERMISSAO_EMAIL);
+                    } else {
+                        window.alert('Falha: ' + (err || 'erro desconhecido'));
+                    }
                     return;
                 }
                 window.alert('E-mail enviado para ' + email + '.');

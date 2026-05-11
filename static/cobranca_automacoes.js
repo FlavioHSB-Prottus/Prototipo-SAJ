@@ -1102,7 +1102,16 @@
                 }
                 var body = res.body || {};
                 if (!res.ok || body.error) {
-                    renderStatusErro(meta, body.error || 'Falha ao disparar.', tipo);
+                    var errLote = body.error || 'Falha ao disparar.';
+                    if (
+                        (tipo === 'email' || tipo === 'sms_email') &&
+                        (res.status === 403 || errLote === 'voce nao tem permissao')
+                    ) {
+                        fechar(d.statusOverlay);
+                        window.alert('voce nao tem permissao');
+                        return;
+                    }
+                    renderStatusErro(meta, errLote, tipo);
                     return;
                 }
                 renderStatusSucessoLote(meta, body, nivel, tipo);

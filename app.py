@@ -120,6 +120,16 @@ def _admin_json_forbidden():
     return None
 
 
+_EMAIL_ENVIO_PERFIL_COBRANCA_MSG = 'voce nao tem permissao'
+
+
+def _cobranca_json_sem_permissao_envio_email():
+    """Perfil Cobrança não envia e-mail (MessageCenter / registro_email)."""
+    if _nivel_normalizado(session.get('funcionario_nivel_acesso')) == 'cobranca':
+        return jsonify({'error': _EMAIL_ENVIO_PERFIL_COBRANCA_MSG}), 403
+    return None
+
+
 _COBRANCA_API_PREFIXES_OK = (
     '/api/busca',
     '/api/contrato/',
@@ -4465,6 +4475,9 @@ def api_enviar_email_html():
     fid = session.get('funcionario_id')
     if not fid:
         return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
+    forbidden_email = _cobranca_json_sem_permissao_envio_email()
+    if forbidden_email:
+        return forbidden_email
     payload = request.get_json(silent=True) or {}
     corpo = (payload.get('corpo_html') or '').strip()
     if not corpo:
@@ -11114,6 +11127,11 @@ def api_automacao(tipo):
     fid = session.get('funcionario_id')
     if not fid:
         return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
+
+    if tipo in ('email', 'sms_email'):
+        forbidden_email = _cobranca_json_sem_permissao_envio_email()
+        if forbidden_email:
+            return forbidden_email
 
     _automacao_log(tipo, {
         'nivel': nivel,
