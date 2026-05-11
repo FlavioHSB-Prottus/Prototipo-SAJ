@@ -8957,6 +8957,18 @@ def _empty_to_none(val):
     return val
 
 
+def _parse_optional_int_funcionario_field(val, label):
+    """None ou string vazia -> None; caso contrário inteiro ou erro legível."""
+    if val is None:
+        return None
+    if isinstance(val, str) and val.strip() == '':
+        return None
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        raise ValueError('%s deve ser um número inteiro ou vazio.' % label)
+
+
 @app.route('/api/admin/funcionario', methods=['POST'])
 def api_admin_funcionario_create():
     """Cadastra um registro em `funcionario`. Exige sessão de administrador."""
@@ -8991,6 +9003,15 @@ def api_admin_funcionario_create():
     matricula = _empty_to_none((data.get('matricula') or '').strip())
     data_nascimento = _empty_to_none(data.get('data_nascimento'))
 
+    try:
+        ramal_v = _parse_optional_int_funcionario_field(data.get('ramal'), 'Ramal')
+        fila_v = _parse_optional_int_funcionario_field(data.get('fila'), 'Fila')
+    except ValueError as ve:
+        return jsonify({'error': str(ve)}), 400
+    apikey_v = _empty_to_none((data.get('apikey') or '').strip())
+    if apikey_v is not None and len(apikey_v) > 255:
+        return jsonify({'error': 'API key deve ter no máximo 255 caracteres.'}), 400
+
     conn = None
     try:
         conn = _get_db()
@@ -9001,17 +9022,31 @@ def api_admin_funcionario_create():
             cursor.execute('SELECT id FROM funcionario WHERE login = %s LIMIT 1', (login_v,))
             if cursor.fetchone():
                 return jsonify({'error': 'Já existe funcionário com este login.'}), 409
+            if ramal_v is not None:
+                cursor.execute('SELECT id FROM funcionario WHERE ramal = %s LIMIT 1', (ramal_v,))
+                if cursor.fetchone():
+                    return jsonify({'error': 'Já existe funcionário com este ramal.'}), 409
+            if fila_v is not None:
+                cursor.execute('SELECT id FROM funcionario WHERE fila = %s LIMIT 1', (fila_v,))
+                if cursor.fetchone():
+                    return jsonify({'error': 'Já existe funcionário com esta fila.'}), 409
+            if apikey_v is not None:
+                cursor.execute('SELECT id FROM funcionario WHERE apikey = %s LIMIT 1', (apikey_v,))
+                if cursor.fetchone():
+                    return jsonify({'error': 'Já existe funcionário com esta API key.'}), 409
 
             cursor.execute(
                 """
                 INSERT INTO funcionario (
                     nome, cpf_cnpj, login, senha, nivel_acesso, ativo, acesso_externo,
                     email, ddd, numero, logradouro, bairro, complemento, cep, cidade, estado,
-                    departamento, sexo, matricula, data_nascimento
+                    departamento, sexo, matricula, data_nascimento,
+                    ramal, fila, apikey
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s
+                    %s, %s, %s, %s,
+                    %s, %s, %s
                 )
                 """,
                 (
@@ -9035,6 +9070,9 @@ def api_admin_funcionario_create():
                     sexo,
                     matricula,
                     data_nascimento,
+                    ramal_v,
+                    fila_v,
+                    apikey_v,
                 ),
             )
             new_id = cursor.lastrowid
@@ -9066,6 +9104,7 @@ def api_admin_funcionario_one(fid):
                     SELECT id, nome, data_nascimento, cpf_cnpj, ativo, login,
                            acesso_externo, email, ddd, numero, logradouro, bairro, complemento,
                            cep, cidade, estado, departamento, nivel_acesso, sexo, matricula,
+                           ramal, fila, apikey,
                            created_at, updated_at
                     FROM funcionario WHERE id = %s
                     """,
@@ -9125,6 +9164,29 @@ def api_admin_funcionario_one(fid):
                 updates.append('`senha` = %s')
                 params.append(str(pw))
 
+            if 'ramal' in data:
+                try:
+                    ramal_u = _parse_optional_int_funcionario_field(data.get('ramal'), 'Ramal')
+                except ValueError as ve:
+                    return jsonify({'error': str(ve)}), 400
+                updates.append('`ramal` = %s')
+                params.append(ramal_u)
+
+            if 'fila' in data:
+                try:
+                    fila_u = _parse_optional_int_funcionario_field(data.get('fila'), 'Fila')
+                except ValueError as ve:
+                    return jsonify({'error': str(ve)}), 400
+                updates.append('`fila` = %s')
+                params.append(fila_u)
+
+            if 'apikey' in data:
+                ak = _empty_to_none((data.get('apikey') or '').strip())
+                if ak is not None and len(ak) > 255:
+                    return jsonify({'error': 'API key deve ter no máximo 255 caracteres.'}), 400
+                updates.append('`apikey` = %s')
+                params.append(ak)
+
             if not updates:
                 return jsonify({'error': 'Nenhum campo para atualizar.'}), 400
 
@@ -9144,6 +9206,42 @@ def api_admin_funcionario_one(fid):
                 )
                 if cursor.fetchone():
                     return jsonify({'error': 'Login já cadastrado para outro funcionário.'}), 409
+
+            if 'ramal' in data:
+                try:
+                    ramal_dup = _parse_optional_int_funcionario_field(data.get('ramal'), 'Ramal')
+                except ValueError as ve:
+                    return jsonify({'error': str(ve)}), 400
+                if ramal_dup is not None:
+                    cursor.execute(
+                        'SELECT id FROM funcionario WHERE ramal = %s AND id <> %s LIMIT 1',
+                        (ramal_dup, fid),
+                    )
+                    if cursor.fetchone():
+                        return jsonify({'error': 'Ramal já cadastrado para outro funcionário.'}), 409
+
+            if 'fila' in data:
+                try:
+                    fila_dup = _parse_optional_int_funcionario_field(data.get('fila'), 'Fila')
+                except ValueError as ve:
+                    return jsonify({'error': str(ve)}), 400
+                if fila_dup is not None:
+                    cursor.execute(
+                        'SELECT id FROM funcionario WHERE fila = %s AND id <> %s LIMIT 1',
+                        (fila_dup, fid),
+                    )
+                    if cursor.fetchone():
+                        return jsonify({'error': 'Fila já cadastrada para outro funcionário.'}), 409
+
+            if 'apikey' in data:
+                ak_chk = _empty_to_none((data.get('apikey') or '').strip())
+                if ak_chk is not None:
+                    cursor.execute(
+                        'SELECT id FROM funcionario WHERE apikey = %s AND id <> %s LIMIT 1',
+                        (ak_chk, fid),
+                    )
+                    if cursor.fetchone():
+                        return jsonify({'error': 'API key já cadastrada para outro funcionário.'}), 409
 
             params.append(fid)
             sql = 'UPDATE funcionario SET ' + ', '.join(updates) + ' WHERE id = %s'
