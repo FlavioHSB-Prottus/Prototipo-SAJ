@@ -16,6 +16,7 @@ import importlib.util
 
 import pymysql
 import requests
+import smtp as _smtp_google_workspace
 from pymysql.err import IntegrityError, OperationalError
 from flask import Flask, Response, render_template, request, redirect, url_for, jsonify, send_file, session, flash, abort
 from werkzeug.utils import secure_filename
@@ -3140,6 +3141,7 @@ def api_distribuicao_sms_automatizados():
                 stats,
                 erros_amostra,
                 canais,
+                usar_smtp_google=True,
             )
 
     finally:
@@ -3886,6 +3888,25 @@ EMAIL_MC_REMETENTE = os.environ.get(
 )
 
 
+def _importacao_envio_email_auto(remetente_nome, destinatario, cliente_primeiro_nome, corpo_html, msg_plain):
+    """E-mail do lote automático **só na página Importação** (ver ``usar_smtp_google`` em ``_auto_envio_contrato_canais``).
+
+    Se SMTP Google estiver configurado no ambiente, usa ``send_google_workspace_email``; senão MessageCenter.
+    Retorna (ok_bool, erro_str_ou_None, data_dict|None) — mesma forma que ``_messagecenter_post_email_html``.
+    """
+    if _smtp_google_workspace.google_smtp_config_from_env():
+        ok, err = _smtp_google_workspace.send_google_workspace_email(
+            [destinatario],
+            'Cobranca',
+            corpo_html,
+            text_body=(msg_plain or '').strip() or None,
+        )
+        return ok, err, None
+    return _messagecenter_post_email_html(
+        remetente_nome, destinatario, cliente_primeiro_nome, corpo_html,
+    )
+
+
 def _messagecenter_post_email_html(remetente_nome, destinatario, cliente_primeiro_nome, corpo_html):
     """POST MessageCenter EnviarEmailHtml. Retorna (ok_bool, erro_str_ou_None, data_dict)."""
     destinatario = (destinatario or '').strip()
@@ -4114,11 +4135,16 @@ def _resolve_ids_registro_sms(cursor, payload, digits_destino):
     return {'id_telefone': tid, 'id_pessoa': pid, 'id_contrato': cid}, None
 
 
-def _auto_envio_contrato_canais(conn, fid, row, remetente_nome, stats, erros_amostra, canais):
+def _auto_envio_contrato_canais(
+    conn, fid, row, remetente_nome, stats, erros_amostra, canais, usar_smtp_google=False,
+):
     """Envia SMS e/ou e-mail automáticos (mesmo texto) para um contrato no roteiro 0/16/31/61/85.
 
     `canais`: iterable com 'sms' e/ou 'email'. Evita duplicidade: se já houve SMS ou e-mail
     hoje para o contrato, não envia nada nesta chamada.
+
+    ``usar_smtp_google``: apenas ``True`` no POST da **Importação**; noutros fluxos (ex.: Cobrança)
+    o e-mail segue sempre MessageCenter ``EnviarEmailHtml``.
     """
     canais = set(canais) if canais else {'sms', 'email'}
     id_contrato = int(row['id_contrato'])
@@ -4296,9 +4322,14 @@ def _auto_envio_contrato_canais(conn, fid, row, remetente_nome, stats, erros_amo
                         })
                     continue
 
-            ok_mc, err_mc, det_mc = _messagecenter_post_email_html(
-                rem_nome, em_addr, cliente_pn, corpo_html,
-            )
+            if usar_smtp_google:
+                ok_mc, err_mc, det_mc = _importacao_envio_email_auto(
+                    rem_nome, em_addr, cliente_pn, corpo_html, msg,
+                )
+            else:
+                ok_mc, err_mc, det_mc = _messagecenter_post_email_html(
+                    rem_nome, em_addr, cliente_pn, corpo_html,
+                )
             if not ok_mc:
                 stats['falhas'] += 1
                 if len(erros_amostra) < 20:
