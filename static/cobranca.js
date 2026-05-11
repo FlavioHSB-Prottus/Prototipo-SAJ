@@ -84,7 +84,6 @@ document.addEventListener('DOMContentLoaded', function () {
     applyViewMode(currentView);
     bootstrapOperadorSelectParaPerfilCobranca();
     loadCobranca();
-    bindFooterBulkActions();
 
     // Expõe recarga para módulos auxiliares (ex.: cobranca_automacoes.js após disparos).
     window.CobrancaReload = function () { return loadCobranca(); };
@@ -1094,39 +1093,6 @@ document.addEventListener('DOMContentLoaded', function () {
         var lista = currentData[level] || [];
         if (termo) lista = filterContracts(lista, termo, tipo);
         return sortLevelData(lista, level);
-    }
-
-    // Devolve TODOS os contratos visíveis (Crítico + Atenção + Recente),
-    // respeitando filtro de operador (já aplicado no backend), pesquisa e
-    // ordenação. Usado pelos botões de automação geral do rodapé.
-    function getContratosTodos() {
-        return []
-            .concat(getContratosNivelAtual('critico'))
-            .concat(getContratosNivelAtual('atencao'))
-            .concat(getContratosNivelAtual('recente'));
-    }
-
-    // ---- Ações de automação geral no rodapé (SMS / E-mail) ----
-    function bindFooterBulkActions() {
-        var btnSmsEmail = document.getElementById('footerBulkSmsEmail');
-        if (btnSmsEmail) {
-            btnSmsEmail.addEventListener('click', function () {
-                dispararFooterLote('sms_email');
-            });
-        }
-    }
-
-    function dispararFooterLote(tipo) {
-        if (!window.CobrancaAutomacoes) {
-            alert('Módulo de automações não carregado.');
-            return;
-        }
-        var contratos = getContratosTodos();
-        if (!contratos.length) {
-            alert('Nenhum contrato disponível na lista atual.');
-            return;
-        }
-        window.CobrancaAutomacoes.iniciar(tipo, 'todos', contratos);
     }
 
     // ---- Lógica de Ordenação ----

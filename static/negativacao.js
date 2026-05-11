@@ -899,6 +899,59 @@ document.addEventListener('DOMContentLoaded', function () {
         step(0);
     }
 
+    function parseFilenameContentDisposition(cd) {
+        if (!cd) return null;
+        var star = /filename\*=(?:UTF-8'')?([^;\n]+)/i.exec(cd);
+        if (star) {
+            var raw = star[1].trim().replace(/^"+|"+$/g, '');
+            try {
+                return decodeURIComponent(raw);
+            } catch (e) {
+                return raw;
+            }
+        }
+        var m = /filename="([^"]+)"/i.exec(cd);
+        if (m) return m[1];
+        m = /filename=([^;\n]+)/i.exec(cd);
+        return m ? m[1].trim().replace(/^"+|"+$/g, '') : null;
+    }
+
+    /** Descarrega TXT SERASA-CONVEM (POST); nao altera estado no servidor. */
+    function downloadSerasaConvTxt(tipoOperacao, ids, faixa) {
+        return fetch('/api/negativacao/serasa-arquivo-txt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                tipo_operacao: tipoOperacao,
+                ids_parcela: ids,
+                faixa: faixa || null
+            })
+        }).then(function (res) {
+            if (!res.ok) {
+                return res.json().then(function (j) {
+                    throw new Error((j && j.error) || res.statusText || 'Falha ao gerar arquivo.');
+                }).catch(function (err) {
+                    if (err instanceof Error && err.message && err.message.indexOf('JSON') === -1) {
+                        throw err;
+                    }
+                    throw new Error('Falha ao gerar arquivo.');
+                });
+            }
+            var fname = parseFilenameContentDisposition(res.headers.get('Content-Disposition')) ||
+                (tipoOperacao === 'positivar' ? 'SERASA_POSITIVACAO.TXT' : 'SERASA_NEGATIVACAO.TXT');
+            return res.blob().then(function (blob) {
+                var url = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = url;
+                a.download = fname;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            });
+        });
+    }
+
     function enviarLoteSerasaGeralPositivar() {
         var ids = collectParcelaIdsGeralPositivar();
         if (!ids.length) {
@@ -910,22 +963,10 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         var qtd = ids.length;
         if (!window.confirm(
-            'Confirmar envio de POSITIVAÇÃO ao Serasa para ' + qtd + ' parcela(s) elegível(is)? ' +
-            'Integração em desenvolvimento.'
+            'Gerar TXT de positivação (exclusão SERASA-CONVEM; modelo GM só cabeçalho e rodapé) ' +
+            'para ' + qtd + ' parcela(s) elegível(is)? O ficheiro será descarregado; não envia à API.'
         )) return;
-        fetch('/api/negativacao/positivar-lote-serasa', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                tipo_operacao: 'positivar',
-                ids_parcela: ids
-            })
-        }).then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
-            .then(function (o) {
-                if (!o.res.ok) throw new Error(o.j.error || o.res.statusText);
-                alert(o.j.mensagem || 'Pedido registrado.');
-                load();
-            })
+        downloadSerasaConvTxt('positivar', ids, null)
             .catch(function (err) { alert(err.message || String(err)); });
     }
 
@@ -993,25 +1034,14 @@ document.addEventListener('DOMContentLoaded', function () {
         var nomeBloco = faixa === 'negativados' ? 'Negativados' : 'Positivados';
         var qtd = ids.length;
         var msgTipo = tipoOperacao === 'positivar'
-            ? ('enviar POSITIVACAO ao Serasa para ' + qtd + ' parcela(s) elegivel(is) no bloco ' + nomeBloco)
-            : ('enviar NEGATIVACAO ao Serasa para ' + qtd + ' parcela(s) elegivel(is) no bloco ' + nomeBloco);
+            ? ('gerar TXT de positivacao (exclusao; modelo GM sem linhas de detalhe) para ' +
+                qtd + ' parcela(s) elegivel(is) no bloco ' + nomeBloco)
+            : ('gerar TXT de negativacao (inclusao SERASA-CONVEM) com ' +
+                qtd + ' linha(s) de detalhe no bloco ' + nomeBloco);
         if (!window.confirm(
-            'Confirmar ' + msgTipo + '? Este passo dispara o envio para a API do Serasa (integracao em desenvolvimento).'
+            'Confirmar ' + msgTipo + '? O ficheiro sera descarregado; nao envia automaticamente para a API Serasa.'
         )) return;
-        fetch('/api/negativacao/positivar-lote-serasa', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                tipo_operacao: tipoOperacao,
-                faixa: faixa,
-                ids_parcela: ids
-            })
-        }).then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
-            .then(function (o) {
-                if (!o.res.ok) throw new Error(o.j.error || o.res.statusText);
-                alert(o.j.mensagem || 'Pedido registrado.');
-                if (modoCobranca) load();
-            })
+        downloadSerasaConvTxt(tipoOperacao, ids, faixa)
             .catch(function (err) { alert(err.message || String(err)); });
     }
 
