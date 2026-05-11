@@ -343,7 +343,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 </div>
                 <div class="operador-header-right">
                     <button type="button" class="btn-edit-operador" data-id="${Number(op.id)}" title="Editar cadastro do funcionário" aria-label="Editar funcionário">
-                        <i class="fa-solid fa-pen"></i>
+                        <i class="fa-solid fa-pen" aria-hidden="true"></i>
+                        <span>Editar</span>
                     </button>
                     <div class="op-mini-badges">
                         <div class="op-mini-badge critico"><i class="fa-solid fa-fire"></i> ${op.stats.critico}</div>
@@ -574,6 +575,15 @@ document.addEventListener('DOMContentLoaded', function () {
         return s === '1' || s === '\u0001';
     }
 
+    function optionalIntInputValue(id) {
+        const el = document.getElementById(id);
+        if (!el) return null;
+        const raw = String(el.value || '').trim();
+        if (raw === '') return null;
+        const n = parseInt(raw, 10);
+        return Number.isFinite(n) ? n : null;
+    }
+
     function fillOperadorFormFields(f) {
         document.getElementById('ofNome').value = f.nome || '';
         document.getElementById('ofCpf').value = f.cpf_cnpj || '';
@@ -598,6 +608,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
         document.getElementById('ofAtivo').value = parseBitUi(f.ativo) ? '1' : '0';
         document.getElementById('ofAcessoExterno').checked = parseBitUi(f.acesso_externo);
+
+        var rEl = document.getElementById('ofRamal');
+        if (rEl) rEl.value = f.ramal != null && f.ramal !== '' ? String(f.ramal) : '';
+        var filaEl = document.getElementById('ofFila');
+        if (filaEl) filaEl.value = f.fila != null && f.fila !== '' ? String(f.fila) : '';
+        var akEl = document.getElementById('ofApikey');
+        if (akEl) akEl.value = f.apikey != null ? String(f.apikey) : '';
 
         const sx = (f.sexo || '').toString().trim().charAt(0).toUpperCase();
         document.getElementById('ofSexo').value = sx === 'M' || sx === 'F' ? sx : '';
@@ -670,6 +687,10 @@ document.addEventListener('DOMContentLoaded', function () {
         payload.sexo = sx || null;
         const dn = document.getElementById('ofNasc').value;
         payload.data_nascimento = dn || null;
+        payload.ramal = optionalIntInputValue('ofRamal');
+        payload.fila = optionalIntInputValue('ofFila');
+        var akTrim = document.getElementById('ofApikey') ? document.getElementById('ofApikey').value.trim() : '';
+        payload.apikey = akTrim === '' ? null : akTrim;
         return payload;
     }
 
