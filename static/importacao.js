@@ -718,8 +718,10 @@ document.addEventListener('DOMContentLoaded', () => {
         lastSmsAutomPreview = pv;
         const prevSms = pv.sms_previstos != null ? pv.sms_previstos : 0;
         const prevMail = pv.emails_previstos != null ? pv.emails_previstos : 0;
-        const cSms = pv.contratos_com_sms != null ? pv.contratos_com_sms : 0;
-        const cMail = pv.contratos_com_email != null ? pv.contratos_com_email : 0;
+        const msgSms = pv.sms_mensagens_previstas != null ? pv.sms_mensagens_previstas : prevSms;
+        const msgMail = pv.email_mensagens_previstas != null ? pv.email_mensagens_previstas : prevMail;
+        const cAlgum =
+            pv.contratos_previstos_algum_canal != null ? pv.contratos_previstos_algum_canal : 0;
         const ignHoje = pv.ignorados_ja_enviados_hoje != null ? pv.ignorados_ja_enviados_hoje : 0;
         const ignRota = pv.ignorados_sem_template != null ? pv.ignorados_sem_template : 0;
         const ignTel = pv.ignorados_sem_telefone != null ? pv.ignorados_sem_telefone : 0;
@@ -730,18 +732,21 @@ document.addEventListener('DOMContentLoaded', () => {
         smsAutomPreviewBody.innerHTML =
             '<dl class="sms-preview-stats">' +
             '<dt>Contratos analisados (abertos)</dt><dd>' + fmtInt(proc) + '</dd>' +
-            '<dt>Disparos SMS previstos</dt><dd>' + fmtInt(prevSms) + '</dd>' +
-            '<dt>Contratos com pelo menos 1 SMS válido</dt><dd>' + fmtInt(cSms) + '</dd>' +
-            '<dt>Disparos de e-mail previstos</dt><dd>' + fmtInt(prevMail) + '</dd>' +
-            '<dt>Contratos com pelo menos 1 e-mail válido</dt><dd>' + fmtInt(cMail) + '</dd>' +
+            '<dt>Contratos no roteiro com SMS previsto</dt><dd>' + fmtInt(prevSms) + '</dd>' +
+            '<dt>Contratos no roteiro com e-mail previsto</dt><dd>' + fmtInt(prevMail) + '</dd>' +
+            '<dt>Contratos com pelo menos SMS ou e-mail previsto</dt><dd>' + fmtInt(cAlgum) + '</dd>' +
+            '<dt>Total de SMS previstos (um por número válido)</dt><dd>' + fmtInt(msgSms) + '</dd>' +
+            '<dt>Total de e-mails previstos (um por endereço válido)</dt><dd>' + fmtInt(msgMail) + '</dd>' +
             '<dt>Ignorados (fora do roteiro 0/16/31/61/85)</dt><dd>' + fmtInt(ignRota) + '</dd>' +
             '<dt>Ignorados (já SMS ou e-mail hoje)</dt><dd>' + fmtInt(ignHoje) + '</dd>' +
             '<dt>Sem telefone no cadastro</dt><dd>' + fmtInt(ignTel) + '</dd>' +
             '<dt>Sem e-mail no cadastro</dt><dd>' + fmtInt(ignEm) + '</dd>' +
             '<dt>Tentativas bloqueadas (validação cadastro)</dt><dd>' + fmtInt(bloq) + '</dd>' +
             '</dl>' +
-            '<p class="sms-preview-note">Mesmo texto no SMS e no e-mail (templates 1–4). O envio pode levar vários minutos. ' +
-            'Use <strong>Lista SMS/E-mail</strong> para exportar o roteiro em Excel. Escolha abaixo apenas SMS, apenas e-mail ou ambos.</p>';
+            '<p class="sms-preview-note">Os primeiros totais por canal contam <strong>contratos</strong> (como no Excel do roteiro). ' +
+            'Os totais “um por número/endereço” são as mensagens que o sistema enviará se houver vários contactos válidos no mesmo devedor. ' +
+            'Mesmo texto no SMS e no e-mail (templates 1–4). Use <strong>Lista SMS/E-mail</strong> para exportar o roteiro. ' +
+            'Escolha abaixo apenas SMS, apenas e-mail ou ambos.</p>';
 
         if (smsAutomEnvioSms) {
             smsAutomEnvioSms.disabled = prevSms < 1;

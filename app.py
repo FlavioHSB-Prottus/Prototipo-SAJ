@@ -2235,6 +2235,7 @@ WITH MenorVencimento AS (
 )
 SELECT
     c.id AS contrato_id,
+    c.id_pessoa,
     c.numero_contrato,
     c.grupo,
     c.cota,
@@ -2246,6 +2247,116 @@ WHERE c.status = 'aberto'
   AND DATEDIFF(CURRENT_DATE, mv.data_vencimento_minima) IN (0, 16, 31, 61, 85)
 ORDER BY dias_atraso DESC
 """
+
+
+def _sms_autom_excel_maps_por_pessoa(cursor, linhas):
+    """Por id_pessoa: coluna Sim/Não, texto telefone(s) e e-mail(s) válidos para disparo (como o preview).
+
+    Retorna (flags_sim_nao, telefones_por_pessoa, emails_por_pessoa).
+    Vários números ou e-mails no mesmo devedor são reunidos com '; '.
+    """
+    pessoa_ids = []
+    for row in linhas or []:
+        pid = row.get('id_pessoa')
+        if pid is None:
+            continue
+        try:
+            pessoa_ids.append(int(pid))
+        except (TypeError, ValueError):
+            continue
+    pessoa_ids = list(dict.fromkeys(pessoa_ids))
+    if not pessoa_ids:
+        return {}, {}, {}
+    tel_map = _telefones_por_pessoas(cursor, pessoa_ids)
+    email_map = _emails_por_pessoas(cursor, pessoa_ids)
+    flags = {}
+    tel_txt = {}
+    em_txt = {}
+    sep = '; '
+    for pid in pessoa_ids:
+        nums = []
+        for tel in tel_map.get(pid, []):
+            digits = _sms_digits_only(tel.get('numero'))
+            if not digits:
+                continue
+            if not _sms_numero_variant_sets_overlap(tel.get('numero'), digits):
+                continue
+            raw = (tel.get('numero') or '').strip()
+            nums.append(raw if raw else digits)
+        mails = []
+        for em in email_map.get(pid, []):
+            if not _email_basico_valido(em.get('email')):
+                continue
+            mails.append((em.get('email') or '').strip())
+        tel_txt[pid] = sep.join(nums)
+        em_txt[pid] = sep.join(mails)
+        flags[pid] = 'Sim' if (nums and mails) else 'Não'
+    return flags, tel_txt, em_txt
+
+
+def _sms_autom_fill_rota_excel_duas_folhas(cursor, wb, linhas, msg_vazio):
+    """Folhas ``SMS`` e ``EMAIL`` separadas: cada aba só contratos com contacto válido naquele canal.
+
+    Coluna ``SMS e e-mail?`` indica se o devedor tem ambos os canais válidos (alinha ao preview).
+    """
+    flags, tel_por_pessoa, em_por_pessoa = _sms_autom_excel_maps_por_pessoa(cursor, linhas)
+    hdr_sms = ('Grupo', 'Cota', 'Dias de atraso', 'Telefone(s) disparo', 'SMS e e-mail?')
+    hdr_mail = ('Grupo', 'Cota', 'Dias de atraso', 'E-mail(s) disparo', 'SMS e e-mail?')
+    ws_sms = wb.active
+    ws_sms.title = 'SMS'
+    ws_mail = wb.create_sheet(title='EMAIL')
+    ws_sms.append(hdr_sms)
+    ws_mail.append(hdr_mail)
+
+    def _empty_msg_row(msg):
+        return (_xlsx_cell_str(msg), '', '', '', '')
+
+    if not linhas:
+        ws_sms.append(_empty_msg_row(msg_vazio))
+        ws_mail.append(_empty_msg_row(msg_vazio))
+        return
+
+    n_sms = 0
+    n_mail = 0
+    for row in linhas:
+        da = row.get('dias_atraso')
+        try:
+            da_cell = int(da) if da is not None else ''
+        except (TypeError, ValueError):
+            da_cell = _xlsx_cell_str(da)
+        pid = row.get('id_pessoa')
+        col_sim = 'Não'
+        tel_cell = ''
+        em_cell = ''
+        if pid is not None:
+            try:
+                ip = int(pid)
+                col_sim = flags.get(ip, 'Não')
+                tel_cell = tel_por_pessoa.get(ip, '') or ''
+                em_cell = em_por_pessoa.get(ip, '') or ''
+            except (TypeError, ValueError):
+                pass
+        g = _xlsx_cell_str(row.get('grupo'))
+        c = _xlsx_cell_str(row.get('cota'))
+        if tel_cell.strip():
+            ws_sms.append((g, c, da_cell, _xlsx_cell_str(tel_cell), col_sim))
+            n_sms += 1
+        if em_cell.strip():
+            ws_mail.append((g, c, da_cell, _xlsx_cell_str(em_cell), col_sim))
+            n_mail += 1
+
+    msg_sem_sms = (
+        'Nenhum contrato neste roteiro com telefone valido para SMS '
+        '(mesma validacao do envio / preview).'
+    )
+    msg_sem_mail = (
+        'Nenhum contrato neste roteiro com e-mail valido '
+        '(mesma validacao do envio / preview).'
+    )
+    if n_sms == 0:
+        ws_sms.append(_empty_msg_row(msg_sem_sms))
+    if n_mail == 0:
+        ws_mail.append(_empty_msg_row(msg_sem_mail))
 
 
 def _sms_autom_excel_linhas_carteira(cursor, contrato_ids):
@@ -2317,10 +2428,19 @@ def _sms_automatizados_analise(conn):
     Usa `_SMS_AUTOM_PREVIEW_ROTEIRO_SQL` (filtro identico a `_SMS_AUTOM_EXCEL_SQL`) e depois
     telefones/e-mails em memoria. Contratos abertos fora dessa lista entram em
     `ignorados_sem_template`. O POST em lote continua a iterar `_SMS_AUTOM_DISTRIBUICAO_SQL`.
+
+    Semântica dos contadores (alinhada ao Excel por contrato):
+    - ``sms_previstos`` / ``emails_previstos``: número de **contratos** com pelo menos um envio
+      válido naquele canal (igual a ``contratos_com_sms`` / ``contratos_com_email``).
+    - ``sms_mensagens_previstas`` / ``email_mensagens_previstas``: total de **mensagens** que o
+      POST tentará (um SMS por número válido; um e-mail por endereço válido).
     """
     out = {
         'sms_previstos': 0,
         'emails_previstos': 0,
+        'sms_mensagens_previstas': 0,
+        'email_mensagens_previstas': 0,
+        'contratos_previstos_algum_canal': 0,
         'contratos_com_sms': 0,
         'contratos_com_email': 0,
         'ignorados_sem_entrada': 0,
@@ -2384,10 +2504,11 @@ def _sms_automatizados_analise(conn):
             if not _sms_numero_variant_sets_overlap(tel.get('numero'), digits):
                 out['tentativas_bloqueadas_cadastro'] += 1
                 continue
-            out['sms_previstos'] += 1
+            out['sms_mensagens_previstas'] += 1
             n_ok_sms += 1
         if n_ok_sms > 0:
             out['contratos_com_sms'] += 1
+            out['sms_previstos'] += 1
         elif not telefones:
             out['ignorados_sem_telefone'] += 1
 
@@ -2398,12 +2519,16 @@ def _sms_automatizados_analise(conn):
             if not _email_basico_valido(em.get('email')):
                 out['tentativas_bloqueadas_cadastro'] += 1
                 continue
-            out['emails_previstos'] += 1
+            out['email_mensagens_previstas'] += 1
             n_ok_mail += 1
         if n_ok_mail > 0:
             out['contratos_com_email'] += 1
+            out['emails_previstos'] += 1
         elif not emails_rows:
             out['ignorados_sem_email'] += 1
+
+        if n_ok_sms > 0 or n_ok_mail > 0:
+            out['contratos_previstos_algum_canal'] += 1
 
     return out, []
 
@@ -2413,6 +2538,10 @@ def _analise_automacao_carteira(conn, contrato_ids):
 
     Usado pelo modal de confirmação em Cobrança para mostrar contagens e contratos reais.
     Validação de telefone/e-mail em memória (como o preview de importação); consultas fatiadas.
+
+    Contadores: ``sms_previstos`` / ``emails_previstos`` = contratos por canal;
+    ``sms_mensagens_previstas`` / ``email_mensagens_previstas`` = total de envios (vários números ou
+    e-mails por contrato). ``contratos_previstos_algum_canal`` = linhas em ``detalhes``.
     """
     uniq = []
     seen = set()
@@ -2429,6 +2558,9 @@ def _analise_automacao_carteira(conn, contrato_ids):
         'carteira_ids': len(uniq),
         'sms_previstos': 0,
         'emails_previstos': 0,
+        'sms_mensagens_previstas': 0,
+        'email_mensagens_previstas': 0,
+        'contratos_previstos_algum_canal': 0,
         'contratos_com_sms': 0,
         'contratos_com_email': 0,
         'ignorados_sem_contrato_aberto': 0,
@@ -2500,10 +2632,11 @@ def _analise_automacao_carteira(conn, contrato_ids):
             if not _sms_numero_variant_sets_overlap(tel.get('numero'), digits):
                 out['tentativas_bloqueadas_cadastro'] += 1
                 continue
-            out['sms_previstos'] += 1
+            out['sms_mensagens_previstas'] += 1
             n_ok_sms += 1
         if n_ok_sms > 0:
             out['contratos_com_sms'] += 1
+            out['sms_previstos'] += 1
         elif not telefones:
             out['ignorados_sem_telefone'] += 1
 
@@ -2514,10 +2647,11 @@ def _analise_automacao_carteira(conn, contrato_ids):
             if not _email_basico_valido(em.get('email')):
                 out['tentativas_bloqueadas_cadastro'] += 1
                 continue
-            out['emails_previstos'] += 1
+            out['email_mensagens_previstas'] += 1
             n_ok_mail += 1
         if n_ok_mail > 0:
             out['contratos_com_email'] += 1
+            out['emails_previstos'] += 1
         elif not emails_rows:
             out['ignorados_sem_email'] += 1
 
@@ -2532,6 +2666,7 @@ def _analise_automacao_carteira(conn, contrato_ids):
                 'disparos_email': n_ok_mail,
             })
 
+    out['contratos_previstos_algum_canal'] = len(out['detalhes'])
     out['detalhes'].sort(key=lambda r: (
         (r.get('nome_devedor') or '').lower(),
         int(r.get('id_contrato') or 0),
@@ -2585,7 +2720,7 @@ def _xlsx_cell_str(val):
 
 @app.route('/api/importacao/distribuicao/sms-automatizados/excel', methods=['GET'])
 def api_distribuicao_sms_automatizados_excel():
-    """Excel do roteiro SMS/e-mail: grupo, cota e dias de atraso (`_SMS_AUTOM_EXCEL_SQL`)."""
+    """Excel do roteiro SMS/e-mail: folhas SMS e EMAIL + coluna SMS e e-mail? (`_SMS_AUTOM_EXCEL_SQL`)."""
     if not session.get('funcionario_id'):
         return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
     if not _pode_sms_automatizados_importacao():
@@ -2599,49 +2734,28 @@ def api_distribuicao_sms_automatizados_excel():
         }), 503
 
     conn = _get_db()
-    linhas = []
     try:
+        wb = Workbook()
         with conn.cursor() as cursor:
             cursor.execute(_SMS_AUTOM_EXCEL_SQL)
             linhas = cursor.fetchall() or []
+            _sms_autom_fill_rota_excel_duas_folhas(
+                cursor,
+                wb,
+                linhas,
+                'Nenhum contrato no roteiro de dias (0, 16, 31, 61, 85) neste momento.',
+            )
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
     except Exception as exc:
-        app.logger.exception('sms-automatizados/excel: falha na query')
-        return jsonify({'error': f'Falha ao consultar dados para o Excel: {exc}'}), 500
+        app.logger.exception('sms-automatizados/excel: falha ao consultar ou montar ficheiro')
+        return jsonify({'error': f'Falha ao gerar o Excel: {exc}'}), 500
     finally:
         try:
             conn.close()
         except Exception:
             pass
-
-    try:
-        wb = Workbook()
-        ws = wb.active
-        ws.title = 'SMS e e-mail previstos'
-        hdr = ('Grupo', 'Cota', 'Dias de atraso')
-        ws.append(hdr)
-        if not linhas:
-            ws.append(
-                ('Nenhum contrato no roteiro de dias (0, 16, 31, 61, 85) neste momento.', '', '')
-            )
-        else:
-            for row in linhas:
-                da = row.get('dias_atraso')
-                try:
-                    da_cell = int(da) if da is not None else ''
-                except (TypeError, ValueError):
-                    da_cell = _xlsx_cell_str(da)
-                ws.append((
-                    _xlsx_cell_str(row.get('grupo')),
-                    _xlsx_cell_str(row.get('cota')),
-                    da_cell,
-                ))
-
-        buf = io.BytesIO()
-        wb.save(buf)
-        buf.seek(0)
-    except Exception as exc:
-        app.logger.exception('sms-automatizados/excel: falha ao montar ficheiro')
-        return jsonify({'error': f'Falha ao gerar o Excel: {exc}'}), 500
 
     fname = (
         'sms_email_automatizados_distribuicao_'
@@ -10474,7 +10588,7 @@ def api_automacao_preview():
 
 @app.route('/api/cobranca/sms-email/excel', methods=['POST'])
 def api_cobranca_sms_email_excel():
-    """Excel Grupo/Cota/dias: mesmo roteiro que o Excel da Importação, filtrado aos IDs da carteira."""
+    """Excel com folhas SMS e EMAIL: mesmo roteiro que a Importação, filtrado aos IDs da carteira."""
     if not session.get('funcionario_id'):
         return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
     payload = request.get_json(silent=True) or {}
@@ -10490,48 +10604,27 @@ def api_cobranca_sms_email_excel():
         }), 503
 
     conn = _get_db()
-    linhas = []
     try:
+        wb = Workbook()
         with conn.cursor() as cursor:
             linhas = _sms_autom_excel_linhas_carteira(cursor, ids)
+            _sms_autom_fill_rota_excel_duas_folhas(
+                cursor,
+                wb,
+                linhas,
+                'Nenhum contrato no roteiro de dias (0, 16, 31, 61, 85) nesta lista.',
+            )
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
     except Exception as exc:
-        app.logger.exception('cobranca/sms-email/excel')
-        return jsonify({'error': f'Falha ao consultar dados para o Excel: {exc}'}), 500
+        app.logger.exception('cobranca/sms-email/excel: falha ao consultar ou montar ficheiro')
+        return jsonify({'error': f'Falha ao gerar o Excel: {exc}'}), 500
     finally:
         try:
             conn.close()
         except Exception:
             pass
-
-    try:
-        wb = Workbook()
-        ws = wb.active
-        ws.title = 'SMS e e-mail previstos'
-        hdr = ('Grupo', 'Cota', 'Dias de atraso')
-        ws.append(hdr)
-        if not linhas:
-            ws.append(
-                ('Nenhum contrato no roteiro de dias (0, 16, 31, 61, 85) nesta lista.', '', '')
-            )
-        else:
-            for row in linhas:
-                da = row.get('dias_atraso')
-                try:
-                    da_cell = int(da) if da is not None else ''
-                except (TypeError, ValueError):
-                    da_cell = _xlsx_cell_str(da)
-                ws.append((
-                    _xlsx_cell_str(row.get('grupo')),
-                    _xlsx_cell_str(row.get('cota')),
-                    da_cell,
-                ))
-
-        buf = io.BytesIO()
-        wb.save(buf)
-        buf.seek(0)
-    except Exception as exc:
-        app.logger.exception('cobranca/sms-email/excel: falha ao montar ficheiro')
-        return jsonify({'error': f'Falha ao gerar o Excel: {exc}'}), 500
 
     fname = (
         'sms_email_carteira_cobranca_'

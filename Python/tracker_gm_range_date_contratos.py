@@ -19,6 +19,7 @@ import sys
 
 import pymysql
 
+# Telefones gravados via upsert_* só entram com >= 8 dígitos (zeros à esquerda não contam).
 from pessoa_satellite import upsert_avalista_contatos, upsert_devedor_contatos
 
 OCORRENCIA_ABERTO = "aberto"

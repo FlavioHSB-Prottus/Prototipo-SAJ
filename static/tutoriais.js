@@ -40,7 +40,7 @@ const TUTORIAIS = [
             {
                 titulo: "SMS/E-mail e Negativação/Positivação",
                 texto:
-                    "\"Lista SMS/E-mail\" gera Excel com grupo, cota e dias de atraso no roteiro. \"SMS/E-mail Automáticos\" dispara SMS e e-mail (MessageCenter) com o mesmo texto para contratos elegíveis; contratos que já receberam SMS ou e-mail no dia são ignorados. \"Negativação/Positivação\" abre o módulo na carteira com todos os operadores.",
+                    "\"Lista SMS/E-mail\" gera Excel com abas separadas: só contratos com telefone válido na folha SMS e só com e-mail válido na folha E-mail (quantidades podem diferir), mais coluna SMS e e-mail? (Sim/Não). \"SMS/E-mail Automáticos\" dispara pelo MessageCenter; duplicados no dia são ignorados. \"Negativação/Positivação\" abre o módulo na carteira com todos os operadores.",
                 icone: "fa-solid fa-comment-sms",
             },
             {

@@ -410,8 +410,10 @@
         if (!m.body) return;
         var prevSms = pv.sms_previstos != null ? pv.sms_previstos : 0;
         var prevMail = pv.emails_previstos != null ? pv.emails_previstos : 0;
-        var cSms = pv.contratos_com_sms != null ? pv.contratos_com_sms : 0;
-        var cMail = pv.contratos_com_email != null ? pv.contratos_com_email : 0;
+        var msgSms = pv.sms_mensagens_previstas != null ? pv.sms_mensagens_previstas : prevSms;
+        var msgMail = pv.email_mensagens_previstas != null ? pv.email_mensagens_previstas : prevMail;
+        var cAlgum =
+            pv.contratos_previstos_algum_canal != null ? pv.contratos_previstos_algum_canal : 0;
         var ignHoje = pv.ignorados_ja_enviados_hoje != null ? pv.ignorados_ja_enviados_hoje : 0;
         var ignRota = pv.ignorados_fora_rota != null ? pv.ignorados_fora_rota : 0;
         var ignTel = pv.ignorados_sem_telefone != null ? pv.ignorados_sem_telefone : 0;
@@ -423,11 +425,12 @@
 
         m.body.innerHTML =
             '<dl class="sms-preview-stats">' +
-            '<dt>Contratos analisados (abertos)</dt><dd>' + fmtIntPreview(proc) + '</dd>' +
-            '<dt>Disparos SMS previstos</dt><dd>' + fmtIntPreview(prevSms) + '</dd>' +
-            '<dt>Contratos com pelo menos 1 SMS válido</dt><dd>' + fmtIntPreview(cSms) + '</dd>' +
-            '<dt>Disparos de e-mail previstos</dt><dd>' + fmtIntPreview(prevMail) + '</dd>' +
-            '<dt>Contratos com pelo menos 1 e-mail válido</dt><dd>' + fmtIntPreview(cMail) + '</dd>' +
+            '<dt>Contratos analisados (lista enviada)</dt><dd>' + fmtIntPreview(proc) + '</dd>' +
+            '<dt>Contratos no roteiro com SMS previsto</dt><dd>' + fmtIntPreview(prevSms) + '</dd>' +
+            '<dt>Contratos no roteiro com e-mail previsto</dt><dd>' + fmtIntPreview(prevMail) + '</dd>' +
+            '<dt>Contratos com pelo menos SMS ou e-mail previsto</dt><dd>' + fmtIntPreview(cAlgum) + '</dd>' +
+            '<dt>Total de SMS previstos (um por número válido)</dt><dd>' + fmtIntPreview(msgSms) + '</dd>' +
+            '<dt>Total de e-mails previstos (um por endereço válido)</dt><dd>' + fmtIntPreview(msgMail) + '</dd>' +
             '<dt>Ignorados (fora do roteiro 0/16/31/61/85)</dt><dd>' + fmtIntPreview(ignRota) + '</dd>' +
             '<dt>Ignorados (já SMS ou e-mail hoje)</dt><dd>' + fmtIntPreview(ignHoje) + '</dd>' +
             '<dt>Sem telefone no cadastro</dt><dd>' + fmtIntPreview(ignTel) + '</dd>' +
@@ -436,9 +439,8 @@
             '<dt>Sem contrato aberto na lista</dt><dd>' + fmtIntPreview(ignSemContrato) + '</dd>' +
             '<dt>Sem pessoa (devedor)</dt><dd>' + fmtIntPreview(ignSemPessoa) + '</dd>' +
             '</dl>' +
-            '<p class="sms-preview-note">Na Cobrança, «Contratos analisados» são os IDs únicos da lista visível enviados ao resumo. ' +
-            'Mesmo texto no SMS e no e-mail (templates 1–4). O envio pode levar vários minutos. ' +
-            'Use <strong>Lista SMS/E-mail</strong> para exportar o roteiro desta lista em Excel. Escolha abaixo apenas SMS, apenas e-mail ou ambos.</p>';
+            '<p class="sms-preview-note">Os totais por canal em contratos alinham-se ao Excel do roteiro; os totais “um por número/endereço” refletem quantas mensagens o POST envia quando há vários contactos válidos. ' +
+            'Mesmo texto no SMS e no e-mail (templates 1–4). Use <strong>Lista SMS/E-mail</strong> para exportar o roteiro. Escolha abaixo apenas SMS, apenas e-mail ou ambos.</p>';
 
         syncCarteiraSmsModalFooter({ phase: 'success', pv: pv });
     }
@@ -729,7 +731,14 @@
                 var pv = body;
                 var prevSms = pv.sms_previstos != null ? pv.sms_previstos : 0;
                 var prevMail = pv.emails_previstos != null ? pv.emails_previstos : 0;
-                var prev = tipo === 'sms' ? prevSms : tipo === 'email' ? prevMail : prevSms + prevMail;
+                var prevAlgum =
+                    pv.contratos_previstos_algum_canal != null
+                        ? pv.contratos_previstos_algum_canal
+                        : (pv.detalhes || []).filter(function (row) {
+                              return rowElegivelCanal('sms_email', row);
+                          }).length;
+                var prev =
+                    tipo === 'sms' ? prevSms : tipo === 'email' ? prevMail : prevAlgum;
                 var contratosCanal =
                     tipo === 'sms'
                         ? pv.contratos_com_sms
@@ -737,9 +746,7 @@
                           ? pv.contratos_com_email
                           : null;
                 if (tipo === 'sms_email') {
-                    contratosCanal = (pv.detalhes || []).filter(function (row) {
-                        return rowElegivelCanal(tipo, row);
-                    }).length;
+                    contratosCanal = prevAlgum;
                 }
                 if (!prev || prev < 1) {
                     alert(
@@ -764,6 +771,12 @@
         var d = dom();
         var meta = TIPO_META[tipo];
         var nivelLabel = NIVEL_LABEL[nivel] || nivel;
+        var msgSmsTot =
+            pv.sms_mensagens_previstas != null ? pv.sms_mensagens_previstas : pv.sms_previstos || 0;
+        var msgEmTot =
+            pv.email_mensagens_previstas != null
+                ? pv.email_mensagens_previstas
+                : pv.emails_previstos || 0;
 
         var detalhesFiltrados = (pv.detalhes || []).filter(function (row) {
             return rowElegivelCanal(tipo, row);
@@ -787,8 +800,10 @@
         if (showRows.length) {
             var headExtra =
                 tipo === 'sms_email'
-                    ? '<th>SMS (nº)</th><th>E-mail (nº)</th>'
-                    : '<th>' + (tipo === 'sms' ? 'SMS (nº)' : 'E-mail (nº)') + '</th>';
+                    ? '<th>Msgs SMS (por contrato)</th><th>Msgs e-mail (por contrato)</th>'
+                    : '<th>' +
+                      (tipo === 'sms' ? 'Msgs SMS (por contrato)' : 'Msgs e-mail (por contrato)') +
+                      '</th>';
             tableHtml =
                 '<div class="auto-preview-table-wrap">' +
                 '<table class="auto-preview-table"><thead><tr>' +
@@ -843,15 +858,15 @@
                   '</strong></span>' +
                   '</div>' +
                   '<div class="auto-info-row auto-preview-highlight" style="border-top:none;padding-top:4px;margin-top:0">' +
-                  '  <span class="auto-info-label">Total disparos SMS</span>' +
+                  '  <span class="auto-info-label">Total mensagens SMS (um por número válido)</span>' +
                   '  <span class="auto-info-value"><strong>' +
-                  (pv.sms_previstos != null ? pv.sms_previstos : 0).toLocaleString('pt-BR') +
+                  msgSmsTot.toLocaleString('pt-BR') +
                   '</strong></span>' +
                   '</div>' +
                   '<div class="auto-info-row auto-preview-highlight" style="border-top:none;padding-top:4px;margin-top:0">' +
-                  '  <span class="auto-info-label">Total disparos e-mail</span>' +
+                  '  <span class="auto-info-label">Total mensagens e-mail (um por endereço válido)</span>' +
                   '  <span class="auto-info-value"><strong>' +
-                  (pv.emails_previstos != null ? pv.emails_previstos : 0).toLocaleString('pt-BR') +
+                  msgEmTot.toLocaleString('pt-BR') +
                   '</strong></span>' +
                   '</div>'
                 : '<div class="auto-info-row auto-preview-highlight">' +
@@ -863,11 +878,11 @@
                   '</strong></span>' +
                   '</div>' +
                   '<div class="auto-info-row auto-preview-highlight" style="border-top:none;padding-top:4px;margin-top:0">' +
-                  '  <span class="auto-info-label">Total de disparos ' +
+                  '  <span class="auto-info-label">Total de mensagens ' +
                   esc(subtipo) +
                   '</span>' +
                   '  <span class="auto-info-value"><strong>' +
-                  (totalDisparos || 0).toLocaleString('pt-BR') +
+                  (tipo === 'sms' ? msgSmsTot : msgEmTot).toLocaleString('pt-BR') +
                   '</strong></span>' +
                   '</div>';
 

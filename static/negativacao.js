@@ -459,6 +459,7 @@ document.addEventListener('DOMContentLoaded', function () {
         var idp = r.id_parcela;
         var idc = r.id_contrato;
         var tipoEv = r.tipo_evento ? String(r.tipo_evento) : '';
+        var tipoEvLow = tipoEv.toLowerCase();
         var stLow = String(r.status || '').toLowerCase();
         var badgeCls = statusAtivoBadgeClass(r.status);
         var statusCellHtml;
@@ -469,7 +470,7 @@ document.addEventListener('DOMContentLoaded', function () {
             statusCellHtml = '<span class="status-badge ' + badgeCls + '">' + esc(statusAtivoLabel(r.status)) + '</span>';
         }
         var acaoPos;
-        if (tipoEv.indexOf('removido') === 0) {
+        if (tipoEvLow.indexOf('removido') === 0) {
             acaoPos = (idp != null && idp !== '')
                 ? ('<button type="button" class="btn-neg-danger btn-neg-negativar-hist" data-id-parcela="' +
                     esc(String(idp)) + '">Negativação</button>')
@@ -710,9 +711,9 @@ document.addEventListener('DOMContentLoaded', function () {
         var negRows = [];
         var posRows = [];
         list.forEach(function (r) {
-            var t = String(r.tipo_evento || '');
-            if (t.indexOf('removido') === 0) negRows.push(r);
-            else posRows.push(r);
+            var t = String(r.tipo_evento || '').toLowerCase();
+            if (t.indexOf('removido') === 0) posRows.push(r);
+            else negRows.push(r);
         });
         negGeralRowsNeg = negRows;
         negGeralRowsPos = posRows;
@@ -1034,9 +1035,9 @@ document.addEventListener('DOMContentLoaded', function () {
         var nomeBloco = faixa === 'negativados' ? 'Negativados' : 'Positivados';
         var qtd = ids.length;
         var msgTipo = tipoOperacao === 'positivar'
-            ? ('gerar TXT de positivacao (exclusao; modelo GM sem linhas de detalhe) para ' +
+            ? ('gerar TXT de positivacao (_POSITIVACAO.TXT; modelo GM sem linhas de detalhe) para ' +
                 qtd + ' parcela(s) elegivel(is) no bloco ' + nomeBloco)
-            : ('gerar TXT de negativacao (inclusao SERASA-CONVEM) com ' +
+            : ('gerar TXT de negativacao (_NEGATIVACAO.TXT, inclusao SERASA-CONVEM) com ' +
                 qtd + ' linha(s) de detalhe no bloco ' + nomeBloco);
         if (!window.confirm(
             'Confirmar ' + msgTipo + '? O ficheiro sera descarregado; nao envia automaticamente para a API Serasa.'
