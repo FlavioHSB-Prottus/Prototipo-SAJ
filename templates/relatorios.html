@@ -7,6 +7,9 @@
 {% endblock %}
 
 {% block content %}
+<script>
+window.RELATORIOS_EMAIL_MASSA = {{ relatorios_email_massa | default(false) | tojson }};
+</script>
 <div class="busca-wrapper">
     
     <!-- Filtros p/ Relatório -->
@@ -61,13 +64,32 @@
 
     <!-- Resultados -->
     <div class="results-card table-section d-none" id="resultsSection">
-        <div class="table-header">
+        <div class="table-header relatorio-results-toolbar">
             <h3 id="resultsTitle">Contratos do Relatório</h3>
+            {% if relatorios_email_massa %}
+            <div class="rel-email-toolbar" id="relEmailToolbar">
+                <span class="rel-email-sel-label" id="relEmailSelSummary">Nenhum contrato selecionado</span>
+                <button type="button" class="btn-secondary-small" id="btnRelEmailSelecionarTodos" title="Marca todos os contratos desta lista">
+                    <i class="fa-solid fa-check-double"></i> Selecionar todos
+                </button>
+                <button type="button" class="btn-secondary-small" id="btnRelEmailLimparSel">
+                    <i class="fa-solid fa-xmark"></i> Limpar seleção
+                </button>
+                <button type="button" class="btn-export btn-export-excel" id="btnRelEmailAbrirEnvio" disabled title="Abre o envio por e-mail (MessageCenter) aos contratos marcados">
+                    <i class="fa-solid fa-envelope"></i> Enviar e-mail aos selecionados
+                </button>
+            </div>
+            {% endif %}
         </div>
         <div class="table-responsive">
             <table class="styled-table">
                 <thead>
                     <tr>
+                        {% if relatorios_email_massa %}
+                        <th class="rel-checkbox-col" scope="col">
+                            <input type="checkbox" id="relEmailSelectAll" title="Selecionar ou limpar todos da lista atual" aria-label="Selecionar todos da lista">
+                        </th>
+                        {% endif %}
                         <th class="sortable-header" data-column="grupo">Grupo <i class="fa-solid fa-sort sort-icon"></i></th>
                         <th class="sortable-header" data-column="cota">Cota <i class="fa-solid fa-sort sort-icon"></i></th>
                         <th class="sortable-header" data-column="cpf_cnpj">CPF / CNPJ <i class="fa-solid fa-sort sort-icon"></i></th>
@@ -87,6 +109,31 @@
     </div>
 
 </div>
+
+{% if relatorios_email_massa %}
+<!-- Modal: envio de e-mail em lote (Gestor / Administrador) -->
+<div id="relEmailLoteModal" class="modal-overlay rel-email-lote-modal" aria-hidden="true">
+    <div class="modal-container rel-email-lote-dialog">
+        <div class="modal-header">
+            <h2><i class="fa-solid fa-envelope"></i> Enviar e-mail — relatório</h2>
+            <button type="button" class="close-modal-btn" id="relEmailLoteFechar" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="modal-body">
+            <p class="rel-email-lote-intro">
+                Serão utilizados os <strong id="relEmailLoteCountContratos">0</strong> contrato(s) selecionado(s).
+                O mesmo texto será enviado para cada <strong>endereço de e-mail válido</strong> cadastrado para o devedor (API MessageCenter, como na importação).
+            </p>
+            <label for="relEmailLoteMensagem" class="rel-email-lote-label">Mensagem (texto do e-mail)</label>
+            <textarea id="relEmailLoteMensagem" class="rel-email-lote-textarea" rows="10" maxlength="15000" placeholder="Digite a mensagem que será enviada..."></textarea>
+            <p class="rel-email-lote-hint"><span id="relEmailLoteCharCount">0</span> / 15000 caracteres</p>
+            <div class="rel-email-lote-footer">
+                <button type="button" class="btn-secondary-small" id="relEmailLoteCancelar">Cancelar</button>
+                <button type="button" class="btn-search" id="relEmailLoteConfirmar"><i class="fa-solid fa-paper-plane"></i> Enviar</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 <!-- Modal de Detalhes -->
 <div id="detalhesModal" class="modal-overlay">
