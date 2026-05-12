@@ -1140,6 +1140,7 @@ def apply_delta(cursor, conn, arquivo_gm_id,
         # Para fechamento por pagamento: mesma semântica do ramo removed_parcels/paid_parcels —
         # uma ocorrência "parcela X paga" por parcela e positivação na negativação quando aplicável.
         # (Sem isso, só existia "contrato fechado" e a positivação não era disparada.)
+        # Indenização: positivar parcelas em aberto que serão marcadas como indenizado *antes* do UPDATE.
         for _, _, num_p_raw in prev_parcelas:
             try:
                 num = int(float(num_p_raw or 0))
@@ -1154,6 +1155,10 @@ def apply_delta(cursor, conn, arquivo_gm_id,
                 (cid, num_p_raw),
             )
             row_parc = cursor.fetchone()
+            if status_parc == "indenizado" and row_parc and row_parc.get("id") is not None:
+                _liberar_negativacao_parcela_paga(
+                    cursor, conn, int(row_parc["id"]), cid, arquivo_gm_id
+                )
             cursor.execute(
                 "UPDATE parcela SET status = %s, data_pagamento = %s, updated_at = NOW() WHERE id_contrato = %s AND numero_parcela = %s",
                 (status_parc, data_arquivo if status_parc == 'fechado' else None, cid, num_p_raw),
