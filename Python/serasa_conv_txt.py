@@ -15,6 +15,9 @@ from pathlib import Path
 
 LINHA_LEN = 600
 
+# Primeira coluna (1-based) do codigo do credor (4 digitos), conforme layout SERASA-CONVEM / exemplo operacional.
+_POS_INICIO_CODIGO_CREDOR_1 = 527
+
 # 40-digit block between CEP and J1 from SERASA_GM_040520264912.TXT detail line.
 _MEIO_ZEROS40_PADRAO = '0000000002279090000000847630259000000000'
 
@@ -99,6 +102,28 @@ def montar_credor_113(nome_credor: str | None, codigo_produto: str = '5016') -> 
     return bloco46.ljust(113)[:113]
 
 
+# Bloco credor no detalhe (legado PHP: "J10" + 14 digitos CNPJ + razao 37 = 51 chars).
+_GMAC_CNPJ14 = '49937055000111'
+_GMAC_NOME37_PAD = 'GMAC ADMINISTRADORA DE CONSORCIO LTDA'
+
+
+def _montar_j10_bloco_credor_51(
+    cnpj14: str | None,
+    nome_razao37: str | None,
+    codigo_credor: str,
+) -> str:
+    """51 caracteres: CNPJ 14 + nome credor 37 (como sistema.geracao.arquivo.negativacao.serasa.php)."""
+    cod = _fit_num_digits(codigo_credor, 4)[-4:]
+    if cod == '5015':
+        cnpj_d = _fit_num_digits(cnpj14, 14) if cnpj14 else '61074175000138'
+        nome_d = (nome_razao37 or 'MAPFRE SEGUROS GERAIS S.A.').strip() or 'MAPFRE SEGUROS GERAIS S.A.'
+    else:
+        cnpj_d = _fit_num_digits(cnpj14, 14) if cnpj14 else _GMAC_CNPJ14
+        nome_d = (nome_razao37 or _GMAC_NOME37_PAD).strip() or _GMAC_NOME37_PAD
+    nome37 = _ascii_latin1(nome_d, upper=True)[:37].ljust(37)
+    return (cnpj_d + nome37)[:51].ljust(51)[:51]
+
+
 def montar_linha_detalhe_inclusao(
     seq_linha_arquivo: int,
     seq_interno6: int,
@@ -117,7 +142,19 @@ def montar_linha_detalhe_inclusao(
     nome_credor: str | None,
     codigo_credor: str = '5016',
     zeros40: str | None = None,
+    *,
+    bairro: str | None = None,
+    tipo_operacao_ie: str = 'I',
+    valor_centavos: int | None = None,
+    cnpj_credor: str | None = None,
 ) -> str:
+    """Linha de detalhe 600 chars alinhada ao legado PHP (inclusao 1I / exclusao 1E, motivo 00/02).
+
+    ``zeros40`` mantido na assinatura por compatibilidade com ``montar_arquivo_txt``; o layout PHP
+    posiciona valor e contrato apos o CEP (sem o bloco intermedio de 40 zeros do modelo antigo).
+    """
+    _ = zeros40  # nao usado neste layout
+
     def _ymd(d: date | str | None, default: str = '00000000') -> str:
         if d is None:
             return default
@@ -126,36 +163,82 @@ def montar_linha_detalhe_inclusao(
         ds = str(d)[:10].replace('-', '')
         return ds if len(ds) == 8 and ds.isdigit() else default
 
+    tipo_ie = (tipo_operacao_ie or 'I').strip().upper()[:1]
+    if tipo_ie not in ('I', 'E'):
+        tipo_ie = 'I'
+    motivo_baixa = '00' if tipo_ie == 'I' else '02'
+    _ = seq_interno6  # legado PHP usa campo fixo 000127; parametro mantido por compatibilidade de chamadas
+
     doc_digits = re.sub(r'\D', '', str(cpf_cnpj or ''))
-    if len(doc_digits) >= 14:
-        pref = 'J1'
-    else:
-        pref = 'F2'
-    body16 = doc_digits.zfill(16)[-16:] if doc_digits else '0' * 16
-    doc18 = _fit(pref + body16, 18, align='left')
+    juridica = len(doc_digits) >= 14
+    tipo_pessoa = 'J' if juridica else 'F'
+    tipo_doc_dig = '1' if juridica else '2'
+    doc15 = doc_digits.zfill(15)[-15:] if doc_digits else '0' * 15
+    bloco_doc_motivo = tipo_pessoa + tipo_doc_dig + doc15 + motivo_baixa
+    brancos55 = ' ' * 55
 
     dt1 = _ymd(data_ref)
     dt2 = _ymd(data_vencimento, default=dt1)
 
-    buf = [
-        '1E',
-        str(seq_interno6 % 1_000_000).zfill(6),
-        dt1,
-        dt2,
-        _fit(cx, 2, align='left').upper()[:2],
-        ' ' * 5,
-        doc18,
-        ' ' * 56,
-        _fit(_ascii_latin1(nome, upper=True), 70, align='left', pad=' '),
-        _ymd(data_nasc),
-        ' ' * 140,
-        _fit(_ascii_latin1(logradouro, upper=True), 65, align='left', pad=' '),
-        _fit(_ascii_latin1(cidade, upper=True), 25, align='left', pad=' '),
-        montar_meio_67(uf, cep, grupo, cota, zeros40),
-        montar_credor_113(nome_credor, codigo_credor),
-        str(seq_linha_arquivo).zfill(7),
-    ]
-    line = ''.join(buf)
+    dtnasc_linha = '00000000' if juridica else _ymd(data_nasc)
+
+    g = re.sub(r'\D', '', str(grupo or ''))
+    c = re.sub(r'\D', '', str(cota or ''))
+    contrato_nrs = (g + c)[:16].zfill(16) if (g + c) else '0' * 16
+
+    try:
+        vc = int(valor_centavos) if valor_centavos is not None else 0
+    except (TypeError, ValueError):
+        vc = 0
+    if vc < 0:
+        vc = 0
+    valor15 = str(vc)[-15:].zfill(15)
+
+    uf2 = _fit(uf or 'SP', 2, align='left').upper()[:2].ljust(2)[:2]
+    cep8 = _fit_num_digits(cep, 8)
+
+    nome_credor_37 = _ascii_latin1(nome_credor or '', upper=True)[:37]
+    bloco51 = _montar_j10_bloco_credor_51(cnpj_credor, nome_credor_37 or None, codigo_credor)
+    cod4 = _fit_num_digits(codigo_credor, 4)[-4:]
+
+    prefix = ''.join(
+        [
+            '1' + tipo_ie,
+            '000127',
+            dt1,
+            dt2,
+            _fit(cx, 2, align='left').upper()[:2].ljust(2)[:2],
+            ' ' * 5,
+            bloco_doc_motivo,
+            brancos55,
+            _fit(_ascii_latin1(nome, upper=True), 70, align='left', pad=' '),
+            dtnasc_linha,
+            ' ' * 140,
+            _fit(_ascii_latin1(logradouro, upper=True), 45, align='left', pad=' '),
+            _fit(_ascii_latin1(bairro, upper=True), 20, align='left', pad=' '),
+            _fit(_ascii_latin1(cidade, upper=True), 25, align='left', pad=' '),
+            uf2,
+            cep8,
+            valor15,
+            contrato_nrs,
+            '000000000',
+            'J10',
+            bloco51,
+            '  ',
+        ]
+    )
+    cod_start0 = _POS_INICIO_CODIGO_CREDOR_1 - 1
+    pad_before = cod_start0 - len(prefix)
+    if pad_before < 0:
+        raise RuntimeError(
+            f'Prefixo SERASA ({len(prefix)} chars) excede a posicao do codigo credor ({_POS_INICIO_CODIGO_CREDOR_1}).'
+        )
+    seq7 = str(seq_linha_arquivo).zfill(7)
+    pad_after = LINHA_LEN - len(prefix) - pad_before - len(cod4) - len(seq7)
+    if pad_after < 0:
+        raise RuntimeError('Espaco insuficiente apos codigo credor na linha SERASA.')
+
+    line = prefix + (' ' * pad_before) + cod4 + (' ' * pad_after) + seq7
     if len(line) != LINHA_LEN:
         raise RuntimeError(f'detail line length {len(line)}, expected {LINHA_LEN}')
     return line
@@ -238,14 +321,17 @@ def montar_arquivo_txt(
         out_lines.append(h)
         seq = 2
         for i, payload in enumerate(linhas_detalhe_payload, start=1):
+            pl = dict(payload)
+            cod_linha = pl.pop('codigo_credor', None) or cod_cred
+            pl.setdefault('tipo_operacao_ie', 'I')
             out_lines.append(
                 montar_linha_detalhe_inclusao(
                     seq_linha_arquivo=seq,
                     seq_interno6=i,
                     cx=cx,
                     zeros40=z40,
-                    codigo_credor=cod_cred,
-                    **payload,
+                    codigo_credor=cod_linha,
+                    **pl,
                 )
             )
             seq += 1
