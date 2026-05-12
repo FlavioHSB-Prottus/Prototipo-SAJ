@@ -917,7 +917,7 @@ document.addEventListener('DOMContentLoaded', function () {
         return m ? m[1].trim().replace(/^"+|"+$/g, '') : null;
     }
 
-    /** Descarrega TXT SERASA-CONVEM (POST); nao altera estado no servidor. */
+    /** Descarrega TXT SERASA-CONVEM (POST; negativar: linhas 1I). Nao altera estado no servidor. */
     function downloadSerasaConvTxt(tipoOperacao, ids, faixa) {
         return fetch('/api/negativacao/serasa-arquivo-txt', {
             method: 'POST',
@@ -1037,7 +1037,7 @@ document.addEventListener('DOMContentLoaded', function () {
         var msgTipo = tipoOperacao === 'positivar'
             ? ('gerar TXT de positivacao (_POSITIVACAO.TXT; modelo GM sem linhas de detalhe) para ' +
                 qtd + ' parcela(s) elegivel(is) no bloco ' + nomeBloco)
-            : ('gerar TXT de negativacao (_NEGATIVACAO.TXT, inclusao SERASA-CONVEM) com ' +
+            : ('gerar TXT de negativacao (inclusao SERASA-CONVEM, linhas 1I / motivo 00, layout legado PHP) com ' +
                 qtd + ' linha(s) de detalhe no bloco ' + nomeBloco);
         if (!window.confirm(
             'Confirmar ' + msgTipo + '? O ficheiro sera descarregado; nao envia automaticamente para a API Serasa.'

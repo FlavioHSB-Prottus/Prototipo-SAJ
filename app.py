@@ -8,6 +8,7 @@ import json
 import mimetypes
 import secrets
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -4722,11 +4723,15 @@ def _negativacao_fetch_serasa_inclusao_payloads(cursor, ids_ordered):
           dev.nome_completo,
           dev.data_nascimento,
           e.logradouro,
+          e.bairro,
           e.cidade,
           e.estado AS uf,
           e.cep,
           c.grupo,
           c.cota,
+          CAST(ROUND(COALESCE(p.valor_total, p.valor_nominal, 0) * 100) AS SIGNED) AS valor_centavos,
+          emp.apelido AS empresa_apelido,
+          cred.cpf_cnpj AS credor_documento,
           COALESCE(
             NULLIF(TRIM(cred.nome_completo), ''),
             'GMAC ADMINISTRADORA DE CONSORCIO LTDA'
@@ -4759,6 +4764,16 @@ def _negativacao_fetch_serasa_inclusao_payloads(cursor, ids_ordered):
         if ref is None:
             ref = datetime.date.today()
         venc = _negativacao_date_only_sql(r.get('vencimento'))
+        apelido_emp = (r.get('empresa_apelido') or '').strip().upper()
+        codigo_credor = '5015' if 'MAPFRE' in apelido_emp else '5016'
+        doc_cred = re.sub(r'\D', '', str(r.get('credor_documento') or ''))
+        cnpj_credor = doc_cred[:14] if len(doc_cred) >= 14 else None
+        try:
+            valor_centavos = int(r.get('valor_centavos') or 0)
+        except (TypeError, ValueError):
+            valor_centavos = 0
+        if valor_centavos < 0:
+            valor_centavos = 0
         payloads.append({
             'data_ref': ref,
             'data_vencimento': venc or ref,
@@ -4766,12 +4781,16 @@ def _negativacao_fetch_serasa_inclusao_payloads(cursor, ids_ordered):
             'nome': r.get('nome_completo'),
             'data_nasc': _negativacao_date_only_sql(r.get('data_nascimento')),
             'logradouro': r.get('logradouro'),
+            'bairro': r.get('bairro'),
             'cidade': r.get('cidade'),
             'uf': r.get('uf'),
             'cep': r.get('cep'),
             'grupo': r.get('grupo'),
             'cota': r.get('cota'),
             'nome_credor': r.get('nome_credor'),
+            'codigo_credor': codigo_credor,
+            'cnpj_credor': cnpj_credor,
+            'valor_centavos': valor_centavos,
         })
     return payloads
 
@@ -12686,9 +12705,10 @@ def api_negativacao_positivar_lote_serasa_placeholder():
 def api_negativacao_serasa_arquivo_txt():
     """Gera ficheiro TXT SERASA-CONVEM para download.
 
-    Negativar: inclusão (linhas ``1E`` por parcela). Positivar: exclusão sem corpo, como o modelo
-    ``SERASA_GM_*4910*.TXT`` (apenas cabeçalho e rodapé); os ``ids`` servem só para validação de
-    elegibilidade alinhada à UI e ao mock ``positivar-lote-serasa``.
+    Negativar: inclusao com linhas de detalhe **1I** (motivo ``00``), layout alinhado ao legado PHP
+    (endereco 45 + bairro 20, valor em centavos, bloco ``J10`` + CNPJ/nome credor). Positivar: exclusao
+    sem linhas de detalhe (apenas cabecalho e rodape), como o modelo ``SERASA_GM_*4910*.TXT``; os
+    ``ids`` servem para validacao de elegibilidade alinhada a UI e ao mock ``positivar-lote-serasa``.
     """
     if not session.get('funcionario_id'):
         return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
