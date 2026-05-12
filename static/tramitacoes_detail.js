@@ -93,7 +93,7 @@
     function sumParcelasAberto(parcelas) {
         var t = 0;
         (parcelas || []).forEach(function (p) {
-            if (String(p.status || '').toLowerCase() === 'aberto') {
+            if (String(p.status || '').toLowerCase() === 'cobranca' || String(p.status || '').toLowerCase() === 'aberto') {
                 var v = parseFloat(p.valor_total);
                 if (!isNaN(v)) t += v;
             }

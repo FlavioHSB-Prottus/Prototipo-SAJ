@@ -86,7 +86,7 @@
         <div class="control-panel-header">
             <div>
                 <h3><i class="fa-solid fa-sliders"></i> Painel de Controle</h3>
-                <span class="subtitle">Safra = contrato novo ou que voltou na cobrança no mês. <strong>Classificação</strong> não muda. <strong>Valor (R$)</strong>: performado usa a parcela paga mais antiga; não performado usa a parcela mais antiga entre <em>aberto</em> e <em>indenizado</em>.</span>
+                <span class="subtitle">Safra = contrato novo ou que voltou na cobrança no mês. <strong>Classificação</strong> não muda. <strong>Valor (R$)</strong>: performado usa a parcela paga mais antiga; não performado usa a parcela mais antiga entre <em>cobrança</em> e <em>indenizado</em>.</span>
             </div>
             <button class="btn-ghost" id="btnResetControles" type="button">
                 <i class="fa-solid fa-rotate-right"></i> Restaurar padrão
@@ -184,7 +184,7 @@
                 </div>
                 <p class="control-card-desc">A <strong>classificação</strong> de performado / não performado segue a mesma regra de antes (não muda entre os modos). No modo <strong>Valor (R$)</strong>, cada contrato soma:
                     <strong>performado</strong> → <code>valor_total</code> da parcela <em>paga</em> mais antiga;
-                    <strong>não performado</strong> → <code>valor_total</code> da parcela mais antiga entre <code>aberto</code> e <code>indenizado</code> (cobre os contratos &gt; 90&nbsp;d que viraram indenização).</p>
+                    <strong>não performado</strong> → <code>valor_total</code> da parcela mais antiga entre <code>cobranca</code> e <code>indenizado</code> (cobre os contratos &gt; 90&nbsp;d que viraram indenização).</p>
                 <div class="control-card-body control-card-perf-chips" id="seriesBarSelector">
                     <label class="chip-option chip-compact"><input type="checkbox" data-perf="performado" checked><span class="chip-dot" style="background:#10b981"></span><span>Performado</span></label>
                     <label class="chip-option chip-compact"><input type="checkbox" data-perf="nao_performado" checked><span class="chip-dot" style="background:#f97316"></span><span>Não performado</span></label>
@@ -222,8 +222,8 @@
                     <label for="painelStatusFiltro">Status contrato</label>
                     <select id="painelStatusFiltro" class="form-control" name="status">
                         <option value="">Todos</option>
-                        <option value="aberto">Aberto</option>
-                        <option value="fechado">Fechado</option>
+                        <option value="cobranca">Em cobrança</option>
+                        <option value="pago">Pago</option>
                         <option value="indenizado">Indenizado</option>
                     </select>
                 </div>

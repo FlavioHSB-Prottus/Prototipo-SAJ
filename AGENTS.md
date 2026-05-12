@@ -47,7 +47,7 @@ Sistema web para gestao de cobranca de consorcios, com foco em:
 - Filtro por tipo + range de datas.
 - Exportacao para Excel e PDF.
 - Query de "novos" deve considerar ocorrencia de contrato novo no periodo.
-- "Abertos" segue logica dedicada baseada em contrato aberto e agregacao de data de ocorrencia.
+- "Abertos" segue logica dedicada baseada em contrato em cobrança (`status = cobranca` na BD) e agregacao de data de ocorrencia.
 
 ### 4.4 Dashboard
 - KPIs e graficos baseados em banco (nao dados hardcoded).
@@ -55,7 +55,7 @@ Sistema web para gestao de cobranca de consorcios, com foco em:
 
 ### 4.5 Performance por safra
 - Safra em 4 partes no mes: 1-9, 10-12, 13-19, 20-fim.
-- Analise usa `ocorrencia.data_arquivo` para eventos de aberto/fechado/indenizado.
+- Analise usa `ocorrencia.data_arquivo` para eventos de cobranca/pago/indenizado.
 - Visao de 30/60/90 dias usa mes selecionado + dois meses seguintes.
 - Definicao de safra prioriza entrada em cobranca (contrato novo/voltou) e parcela de entrada.
 - Export Excel (`/api/performance/export/xlsx`): aba **Resumo Safras** com cohort (contratos + soma R$ parcela metrica + soma R$ `valor_credito`), blocos separados **Performado** (faixas d30/d60/d90/d+ por prazo pagamento vs vencimento) e **Nao performado** (b30/b60/b90/b+ por atraso em aberto); abas **Resumo Safras pivot** (dados longos com `Table` do Excel) e **Resumo pivot notas** para montar tabela dinamica e segmentadores. CSV Power BI inclui tabela `resumo_safra_tidy` com as mesmas dimensoes.
@@ -68,9 +68,9 @@ Sistema web para gestao de cobranca de consorcios, com foco em:
 ### 4.7 SMS e e-mail automáticos (importacao / distribuicao)
 Lote na pagina de importacao (preview, POST envio, export Excel): gestor/admin, rotas `/api/importacao/distribuicao/sms-automatizados/`, codigo em `app.py` (`_SMS_AUTOM_DISTRIBUICAO_SQL`, `_sms_automatizados_template_id_por_dias`, `_sms_automatizados_analise`, `_auto_envio_contrato_canais`, POST).
 
-**Universo:** todos os registos em **`contrato`** com **`status = aberto`**, com `LEFT JOIN pessoa` (devedor). **Nao** se filtra por `funcionario_cobranca`.
+**Universo:** todos os registos em **`contrato`** com **`status = cobranca`**, com `LEFT JOIN pessoa` (devedor). **Nao** se filtra por `funcionario_cobranca`.
 
-**Metrica de dias:** `DATEDIFF(data_atual, MIN(vencimento))` sobre **`parcela`** com `status = aberto` do contrato (CTE `MenorVencimento`, igual à base do Excel). `_SMS_AUTOM_DISTRIBUICAO_SQL` usa esse JOIN em vez de subconsulta correlacionada por contrato. Valores **negativos** (vencimento no futuro) nao disparam.
+**Metrica de dias:** `DATEDIFF(data_atual, MIN(vencimento))` sobre **`parcela`** com `status = cobranca` do contrato (CTE `MenorVencimento`, igual à base do Excel). `_SMS_AUTOM_DISTRIBUICAO_SQL` usa esse JOIN em vez de subconsulta correlacionada por contrato. Valores **negativos** (vencimento no futuro) nao disparam.
 
 **Disparo (pontos fixos):** envio/preview apenas quando essa diferenca e **exactamente** **0, 16, 31, 61 ou 85** dias (sem faixas).
 
@@ -86,7 +86,7 @@ Lote na pagina de importacao (preview, POST envio, export Excel): gestor/admin, 
 
 **Telefones / e-mails:** no **envio** (POST), validação `_resolve_ids_registro_sms` e `_resolve_ids_registro_email` como no envio unitário; o **preview** (`_sms_automatizados_analise` e `_analise_automacao_carteira`) usa a mesma fila de contratos mas validação em memória para não estourar tempo de resposta.
 
-**Export Excel:** query dedicada `_SMS_AUTOM_EXCEL_SQL` (CTE `MenorVencimento`: `MIN(vencimento)` por contrato em parcelas `aberto`; filtro `dias_atraso IN (0,16,31,61,85)`; inclui `id_pessoa`). Duas folhas **SMS** e **EMAIL** com **listas distintas**: a folha SMS inclui só contratos do roteiro com **telefone válido** para envio; a folha EMAIL só com **e-mail válido** (validação em memória como o preview). Colunas: **Grupo**, **Cota**, **Dias de atraso**, **Telefone(s) disparo** ou **E-mail(s) disparo** (vários com `; `) e **SMS e e-mail?** (`Sim` se ambos os canais válidos naquele devedor). Se um canal não tiver linhas, a folha mostra mensagem explicativa. Na importação, **Lista SMS/E-mail** no modal «SMS / E-mail automáticos»; na Cobrança, `POST` com IDs + `_sms_autom_excel_linhas_carteira`.
+**Export Excel:** query dedicada `_SMS_AUTOM_EXCEL_SQL` (CTE `MenorVencimento`: `MIN(vencimento)` por contrato em parcelas `cobranca`; filtro `dias_atraso IN (0,16,31,61,85)`; inclui `id_pessoa`). Duas folhas **SMS** e **EMAIL** com **listas distintas**: a folha SMS inclui só contratos do roteiro com **telefone válido** para envio; a folha EMAIL só com **e-mail válido** (validação em memória como o preview). Colunas: **Grupo**, **Cota**, **Dias de atraso**, **Telefone(s) disparo** ou **E-mail(s) disparo** (vários com `; `) e **SMS e e-mail?** (`Sim` se ambos os canais válidos naquele devedor). Se um canal não tiver linhas, a folha mostra mensagem explicativa. Na importação, **Lista SMS/E-mail** no modal «SMS / E-mail automáticos»; na Cobrança, `POST` com IDs + `_sms_autom_excel_linhas_carteira`.
 
 **JSON:** `ignorados_sem_entrada` mantido a **0** (compatibilidade); contratos fora dos dias contam em `ignorados_sem_template`; resposta POST inclui `envios_sms`, `envios_email`, `ignorados_sem_email`, `ignorados_ja_enviados_hoje`.
 
@@ -94,6 +94,7 @@ Lote na pagina de importacao (preview, POST envio, export Excel): gestor/admin, 
 
 ## 5) Tabelas e entidades chave
 
+- `contrato.status` / `parcela.status`: valores ENUM **`cobranca`**, **`pago`**, **`indenizado`** (antes `aberto`/`fechado`; migrar com `Banco/migrate_status_aberto_fechado_para_cobranca_pago.sql`). `ocorrencia.status` e `performance.ocorrencia_status` alinham os mesmos literais onde aplicável.
 - `contrato`, `pessoa`, `parcela`, `ocorrencia`
 - `telefone`, `email`, `endereco`
 - `tramitacao`, `agenda`

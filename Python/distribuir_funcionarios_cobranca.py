@@ -262,8 +262,8 @@ def fetch_contratos_abertos(cursor, data_arquivo):
                c.valor_credito,
                DATEDIFF(%s, MIN(p.vencimento)) AS dias_atraso
         FROM contrato c
-        INNER JOIN parcela p ON p.id_contrato = c.id AND p.status = 'aberto'
-        WHERE c.status = 'aberto'
+        INNER JOIN parcela p ON p.id_contrato = c.id AND p.status = 'cobranca'
+        WHERE c.status = 'cobranca'
         GROUP BY c.id, c.grupo, c.cota, c.valor_credito
         """,
         (data_arquivo,),

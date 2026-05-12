@@ -39,9 +39,11 @@ document.addEventListener('DOMContentLoaded', async function () {
     };
 
     var PIE_META = {
+        cobranca:   { label: 'Em Cobrança', color: '#3b82f6' },
+        pago:       { label: 'Pagos',       color: '#10b981' },
+        indenizado: { label: 'Indenizados', color: '#f59e0b' },
         aberto:     { label: 'Em Cobrança', color: '#3b82f6' },
         fechado:    { label: 'Pagos',       color: '#10b981' },
-        indenizado: { label: 'Indenizados', color: '#f59e0b' },
     };
 
     // --- Carrega dados ---

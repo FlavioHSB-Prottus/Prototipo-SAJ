@@ -77,6 +77,19 @@ DB_CONFIG = {
     'charset': 'utf8mb4',
 }
 
+# Status em BD: contrato.status, parcela.status, ocorrencia.status; performance.ocorrencia_status.
+_STATUS_BD_COBRANCA = 'cobranca'
+_STATUS_BD_PAGO = 'pago'
+_LEGACY_STATUS_CONTRATO_MAP = {'aberto': _STATUS_BD_COBRANCA, 'fechado': _STATUS_BD_PAGO}
+_STATUS_CONTRATO_VALIDOS = frozenset((_STATUS_BD_COBRANCA, _STATUS_BD_PAGO, 'indenizado'))
+
+
+def _normalize_contrato_status_arg(val):
+    """Aceita valores actuais ou URLs antigas (?status=aberto|fechado)."""
+    s = (val or '').strip().lower()
+    return _LEGACY_STATUS_CONTRATO_MAP.get(s, s)
+
+
 def _funcionario_esta_ativo(val):
     """Interpreta a coluna `ativo` (bit(1)) retornada pelo PyMySQL."""
     if val is None:
@@ -1563,12 +1576,12 @@ def api_distribuicao():
                p.cpf_cnpj,
                (SELECT DATEDIFF(CURDATE(), MIN(vencimento))
                   FROM parcela
-                 WHERE id_contrato = c.id AND status = 'aberto') AS dias_atraso
+                 WHERE id_contrato = c.id AND status = 'cobranca') AS dias_atraso
         FROM funcionario_cobranca fc
         INNER JOIN funcionario f ON f.id = fc.id_funcionario
         INNER JOIN contrato c    ON c.id = fc.id_contrato
         LEFT JOIN pessoa p       ON p.id = c.id_pessoa
-        WHERE c.status = 'aberto'
+        WHERE c.status = 'cobranca'
         ORDER BY f.nome, c.valor_credito DESC
         """
     )
@@ -1762,10 +1775,10 @@ def api_distribuicao_transferir():
                    c.valor_credito,
                    (SELECT DATEDIFF(CURDATE(), MIN(vencimento))
                       FROM parcela
-                     WHERE id_contrato = c.id AND status = 'aberto') AS dias_atraso
+                     WHERE id_contrato = c.id AND status = 'cobranca') AS dias_atraso
             FROM funcionario_cobranca fc
             INNER JOIN contrato c ON c.id = fc.id_contrato
-            WHERE fc.id_funcionario = %s AND c.status = 'aberto'
+            WHERE fc.id_funcionario = %s AND c.status = 'cobranca'
             """,
             (id_origem,),
         )
@@ -1778,7 +1791,7 @@ def api_distribuicao_transferir():
             "WHERE fc.id_funcionario = %s AND fc.id_contrato NOT IN ("
             "SELECT id_contrato FROM funcionario_cobranca fc2 "
             "INNER JOIN contrato c ON c.id = fc2.id_contrato "
-            "WHERE fc2.id_funcionario = %s AND c.status = 'aberto')",
+            "WHERE fc2.id_funcionario = %s AND c.status = 'cobranca')",
             (id_origem, id_origem),
         )
         fechados = [int(r['fc_id']) for r in cursor.fetchall()]
@@ -1798,10 +1811,10 @@ def api_distribuicao_transferir():
                    c.valor_credito,
                    (SELECT DATEDIFF(CURDATE(), MIN(vencimento))
                       FROM parcela
-                     WHERE id_contrato = c.id AND status = 'aberto') AS dias_atraso
+                     WHERE id_contrato = c.id AND status = 'cobranca') AS dias_atraso
             FROM funcionario_cobranca fc
             INNER JOIN contrato c ON c.id = fc.id_contrato
-            WHERE c.status = 'aberto' AND fc.id_funcionario IN (%s)
+            WHERE c.status = 'cobranca' AND fc.id_funcionario IN (%s)
             """ % (",".join(["%s"] * len(destino_ids))),
             destino_ids,
         )
@@ -2000,7 +2013,7 @@ def _format_parcelas_sms_auto(cursor, id_contrato):
     cursor.execute(
         """
         SELECT numero_parcela FROM parcela
-        WHERE id_contrato = %s AND status = 'aberto' AND vencimento < CURDATE()
+        WHERE id_contrato = %s AND status = 'cobranca' AND vencimento < CURDATE()
         ORDER BY numero_parcela
         """,
         (int(id_contrato),),
@@ -2010,7 +2023,7 @@ def _format_parcelas_sms_auto(cursor, id_contrato):
         cursor.execute(
             """
             SELECT numero_parcela FROM parcela
-            WHERE id_contrato = %s AND status = 'aberto'
+            WHERE id_contrato = %s AND status = 'cobranca'
             ORDER BY numero_parcela
             """,
             (int(id_contrato),),
@@ -2104,10 +2117,10 @@ def _contrato_row_auto_envio(cursor, id_contrato):
                p.nome_completo,
                (SELECT DATEDIFF(CURDATE(), MIN(p2.vencimento))
                   FROM parcela p2
-                 WHERE p2.id_contrato = c.id AND p2.status = 'aberto') AS dias_atraso
+                 WHERE p2.id_contrato = c.id AND p2.status = 'cobranca') AS dias_atraso
         FROM contrato c
         LEFT JOIN pessoa p ON p.id = c.id_pessoa
-        WHERE c.id = %s AND c.status = 'aberto'
+        WHERE c.id = %s AND c.status = 'cobranca'
         """,
         (int(id_contrato),),
     )
@@ -2133,10 +2146,10 @@ def _contratos_rows_auto_envio_batch(cursor, contrato_ids, chunk_size=450):
                    p.nome_completo,
                    (SELECT DATEDIFF(CURDATE(), MIN(p2.vencimento))
                       FROM parcela p2
-                     WHERE p2.id_contrato = c.id AND p2.status = 'aberto') AS dias_atraso
+                     WHERE p2.id_contrato = c.id AND p2.status = 'cobranca') AS dias_atraso
             FROM contrato c
             LEFT JOIN pessoa p ON p.id = c.id_pessoa
-            WHERE c.id IN ({ph}) AND c.status = 'aberto'
+            WHERE c.id IN ({ph}) AND c.status = 'cobranca'
             """,
             chunk,
         )
@@ -2219,7 +2232,7 @@ _SMS_AUTOM_DISTRIBUICAO_SQL = """
 WITH MenorVencimento AS (
     SELECT id_contrato, MIN(vencimento) AS data_vencimento_minima
     FROM parcela
-    WHERE status = 'aberto'
+    WHERE status = 'cobranca'
     GROUP BY id_contrato
 )
 SELECT c.id AS id_contrato,
@@ -2232,7 +2245,7 @@ SELECT c.id AS id_contrato,
 FROM contrato c
 LEFT JOIN MenorVencimento mv ON c.id = mv.id_contrato
 LEFT JOIN pessoa p ON p.id = c.id_pessoa
-WHERE c.status = 'aberto'
+WHERE c.status = 'cobranca'
 ORDER BY c.id
 """
 
@@ -2243,7 +2256,7 @@ WITH MenorVencimento AS (
         id_contrato,
         MIN(vencimento) AS data_vencimento_minima
     FROM parcela
-    WHERE status = 'aberto'
+    WHERE status = 'cobranca'
     GROUP BY id_contrato
 )
 SELECT
@@ -2256,7 +2269,7 @@ SELECT
     DATEDIFF(CURRENT_DATE, mv.data_vencimento_minima) AS dias_atraso
 FROM contrato c
 JOIN MenorVencimento mv ON c.id = mv.id_contrato
-WHERE c.status = 'aberto'
+WHERE c.status = 'cobranca'
   AND DATEDIFF(CURRENT_DATE, mv.data_vencimento_minima) IN (0, 16, 31, 61, 85)
 ORDER BY dias_atraso DESC
 """
@@ -2393,7 +2406,7 @@ WITH MenorVencimento AS (
         id_contrato,
         MIN(vencimento) AS data_vencimento_minima
     FROM parcela
-    WHERE status = 'aberto'
+    WHERE status = 'cobranca'
     GROUP BY id_contrato
 )
 SELECT
@@ -2405,7 +2418,7 @@ SELECT
     DATEDIFF(CURRENT_DATE, mv.data_vencimento_minima) AS dias_atraso
 FROM contrato c
 JOIN MenorVencimento mv ON c.id = mv.id_contrato
-WHERE c.status = 'aberto'
+WHERE c.status = 'cobranca'
   AND DATEDIFF(CURRENT_DATE, mv.data_vencimento_minima) IN (0, 16, 31, 61, 85)
 ORDER BY dias_atraso DESC
 """
@@ -2468,7 +2481,7 @@ def _sms_automatizados_analise(conn):
     with conn.cursor() as cursor:
         cursor.execute(
             "SELECT COUNT(*) AS n FROM contrato WHERE status = %s",
-            ('aberto',),
+            (_STATUS_BD_COBRANCA,),
         )
         crow = cursor.fetchone() or {}
         total_abertos = int(crow.get('n') or 0)
@@ -3475,12 +3488,10 @@ def api_busca():
     conn = _get_db()
     cursor = conn.cursor()
 
-    _status_validos = ('aberto', 'fechado', 'indenizado')
-
     results = []
     if tipo == 'pessoa':
-        status_filtro = request.args.get('status', '').strip()
-        if status_filtro and status_filtro not in _status_validos:
+        status_filtro = _normalize_contrato_status_arg(request.args.get('status', '').strip())
+        if status_filtro and status_filtro not in _STATUS_CONTRATO_VALIDOS:
             status_filtro = ''
         if status_filtro:
             # Pessoas (devedor ou avalista) com ao menos um contrato nesse status
@@ -3504,7 +3515,9 @@ def api_busca():
         results = _clean_rows(cursor.fetchall())
 
     elif tipo == 'contrato':
-        status_filtro = request.args.get('status', '').strip()
+        status_filtro = _normalize_contrato_status_arg(request.args.get('status', '').strip())
+        if status_filtro and status_filtro not in _STATUS_CONTRATO_VALIDOS:
+            status_filtro = ''
         base_select = (
             "SELECT c.id, c.grupo, c.cota, c.numero_contrato, c.status, "
             "       p.nome_completo AS nome_devedor "
@@ -3530,7 +3543,9 @@ def api_busca():
     elif tipo == 'bem':
         # Busca contratos por descricao do bem (modelo, marca, etc).
         # Schema da tabela de bens e detectado dinamicamente.
-        status_filtro = request.args.get('status', '').strip()
+        status_filtro = _normalize_contrato_status_arg(request.args.get('status', '').strip())
+        if status_filtro and status_filtro not in _STATUS_CONTRATO_VALIDOS:
+            status_filtro = ''
         join_clause = _bem_join_clause('c', 'b')
         bem_where, bem_params = bem_where_cached, list(bem_params_cached)
 
@@ -4844,7 +4859,7 @@ def _ocorrencias_sem_echo_positivacao_negativacao(rows):
     for r in rows or []:
         st = (r.get('status') or '').strip().lower()
         desc = (r.get('descricao') or '').lower()
-        if st == 'aberto' and 'antes negativada' in desc:
+        if st in (_STATUS_BD_COBRANCA, 'aberto') and 'antes negativada' in desc:
             continue
         out.append(r)
     return out
@@ -6015,16 +6030,16 @@ def _build_relatorio_query(tipo, data_inicial, data_final, prioridade=None):
         "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
         "LEFT JOIN ( "
         "  SELECT id_contrato, MIN(vencimento) AS min_v_aberto "
-        "  FROM parcela WHERE status = 'aberto' GROUP BY id_contrato "
+        "  FROM parcela WHERE status = 'cobranca' GROUP BY id_contrato "
         ") parc_ab ON parc_ab.id_contrato = c.id "
     )
 
     if tipo == 'novos':
-        where = "WHERE o.status = 'aberto' AND o.descricao LIKE '%%novo%%'"
+        where = "WHERE o.status = 'cobranca' AND o.descricao LIKE '%%novo%%'"
     elif tipo == 'voltaram':
-        where = "WHERE o.status = 'aberto' AND o.descricao LIKE '%%contrato voltou%%'"
+        where = "WHERE o.status = 'cobranca' AND o.descricao LIKE '%%contrato voltou%%'"
     elif tipo == 'pagos':
-        where = "WHERE c.status = 'fechado' AND o.status = 'fechado'"
+        where = "WHERE c.status = 'pago' AND o.status = 'pago'"
     elif tipo == 'indenizados':
         where = "WHERE c.status = 'indenizado' AND o.status = 'indenizado'"
     elif tipo == 'pagos_parcialmente':
@@ -6040,7 +6055,7 @@ def _build_relatorio_query(tipo, data_inicial, data_final, prioridade=None):
             "FROM ( "
             "  SELECT id_contrato, MAX(data_pagamento) AS mx_dt "
             "  FROM parcela "
-            "  WHERE status = 'fechado' "
+            "  WHERE status = 'pago' "
             "    AND data_pagamento >= %s AND data_pagamento <= %s "
             "    AND DATEDIFF(data_pagamento, vencimento) BETWEEN 0 AND 90 "
             "  GROUP BY id_contrato "
@@ -6049,7 +6064,7 @@ def _build_relatorio_query(tipo, data_inicial, data_final, prioridade=None):
             "LEFT JOIN pessoa pes ON c.id_pessoa = pes.id "
             "LEFT JOIN ( "
             "  SELECT id_contrato, MIN(vencimento) AS min_v_aberto "
-            "  FROM parcela WHERE status = 'aberto' GROUP BY id_contrato "
+            "  FROM parcela WHERE status = 'cobranca' GROUP BY id_contrato "
             ") parc_ab ON parc_ab.id_contrato = c.id "
             "ORDER BY pq.mx_dt, c.grupo, c.cota"
         )
@@ -6575,25 +6590,25 @@ def api_dashboard():
             " AND YEAR(o1.data_arquivo) = YEAR(o2.data_arquivo) "
             " AND MONTH(o1.data_arquivo) = MONTH(o2.data_arquivo) "
             "WHERE o1.data_arquivo >= %s "
-            "  AND o1.status = 'aberto' AND o1.descricao LIKE '%%novo%%' "
-            "  AND o2.status = 'aberto' AND o2.descricao LIKE '%%contrato voltou%%' "
+            "  AND o1.status = 'cobranca' AND o1.descricao LIKE '%%novo%%' "
+            "  AND o2.status = 'cobranca' AND o2.descricao LIKE '%%contrato voltou%%' "
             "GROUP BY mes",
             (window_start,),
         )
         by_month = {r['mes']: int(r['n'] or 0) for r in cursor.fetchall()}
         return [by_month.get(m, 0) for m in all_months]
 
-    serie_pagos = _series("WHERE o.status = 'fechado'", [])
+    serie_pagos = _series("WHERE o.status = 'pago'", [])
     serie_indenizados = _series("WHERE o.status = 'indenizado'", [])
     # Ocorrencias (nao 1x por contrato) — alinha ao relatorio: status=aberto + LIKE
     serie_novos = _series_ocorrencias_aberto(
-        "WHERE o.status = 'aberto' AND o.descricao LIKE '%%novo%%'", []
+        "WHERE o.status = 'cobranca' AND o.descricao LIKE '%%novo%%'", []
     )
     serie_retomados = _series_ocorrencias_aberto(
-        "WHERE o.status = 'aberto' AND o.descricao LIKE '%%contrato voltou%%'", []
+        "WHERE o.status = 'cobranca' AND o.descricao LIKE '%%contrato voltou%%'", []
     )
     serie_entradas_safra = _series(
-        "WHERE o.status = 'aberto' AND (o.descricao = 'contrato novo' OR LOWER(o.descricao) LIKE 'contrato voltou%%')",
+        "WHERE o.status = 'cobranca' AND (o.descricao = 'contrato novo' OR LOWER(o.descricao) LIKE 'contrato voltou%%')",
         [],
     )
     # Mesma regra de "performado" no Performance: parcela quitada com atraso na quitação entre 0 e 90 dias.
@@ -6601,7 +6616,7 @@ def api_dashboard():
         "SELECT DATE_FORMAT(p.data_pagamento, '%%Y-%%m') AS mes, "
         "       COUNT(DISTINCT p.id_contrato) AS total "
         "FROM parcela p "
-        "WHERE p.status = 'fechado' "
+        "WHERE p.status = 'pago' "
         "AND DATEDIFF(p.data_pagamento, p.vencimento) BETWEEN 0 AND 90 "
         "AND DATE(p.data_pagamento) >= %s "
         "GROUP BY mes ORDER BY mes",
@@ -6941,7 +6956,7 @@ def _build_relatorio_query_abertos(data_ref, prioridade=None):
         "LEFT JOIN ( "
         "  SELECT id_contrato, MIN(vencimento) AS min_v "
         "  FROM parcela "
-        "  WHERE status = 'aberto' "
+        "  WHERE status = 'cobranca' "
         "  GROUP BY id_contrato "
         ") parc ON parc.id_contrato = c.id "
         "WHERE 1=1 "
@@ -7058,23 +7073,23 @@ def api_cobranca():
         "       f.nome AS nome_funcionario, "
         "       ( "
         "         SELECT p2.id FROM parcela p2 "
-        "         WHERE p2.id_contrato = c.id AND p2.status = 'aberto' "
+        "         WHERE p2.id_contrato = c.id AND p2.status = 'cobranca' "
         "         ORDER BY p2.vencimento ASC, p2.id ASC LIMIT 1 "
         "       ) AS id_parcela_alvo, "
         "       ( "
         "         SELECT p3.numero_parcela FROM parcela p3 "
-        "         WHERE p3.id_contrato = c.id AND p3.status = 'aberto' "
+        "         WHERE p3.id_contrato = c.id AND p3.status = 'cobranca' "
         "         ORDER BY p3.vencimento ASC, p3.id ASC LIMIT 1 "
         "       ) AS numero_parcela_alvo, "
         f"       {bem_select} AS bem_descricao "
         "FROM contrato c "
         "INNER JOIN cobranca cob ON cob.id_contrato = c.id AND cob.data_arquivo = %s "
-        "INNER JOIN parcela par ON par.id_contrato = c.id AND par.status = 'aberto' "
+        "INNER JOIN parcela par ON par.id_contrato = c.id AND par.status = 'cobranca' "
         "LEFT JOIN pessoa p ON c.id_pessoa = p.id "
         "LEFT JOIN funcionario_cobranca fc ON fc.id_contrato = c.id "
         "LEFT JOIN funcionario f ON f.id = fc.id_funcionario "
         + bem_join +
-        "WHERE c.status = 'aberto' "
+        "WHERE c.status = 'cobranca' "
     )
     params = [data_ref]
 
@@ -7094,10 +7109,10 @@ def api_cobranca():
             "INNER JOIN contrato con ON p_aberta.id_contrato = con.id "
             "INNER JOIN parcela p_fechada ON p_aberta.id_contrato = p_fechada.id_contrato "
             "INNER JOIN cobranca cob_d ON cob_d.id_contrato = con.id AND cob_d.data_arquivo = %s "
-            "WHERE p_aberta.status = 'aberto' "
-            "  AND p_fechada.status = 'fechado' "
+            "WHERE p_aberta.status = 'cobranca' "
+            "  AND p_fechada.status = 'pago' "
             "  AND p_fechada.numero_parcela > p_aberta.numero_parcela "
-            "  AND con.status = 'aberto'"
+            "  AND con.status = 'cobranca'"
             ") "
         )
         params.append(data_ref)
@@ -7386,18 +7401,18 @@ def api_operadores_dashboard():
                p.nome_completo AS nome_devedor, p.cpf_cnpj,
                (SELECT DATEDIFF(CURRENT_DATE, MIN(vencimento))
                   FROM parcela
-                 WHERE id_contrato = c.id AND status = 'aberto') AS dias_atraso,
+                 WHERE id_contrato = c.id AND status = 'cobranca') AS dias_atraso,
                (SELECT COUNT(*)
                   FROM parcela
-                 WHERE id_contrato = c.id AND status = 'aberto') AS parcelas_abertas,
+                 WHERE id_contrato = c.id AND status = 'cobranca') AS parcelas_abertas,
                (SELECT MIN(vencimento)
                   FROM parcela
-                 WHERE id_contrato = c.id AND status = 'aberto') AS vencimento_mais_antigo
+                 WHERE id_contrato = c.id AND status = 'cobranca') AS vencimento_mais_antigo
         FROM funcionario_cobranca fc
         INNER JOIN contrato c ON c.id = fc.id_contrato
         INNER JOIN cobranca cob ON cob.id_contrato = c.id AND cob.data_arquivo = %s
         LEFT JOIN pessoa p    ON p.id = c.id_pessoa
-        WHERE c.status = 'aberto'
+        WHERE c.status = 'cobranca'
         ORDER BY fc.id_funcionario, c.valor_credito DESC
         """,
         (s_ref,),
@@ -7527,13 +7542,13 @@ SELECT
         ELSE (
             SELECT DATEDIFF(CURDATE(), MIN(p2.vencimento))
             FROM parcela p2
-            WHERE p2.id_contrato = c.id AND p2.status = 'aberto'
+            WHERE p2.id_contrato = c.id AND p2.status = 'cobranca'
         )
     END AS delay_open
 FROM (
     SELECT id_contrato, MIN(data_arquivo) AS data_arquivo
     FROM ocorrencia
-    WHERE status = 'aberto'
+    WHERE status = 'cobranca'
       AND (descricao = 'contrato novo' OR LOWER(descricao) LIKE 'contrato voltou%%')
       AND data_arquivo >= %s AND data_arquivo <= %s
     GROUP BY id_contrato
@@ -7545,10 +7560,10 @@ LEFT JOIN (
     INNER JOIN (
         SELECT id_contrato, MIN(vencimento) AS min_vencimento
         FROM parcela
-        WHERE status = 'fechado'
+        WHERE status = 'pago'
         GROUP BY id_contrato
     ) p2 ON p1.id_contrato = p2.id_contrato AND p1.vencimento = p2.min_vencimento
-    WHERE p1.status = 'fechado'
+    WHERE p1.status = 'pago'
 ) p_antiga ON p_antiga.id_contrato = c.id
 LEFT JOIN (
     SELECT p1.id_contrato, p1.vencimento, p1.valor_total
@@ -7556,9 +7571,9 @@ LEFT JOIN (
     INNER JOIN (
         SELECT id_contrato, MIN(vencimento) AS min_vencimento
         FROM parcela
-        WHERE status = 'aberto'
+        WHERE status = 'cobranca'
         GROUP BY id_contrato
-    ) pm ON p1.id_contrato = pm.id_contrato AND p1.vencimento = pm.min_vencimento AND p1.status = 'aberto'
+    ) pm ON p1.id_contrato = pm.id_contrato AND p1.vencimento = pm.min_vencimento AND p1.status = 'cobranca'
 ) p_aberta ON p_aberta.id_contrato = c.id
 LEFT JOIN (
     SELECT p1.id_contrato, p1.vencimento, p1.valor_total
@@ -7880,7 +7895,7 @@ def _count_distinct_ocorrencias(cursor, date_ranges, status_filter=None, desc_no
         extra += f' AND o.status IN ({ph})'
         params.extend(status_filter)
     if desc_novo_only:
-        extra += " AND o.status = 'aberto' AND o.descricao LIKE '%%novo%%'"
+        extra += " AND o.status = 'cobranca' AND o.descricao LIKE '%%novo%%'"
     sql = f'SELECT COUNT(DISTINCT o.id_contrato) AS n FROM ocorrencia o WHERE {where}{extra}'
     cursor.execute(sql, params)
     row = cursor.fetchone()
@@ -7892,7 +7907,7 @@ def _daily_series(cursor, d1, d2):
 
     Labels vem no formato 'dd/mm' e as 3 series sao:
       - novos       : ocorrencias com descricao 'contrato novo' (status=aberto)
-      - pagos       : ocorrencias com status='fechado'
+      - pagos       : ocorrencias com status='pago'
       - indenizados : ocorrencias com status='indenizado'
     """
     if d2 < d1:
@@ -7984,7 +7999,7 @@ def api_performance():
     # KPI: novos contratos no mes (qualquer dia)
     cursor.execute(
         "SELECT COUNT(DISTINCT o.id_contrato) AS n FROM ocorrencia o "
-        "WHERE o.status = 'aberto' AND o.descricao LIKE '%%novo%%' "
+        "WHERE o.status = 'cobranca' AND o.descricao LIKE '%%novo%%' "
         "AND YEAR(o.data_arquivo) = %s AND MONTH(o.data_arquivo) = %s",
         (y, m),
     )
@@ -8013,7 +8028,7 @@ def api_performance():
     cursor.execute(
         "SELECT COUNT(*) AS n FROM parcela par "
         "INNER JOIN contrato c ON c.id = par.id_contrato "
-        "WHERE par.status = 'aberto' AND c.status = 'aberto' "
+        "WHERE par.status = 'cobranca' AND c.status = 'cobranca' "
         "AND par.vencimento < DATE_SUB(CURDATE(), INTERVAL 90 DAY)"
     )
     kpi_parcelas_crit = int(cursor.fetchone()['n'] or 0)
@@ -8338,8 +8353,8 @@ def _fetch_export_dataset(cursor, ctx):
         FROM (
             SELECT c.id, MIN(par.vencimento) AS min_v
             FROM contrato c
-            INNER JOIN parcela par ON par.id_contrato = c.id AND par.status = 'aberto'
-            WHERE c.status = 'aberto'
+            INNER JOIN parcela par ON par.id_contrato = c.id AND par.status = 'cobranca'
+            WHERE c.status = 'cobranca'
             GROUP BY c.id
             HAVING min_v < CURDATE()
         ) v
@@ -8379,7 +8394,7 @@ def _fetch_export_dataset(cursor, ctx):
             f"LEFT JOIN pessoa p ON p.id = c.id_pessoa "
             f"LEFT JOIN ( "
             f"  SELECT id_contrato, MIN(vencimento) AS min_v_aberto "
-            f"  FROM parcela WHERE status = 'aberto' GROUP BY id_contrato "
+            f"  FROM parcela WHERE status = 'cobranca' GROUP BY id_contrato "
             f") pv ON pv.id_contrato = c.id "
             f"WHERE c.id IN ({ph}) "
             f"ORDER BY c.grupo, c.cota",
@@ -9002,10 +9017,10 @@ _DASH_SERIES_LABELS = {
     'pagos_parcial': 'Contratos pagos parcialmente (0–90 d)',
 }
 _DASH_SERIES_WHERE = {
-    'pagos':       ("o.status = 'fechado'", []),
+    'pagos':       ("o.status = 'pago'", []),
     'indenizados': ("o.status = 'indenizado'", []),
-    'novos':       ("o.status = 'aberto' AND o.descricao LIKE '%%novo%%'", []),
-    'retomados':   ("o.status = 'aberto' AND o.descricao LIKE '%%contrato voltou%%'", []),
+    'novos':       ("o.status = 'cobranca' AND o.descricao LIKE '%%novo%%'", []),
+    'retomados':   ("o.status = 'cobranca' AND o.descricao LIKE '%%contrato voltou%%'", []),
 }
 # Novos/retomados: soma ocorrencias; demais: contratos distintos no mes
 _DASH_SERIES_COUNT_FUNC = {
@@ -9016,15 +9031,15 @@ _DASH_SERIES_COUNT_FUNC = {
     'pagos_parcial': 'COUNT(DISTINCT p.id_contrato)',
 }
 _DASH_PIE_LABELS = {
-    'aberto':     'Em Cobranca',
-    'fechado':    'Pagos',
+    'cobranca':   'Em Cobranca',
+    'pago':       'Pagos',
     'indenizado': 'Indenizados',
 }
 
 # Inclui entradas_safra (1 ctt) para OR no painel: mesmo escopo do grafico de "Entradas (safra)"
 _PAINEL_DASH_SERIES_WHERE = {**_DASH_SERIES_WHERE}
 _PAINEL_DASH_SERIES_WHERE['entradas_safra'] = (
-    "o.status = 'aberto' AND (o.descricao = 'contrato novo' OR LOWER(o.descricao) LIKE 'contrato voltou%%')",
+    "o.status = 'cobranca' AND (o.descricao = 'contrato novo' OR LOWER(o.descricao) LIKE 'contrato voltou%%')",
     [],
 )
 _PAINEL_DASH_LIM = 500
@@ -9041,7 +9056,7 @@ def _painel_dash_union_contrato_ids_sql(series_keys, d_ini, d_fim):
         if k == 'pagos_parcial':
             parts.append(
                 "SELECT DISTINCT par.id_contrato FROM parcela par "
-                "WHERE par.status = 'fechado' "
+                "WHERE par.status = 'pago' "
                 "AND DATE(par.data_pagamento) >= %s AND DATE(par.data_pagamento) <= %s "
                 "AND DATEDIFF(par.data_pagamento, par.vencimento) BETWEEN 0 AND 90"
             )
@@ -9076,8 +9091,8 @@ def _panel_dash_busca_filtro_sql(tipo: str, termo: str, status_contrato: str) ->
     """Retorna (join_extra, and_sql, params) para a lista do painel Dashboard (apos WHERE base)."""
     tipo = (tipo or 'contrato').strip()
     termo = (termo or '').strip()
-    st = (status_contrato or '').strip()
-    st_ok = st in ('aberto', 'fechado', 'indenizado')
+    st = _normalize_contrato_status_arg(status_contrato or '')
+    st_ok = st in _STATUS_CONTRATO_VALIDOS
     join_ex = ''
     and_bits = []
     params = []
@@ -9200,7 +9215,7 @@ def _fetch_dash_export_dataset(cursor, ctx):
                 "SELECT DATE_FORMAT(p.data_pagamento, '%%Y-%%m') AS mes, "
                 "       COUNT(DISTINCT p.id_contrato) AS total "
                 "FROM parcela p "
-                "WHERE p.status = 'fechado' "
+                "WHERE p.status = 'pago' "
                 "AND DATEDIFF(p.data_pagamento, p.vencimento) BETWEEN 0 AND 90 "
                 "AND DATE(p.data_pagamento) >= %s AND DATE(p.data_pagamento) <= %s "
                 "GROUP BY mes ORDER BY mes",
@@ -9268,21 +9283,21 @@ def _fetch_dash_export_dataset(cursor, ctx):
         "LEFT JOIN pessoa p ON p.id = c.id_pessoa "
         "LEFT JOIN ( "
         "  SELECT id_contrato, MIN(vencimento) AS min_v_aberto "
-        "  FROM parcela WHERE status = 'aberto' GROUP BY id_contrato "
+        "  FROM parcela WHERE status = 'cobranca' GROUP BY id_contrato "
         ") dash_pvat ON dash_pvat.id_contrato = c.id "
         "LEFT JOIN ( "
         "  SELECT p1.id_contrato, p1.vencimento, p1.valor_total "
         "  FROM parcela p1 INNER JOIN ( "
         "    SELECT id_contrato, MIN(vencimento) AS mv "
-        "    FROM parcela WHERE status = 'aberto' GROUP BY id_contrato "
-        "  ) t ON p1.id_contrato = t.id_contrato AND p1.vencimento = t.mv AND p1.status = 'aberto' "
+        "    FROM parcela WHERE status = 'cobranca' GROUP BY id_contrato "
+        "  ) t ON p1.id_contrato = t.id_contrato AND p1.vencimento = t.mv AND p1.status = 'cobranca' "
         ") dash_pa ON dash_pa.id_contrato = c.id "
         "LEFT JOIN ( "
         "  SELECT p1.id_contrato, p1.vencimento, p1.valor_total "
         "  FROM parcela p1 INNER JOIN ( "
         "    SELECT id_contrato, MIN(vencimento) AS mv "
-        "    FROM parcela WHERE status = 'fechado' GROUP BY id_contrato "
-        "  ) t ON p1.id_contrato = t.id_contrato AND p1.vencimento = t.mv AND p1.status = 'fechado' "
+        "    FROM parcela WHERE status = 'pago' GROUP BY id_contrato "
+        "  ) t ON p1.id_contrato = t.id_contrato AND p1.vencimento = t.mv AND p1.status = 'pago' "
         ") dash_pq ON dash_pq.id_contrato = c.id "
         "LEFT JOIN ( "
         "  SELECT p1.id_contrato, p1.vencimento, p1.valor_total "
@@ -11595,24 +11610,24 @@ def _info_negativacao_por_contrato(cursor, ids, data_referencia):
                c.grupo, c.cota, c.numero_contrato,
                (
                  SELECT COUNT(*) FROM parcela p
-                 WHERE p.id_contrato = c.id AND p.status = 'aberto'
+                 WHERE p.id_contrato = c.id AND p.status = 'cobranca'
                ) AS parcelas_abertas,
                (
                  SELECT p.id FROM parcela p
-                 WHERE p.id_contrato = c.id AND p.status = 'aberto'
+                 WHERE p.id_contrato = c.id AND p.status = 'cobranca'
                  ORDER BY p.vencimento ASC, p.id ASC LIMIT 1
                ) AS id_parcela_alvo,
                (
                  SELECT p.numero_parcela FROM parcela p
-                 WHERE p.id_contrato = c.id AND p.status = 'aberto'
+                 WHERE p.id_contrato = c.id AND p.status = 'cobranca'
                  ORDER BY p.vencimento ASC, p.id ASC LIMIT 1
                ) AS numero_parcela_alvo,
                (
                  SELECT DATEDIFF(%s, MIN(p.vencimento)) FROM parcela p
-                 WHERE p.id_contrato = c.id AND p.status = 'aberto'
+                 WHERE p.id_contrato = c.id AND p.status = 'cobranca'
                ) AS dias_atraso
         FROM contrato c
-        WHERE c.id IN ({placeholders}) AND c.status = 'aberto'
+        WHERE c.id IN ({placeholders}) AND c.status = 'cobranca'
     """
     cursor.execute(q, (data_referencia, *ids))
     info = _clean_rows(cursor.fetchall())
@@ -11902,16 +11917,16 @@ def _negativacao_positivacao_sql_filtro_operador_carteira(fid_op, data_ref_iso):
         "("
         "EXISTS ("
         "SELECT 1 FROM cobranca cob "
-        "INNER JOIN contrato cc ON cc.id = cob.id_contrato AND cc.status = 'aberto' "
-        "INNER JOIN parcela par ON par.id_contrato = cc.id AND par.status = 'aberto' "
+        "INNER JOIN contrato cc ON cc.id = cob.id_contrato AND cc.status = 'cobranca' "
+        "INNER JOIN parcela par ON par.id_contrato = cc.id AND par.status = 'cobranca' "
         "INNER JOIN funcionario_cobranca fc ON fc.id_contrato = cc.id "
         "AND fc.id_funcionario = %s "
         "WHERE cob.data_arquivo = %s AND cob.id_contrato = c.id"
         ") OR ("
         "NOT EXISTS ("
         "SELECT 1 FROM cobranca cob "
-        "INNER JOIN contrato cc ON cc.id = cob.id_contrato AND cc.status = 'aberto' "
-        "INNER JOIN parcela par ON par.id_contrato = cc.id AND par.status = 'aberto' "
+        "INNER JOIN contrato cc ON cc.id = cob.id_contrato AND cc.status = 'cobranca' "
+        "INNER JOIN parcela par ON par.id_contrato = cc.id AND par.status = 'cobranca' "
         "WHERE cob.data_arquivo = %s AND cob.id_contrato = c.id"
         ") AND ("
         "SELECT t.id_funcionario FROM tramitacao t "
@@ -11932,8 +11947,8 @@ def _negativacao_sem_operador_cobranca_contrato_fragment(data_ref_iso):
     sql = (
         "NOT EXISTS ("
         "SELECT 1 FROM cobranca cob "
-        "INNER JOIN contrato cc ON cc.id = cob.id_contrato AND cc.status = 'aberto' "
-        "INNER JOIN parcela par ON par.id_contrato = cc.id AND par.status = 'aberto' "
+        "INNER JOIN contrato cc ON cc.id = cob.id_contrato AND cc.status = 'cobranca' "
+        "INNER JOIN parcela par ON par.id_contrato = cc.id AND par.status = 'cobranca' "
         "INNER JOIN funcionario_cobranca fc ON fc.id_contrato = cc.id "
         "WHERE cob.data_arquivo = %s AND cob.id_contrato = c.id"
         ") AND NOT EXISTS (SELECT 1 FROM tramitacao t WHERE t.id_contrato = c.id)"
@@ -12064,8 +12079,8 @@ def _negativacao_apenas_cobranca_exists_clause(cursor, funcionario_id_filtro):
     if funcionario_id_filtro is not None:
         sql = (
             "EXISTS (SELECT 1 FROM cobranca cob "
-            "INNER JOIN contrato cc ON cc.id = cob.id_contrato AND cc.status = 'aberto' "
-            "INNER JOIN parcela par ON par.id_contrato = cc.id AND par.status = 'aberto' "
+            "INNER JOIN contrato cc ON cc.id = cob.id_contrato AND cc.status = 'cobranca' "
+            "INNER JOIN parcela par ON par.id_contrato = cc.id AND par.status = 'cobranca' "
             "INNER JOIN funcionario_cobranca fc ON fc.id_contrato = cc.id "
             "AND fc.id_funcionario = %s "
             "WHERE cob.data_arquivo = %s AND cob.id_contrato = c.id)"
@@ -12074,8 +12089,8 @@ def _negativacao_apenas_cobranca_exists_clause(cursor, funcionario_id_filtro):
     else:
         sql = (
             "EXISTS (SELECT 1 FROM cobranca cob "
-            "INNER JOIN contrato cc ON cc.id = cob.id_contrato AND cc.status = 'aberto' "
-            "INNER JOIN parcela par ON par.id_contrato = cc.id AND par.status = 'aberto' "
+            "INNER JOIN contrato cc ON cc.id = cob.id_contrato AND cc.status = 'cobranca' "
+            "INNER JOIN parcela par ON par.id_contrato = cc.id AND par.status = 'cobranca' "
             "WHERE cob.data_arquivo = %s AND cob.id_contrato = c.id)"
         )
         params = [d_iso]
@@ -12972,7 +12987,7 @@ def api_negativacao_registrar_manual_parcela():
                    DATEDIFF(%s, p.vencimento) AS dias_atraso
             FROM parcela p
             INNER JOIN contrato c ON c.id = p.id_contrato
-            WHERE p.id = %s AND p.status = 'aberto' AND c.status = 'aberto'
+            WHERE p.id = %s AND p.status = 'cobranca' AND c.status = 'cobranca'
             LIMIT 1
             """,
             (data_ref, id_parcela),

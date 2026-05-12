@@ -17,7 +17,7 @@ DATEDIFF do relatorio; o painel Performance aplica teto cumulativo 30/60/90 dias
 sobre essa mesma escala (90 = ate 90 dias, sem a fatia 90+).
 
 Apenas ocorrencias de *entrada na safra* (cobranca) sao consideradas, alinhado ao
-app/tracker: `descricao` = 'contrato novo' OR texto que comeca por `contrato voltou` (ex.: `contrato voltou (2°)`); status=aberto;
+app/tracker: `descricao` = 'contrato novo' OR texto que comeca por `contrato voltou` (ex.: `contrato voltou (2°)`); status=cobranca;
 nao entram, por ex., ocorrencias de parcela vencida sem ser novo/voltou.
 
 Janela opcional (reimportacao, debug - mesmo criterio da referencia, so que
@@ -53,7 +53,7 @@ DELETE FROM performance
 _SQL_DELETE_INTERVALO = """
 DELETE p FROM performance p
 INNER JOIN ocorrencia o ON o.id = p.id_ocorrencia
-WHERE o.status = 'aberto'
+WHERE o.status = 'cobranca'
   AND (o.descricao = 'contrato novo' OR LOWER(o.descricao) LIKE 'contrato voltou%%')
   AND o.data_arquivo >= %s
   AND o.data_arquivo <= %s
@@ -122,14 +122,14 @@ LEFT JOIN (
             id_contrato,
             MIN(vencimento) AS min_vencimento
         FROM parcela
-        WHERE status = 'fechado'
+        WHERE status = 'pago'
         GROUP BY id_contrato
     ) p2
         ON p1.id_contrato = p2.id_contrato
        AND p1.vencimento = p2.min_vencimento
-    WHERE p1.status = 'fechado'
+    WHERE p1.status = 'pago'
 ) p_antiga ON p_antiga.id_contrato = o.id_contrato
-WHERE o.status = 'aberto'
+WHERE o.status = 'cobranca'
   AND (o.descricao = 'contrato novo' OR LOWER(o.descricao) LIKE 'contrato voltou%%')
 """
 

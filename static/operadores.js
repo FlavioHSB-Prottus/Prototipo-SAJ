@@ -511,7 +511,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 </div>
             </div>
             <div class="detail-section">
-                <h3><i class="fa-solid fa-list-check"></i> Parcelas em Aberto (${data.parcelas.filter(p => p.status === 'aberto').length})</h3>
+                <h3><i class="fa-solid fa-list-check"></i> Parcelas em Aberto (${data.parcelas.filter(p => p.status === 'cobranca' || p.status === 'aberto').length})</h3>
                 <div class="table-responsive">
                     <table class="styled-table modal-table">
                         <thead><tr><th>Nro</th><th>Vencimento</th><th>Valor Total</th><th>Status</th></tr></thead>
@@ -521,7 +521,7 @@ document.addEventListener('DOMContentLoaded', function () {
                                     <td>${p.numero_parcela}</td>
                                     <td>${formatDate(p.vencimento)}</td>
                                     <td>${formatCurrency(p.valor_total)}</td>
-                                    <td><span class="status-badge ${p.status === 'aberto' ? 'status-danger' : 'status-success'}">${p.status}</span></td>
+                                    <td><span class="status-badge ${(p.status === 'cobranca' || p.status === 'aberto') ? 'status-danger' : 'status-success'}">${p.status}</span></td>
                                 </tr>
                             `).join('')}
                         </tbody>
