@@ -79,7 +79,7 @@ Exemplos: `/`, `/home`, `/busca`, `/cobranca`, `/importacao`, `/relatorios`, `/n
 | Comunicacao | `/api/discar`, `/api/enviar-sms`, `/api/enviar-email-html`, `/api/enviar-whatsapp` | HTTP externo + `registro_*` |
 | Tramitacao | `/api/contrato/.../tramitacao`, `/api/tramitacao/*`, fluxo | tabela `tramitacao` |
 | Relatorios | `/api/relatorios`, excel, pdf, `email-lote` | `_fetch_relatorio_rows`, exports |
-| Dashboard / Performance | `/api/dashboard`, `/api/performance`, exports | SQL; alinhado a `performance_sincronizar.py` |
+| Dashboard / Performance | `/api/dashboard`, `/api/performance`, `/api/performance/panel_contratos`, **`/api/performance/export/<formato>`** (POST) | SQL; alinhado a `performance_sincronizar.py`; export xlsx/pdf/csv — ver secao 3.4.1 |
 | Cobranca | `/api/cobranca`, consorciados, avalistas, operadores | carteira, `funcionario_cobranca` |
 | Automacao carteira | `/api/cobranca/sms-email/*`, `/api/automacao/<tipo>` | filtros por `contrato_ids` |
 | Negativacao | `/api/negativacao/*`, SERASA TXT | `negativacao`, modulo `serasa_conv_txt` |
@@ -87,6 +87,16 @@ Exemplos: `/`, `/home`, `/busca`, `/cobranca`, `/importacao`, `/relatorios`, `/n
 | Agenda / avisos / notificacoes | rotas correspondentes | modulos operacionais |
 | Mensagem / protocolo / solicitacao | rotas correspondentes | moderacao interna |
 | Pasta virtual | `/api/pasta-virtual*` | ficheiros e meta |
+
+### 3.4.1 Exportacao Performance (`POST /api/performance/export/<formato>`)
+
+Formatos aceites: **`xlsx`**, **`pdf`**, **`powerbi`** (CSV com `;`, BOM UTF-8, pensado para Power BI).
+
+**Corpo JSON** (validado por `_resolve_export_payload`): `mes` (YYYY-MM), `safra_index` (`all` ou 0–3), `series` (subset de `novos` / `pagos` / `indenizados`), `faixas` (`d30` / `d60` / `d90`), `atraso_teto` (30, 60 ou 90). Para **PDF**, o cliente pode enviar `bar_image` / `pie_image` (`data:image/png;base64,...`).
+
+**Dataset** (`_fetch_export_dataset`): agrega por faixa de calendario do mes com `_aggregate_performance_faixa` e `_safra_entrada_rows` (SQL `_SAFRA_ENTRADA_SQL`). Metricas de valor: **`_valor_metrica_performance_brl`** (parcela de referencia, alinhada ao painel) e **`_valor_credito_contrato_brl`** (`valor_credito` do contrato). O bloco **`resumo`** tem sempre as quatro safras com cohort (quantidade + somas em R$ parcela + R$ credito), **`performado`** por faixas `d30`/`d60`/`d90`/`dplus` (prazo entre pagamento e vencimento da parcela paga) e **`nao_performado`** por `b30`/`b60`/`b90`/`bplus` (atraso em dias da menor parcela em aberto). **`resumo_tidy`** — gerado por **`_build_performance_resumo_tidy`** — é o formato longo (uma linha por `situacao` / `faixa` / `medida`) para tabelas dinamicas.
+
+**Excel (`_export_to_xlsx`)**: abas `Parametros`, **`Resumo Safras`** (tabela larga com cohort + blocos performado vs nao performado), **`Resumo Safras pivot`** (mesmos dados em formato longo com **Table** do Excel `tblPerfResumoSafra`), **`Resumo pivot notas`** (passos para PivotTable / segmentadores), `Series Graficas`, `Faixas de Atraso`, `Contratos`. **`_export_to_csv_powerbi`**: inclui linhas `resumo_safra_tidy` com cabecalho proprio apos a tabela `series`.
 
 ### 3.5 Helpers transversais (amostra)
 
