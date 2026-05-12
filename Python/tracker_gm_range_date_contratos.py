@@ -22,16 +22,16 @@ import pymysql
 # Telefones gravados via upsert_* só entram com >= 8 dígitos (zeros à esquerda não contam).
 from pessoa_satellite import upsert_avalista_contatos, upsert_devedor_contatos
 
-OCORRENCIA_ABERTO = "aberto"
-OCORRENCIA_FECHADO = "fechado"
+OCORRENCIA_COBRANCA = "cobranca"
+OCORRENCIA_PAGO = "pago"
 OCORRENCIA_INDENIZADO = "indenizado"
 OCORRENCIA_PARCELA_PAGA = "parcela paga"
 OCORRENCIA_PARCELA_VENCIDA = "parcela vencida"
 
 OCORRENCIA_STATUS = frozenset(
     {
-        OCORRENCIA_ABERTO,
-        OCORRENCIA_FECHADO,
+        OCORRENCIA_COBRANCA,
+        OCORRENCIA_PAGO,
         OCORRENCIA_INDENIZADO,
         OCORRENCIA_PARCELA_PAGA,
         OCORRENCIA_PARCELA_VENCIDA,
@@ -76,8 +76,8 @@ def distribuir_operadores(cursor, conn, arquivo_gm_id):
         SELECT c.grupo, c.cota, 
                DATEDIFF(%s, MIN(p.vencimento)) as dias_atraso
         FROM contrato c
-        INNER JOIN parcela p ON p.id_contrato = c.id AND p.status = 'aberto'
-        WHERE c.status = 'aberto'
+        INNER JOIN parcela p ON p.id_contrato = c.id AND p.status = 'cobranca'
+        WHERE c.status = 'cobranca'
         GROUP BY c.grupo, c.cota
     """,
         (data_arquivo,),
@@ -304,7 +304,7 @@ def _ensure_cobranca_table(cursor):
 def registrar_snapshot_cobranca_dia(cursor, conn, data_referencia):
     """Registra em `cobranca` um snapshot (id_contrato, data_arquivo) para cada contrato aberto.
 
-    Equivale, por dia, ao conjunto usado em COUNT(*) FROM contrato WHERE status='aberto'
+    Equivale, por dia, ao conjunto usado em COUNT(*) FROM contrato WHERE status='cobranca'
     ao final do processamento do arquivo GM daquele dia. Reprocessar o mesmo dia apaga
     e reinsere (idempotente).
     """
@@ -327,7 +327,7 @@ def registrar_snapshot_cobranca_dia(cursor, conn, data_referencia):
     cursor.execute("DELETE FROM cobranca WHERE data_arquivo = %s", (dstr,))
     cursor.execute(
         "INSERT INTO cobranca (id_contrato, data_arquivo) "
-        "SELECT id, %s FROM contrato WHERE status = 'aberto'",
+        "SELECT id, %s FROM contrato WHERE status = 'cobranca'",
         (dstr,),
     )
     n = cursor.rowcount
@@ -469,11 +469,11 @@ def negativacao_inserir_elegiveis_apos_gm(cursor, _conn, data_referencia, id_arq
     FROM contrato c
     INNER JOIN parcela p ON p.id = (
         SELECT p2.id FROM parcela p2
-        WHERE p2.id_contrato = c.id AND p2.status = 'aberto'
+        WHERE p2.id_contrato = c.id AND p2.status = 'cobranca'
         ORDER BY p2.vencimento ASC, p2.id ASC
         LIMIT 1
     )
-    WHERE c.status = 'aberto'
+    WHERE c.status = 'cobranca'
       AND DATEDIFF(%s, p.vencimento) > 30
       AND DATEDIFF(%s, p.vencimento) < 90
     """
@@ -683,7 +683,7 @@ def _detalhe_positivacao_pagamento(cursor, id_contrato, arquivo_gm_id, numero_pa
             """
             SELECT p.numero_parcela, DATEDIFF(%s, p.vencimento) AS dias_atraso
             FROM parcela p
-            WHERE p.id_contrato = %s AND p.status = 'aberto'
+            WHERE p.id_contrato = %s AND p.status = 'cobranca'
             ORDER BY p.vencimento ASC, p.id ASC
             LIMIT 1
             """,
@@ -1048,7 +1048,7 @@ def process_arquivo(
                     num_p = 0
                 q_parc = """INSERT INTO parcela
                 (id_contrato, numero_parcela, vencimento, valor_nominal, valor_total, multa_juros, status)
-                VALUES (%s, %s, %s, %s, %s, %s, 'aberto')
+                VALUES (%s, %s, %s, %s, %s, %s, 'cobranca')
                 ON DUPLICATE KEY UPDATE
                     vencimento = VALUES(vencimento), valor_nominal = VALUES(valor_nominal),
                     valor_total = VALUES(valor_total), multa_juros = VALUES(multa_juros),
@@ -1101,7 +1101,7 @@ def apply_delta(cursor, conn, arquivo_gm_id,
         for grupo, cota in curr_r1_set:
             cid = contrato_cache.get((grupo, cota))
             if cid:
-                insert_ocorrencia(cursor, cid, arquivo_gm_id, OCORRENCIA_ABERTO, "contrato novo")
+                insert_ocorrencia(cursor, cid, arquivo_gm_id, OCORRENCIA_COBRANCA, "contrato novo")
 
         for grupo, cota, num_p_raw in curr_r2_set:
             cid = contrato_cache.get((grupo, cota))
@@ -1165,9 +1165,9 @@ def apply_delta(cursor, conn, arquivo_gm_id,
             desc = "contrato indenizado"
             status_parc = "indenizado"
         else:
-            status_o = OCORRENCIA_FECHADO
+            status_o = OCORRENCIA_PAGO
             desc = "contrato fechado"
-            status_parc = "fechado"
+            status_parc = "pago"
 
         # Quitação das parcelas do contrato que sai do arquivo (registro1).
         # Para fechamento por pagamento: mesma semântica do ramo removed_parcels/paid_parcels —
@@ -1182,7 +1182,7 @@ def apply_delta(cursor, conn, arquivo_gm_id,
             cursor.execute(
                 """
                 SELECT id FROM parcela
-                WHERE id_contrato = %s AND numero_parcela = %s AND status = 'aberto'
+                WHERE id_contrato = %s AND numero_parcela = %s AND status = 'cobranca'
                 LIMIT 1
                 """,
                 (cid, num_p_raw),
@@ -1194,9 +1194,9 @@ def apply_delta(cursor, conn, arquivo_gm_id,
                 )
             cursor.execute(
                 "UPDATE parcela SET status = %s, data_pagamento = %s, updated_at = NOW() WHERE id_contrato = %s AND numero_parcela = %s",
-                (status_parc, data_arquivo if status_parc == 'fechado' else None, cid, num_p_raw),
+                (status_parc, data_arquivo if status_parc == 'pago' else None, cid, num_p_raw),
             )
-            if status_parc == "fechado":
+            if status_parc == "pago":
                 if row_parc and row_parc.get("id") is not None:
                     _liberar_negativacao_parcela_paga(
                         cursor, conn, int(row_parc["id"]), cid, arquivo_gm_id
@@ -1216,7 +1216,7 @@ def apply_delta(cursor, conn, arquivo_gm_id,
         cursor.execute("SELECT 1 FROM ocorrencia WHERE id_contrato = %s LIMIT 1", (cid,))
         has_past = cursor.fetchone()
         desc = _descricao_contrato_voltou(cursor, cid) if has_past else "contrato novo"
-        insert_ocorrencia(cursor, cid, arquivo_gm_id, OCORRENCIA_ABERTO, desc)
+        insert_ocorrencia(cursor, cid, arquivo_gm_id, OCORRENCIA_COBRANCA, desc)
 
     added_parcels = curr_r2_set - prev_r2_set
     for grupo, cota, num_p_raw in added_parcels:
@@ -1242,14 +1242,14 @@ def apply_delta(cursor, conn, arquivo_gm_id,
         cursor.execute(
             """
             SELECT id FROM parcela
-            WHERE id_contrato = %s AND numero_parcela = %s AND status = 'aberto'
+            WHERE id_contrato = %s AND numero_parcela = %s AND status = 'cobranca'
             LIMIT 1
             """,
             (cid, num_p_raw),
         )
         row_parc = cursor.fetchone()
         cursor.execute(
-            "UPDATE parcela SET status = 'fechado', data_pagamento = %s WHERE id_contrato = %s AND numero_parcela = %s AND status = 'aberto'",
+            "UPDATE parcela SET status = 'pago', data_pagamento = %s WHERE id_contrato = %s AND numero_parcela = %s AND status = 'cobranca'",
             (data_arquivo, cid, num_p_raw),
         )
         if row_parc and row_parc.get("id") is not None:
@@ -1349,7 +1349,7 @@ def main():
         print(f" -> Arquivo ID {arquivo_gm_id}: Base mapeada ({count} linhas, r1={len(curr_r1_set)}, r2={len(curr_r2_set)}).")
 
         for grupo, cota in curr_r1_set:
-            cursor.execute("UPDATE contrato SET status = 'aberto' WHERE grupo = %s AND cota = %s", (grupo, cota))
+            cursor.execute("UPDATE contrato SET status = 'cobranca' WHERE grupo = %s AND cota = %s", (grupo, cota))
         conn.commit()
 
         stats = apply_delta(cursor, conn, arquivo_gm_id,

@@ -140,7 +140,7 @@
                 <p class="control-card-hint" style="margin-top:10px;font-size:0.8rem;color:var(--text-muted)">
                     <strong>Pagos parcialmente</strong>: ao menos uma parcela quitada com atraso na quitação entre 0 e 90 dias (performado).
                     Cada ponto de <strong>Novo</strong>/<strong>Voltou</strong> soma ocorrências com
-                    <code>status=aberto</code> (como o módulo <strong>Relatórios</strong>). A soma
+                    <code>status=cobranca</code> (como o módulo <strong>Relatórios</strong>). A soma
                     de tipos no tooltip pode exceder contratos; o mesmo ctt. pode contar no novo e
                     no voltou. A curva <em>Entradas (safra, distintos)</em> acompanha o
                     <strong>Performance JB</strong> (1 ctt. por mês, mesma regra de entrada).
@@ -241,8 +241,8 @@
                     <label for="painelStatusFiltro">Status contrato</label>
                     <select id="painelStatusFiltro" class="form-control" name="status">
                         <option value="">Todos</option>
-                        <option value="aberto">Aberto</option>
-                        <option value="fechado">Fechado</option>
+                        <option value="cobranca">Em cobrança</option>
+                        <option value="pago">Pago</option>
                         <option value="indenizado">Indenizado</option>
                     </select>
                 </div>
