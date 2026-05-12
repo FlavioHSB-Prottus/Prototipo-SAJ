@@ -503,6 +503,39 @@ def insert_ocorrencia(cursor, id_contrato, arquivo_gm_id, status, descricao):
     return cursor.lastrowid
 
 
+def _count_ocorrencias_contrato_voltou(cursor, id_contrato):
+    """Quantas vezes o retorno a aberto ja foi registrado (texto legado ou com ordinal).
+
+    Inclui `contrato voltou` sem sufixo e `contrato voltou (N\u00b0)` para o proximo
+    numero ser consistente apos reimportacoes.
+    """
+    cursor.execute(
+        """
+        SELECT COUNT(*) AS cnt FROM ocorrencia
+        WHERE id_contrato = %s
+          AND (
+                LOWER(TRIM(descricao)) = 'contrato voltou'
+             OR LOWER(descricao) LIKE 'contrato voltou (%%'
+          )
+        """,
+        (int(id_contrato),),
+    )
+    row = cursor.fetchone()
+    if not row:
+        return 0
+    n = row.get("cnt") if isinstance(row, dict) else row[0]
+    try:
+        return int(n or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _descricao_contrato_voltou(cursor, id_contrato):
+    """Proxima descricao: `contrato voltou (1\u00b0)`, `(2\u00b0)`, ... (grau Unicode, como no UI)."""
+    ordem = _count_ocorrencias_contrato_voltou(cursor, id_contrato) + 1
+    return f"contrato voltou ({ordem}\u00b0)"
+
+
 def _data_referencia_arquivo_gm(cursor, arquivo_gm_id):
     """Data do arquivo GM (dia do fato); fallback hoje."""
     if not arquivo_gm_id:
@@ -1182,7 +1215,7 @@ def apply_delta(cursor, conn, arquivo_gm_id,
             continue
         cursor.execute("SELECT 1 FROM ocorrencia WHERE id_contrato = %s LIMIT 1", (cid,))
         has_past = cursor.fetchone()
-        desc = "contrato voltou" if has_past else "contrato novo"
+        desc = _descricao_contrato_voltou(cursor, cid) if has_past else "contrato novo"
         insert_ocorrencia(cursor, cid, arquivo_gm_id, OCORRENCIA_ABERTO, desc)
 
     added_parcels = curr_r2_set - prev_r2_set

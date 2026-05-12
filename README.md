@@ -6,6 +6,8 @@ Sistema centralizado para gestão e cobrança de consórcios: importação de ar
 
 - Documento original: `Metodologia - Joao Barbosa.odt` (raiz).
 - **Versão adaptada** ao stack Python/Flask/MySQL deste repo: [`docs/METODOLOGIA-JOAO-BARBOSA.md`](docs/METODOLOGIA-JOAO-BARBOSA.md).
+- **Visão técnica dos ficheiros Python**: [`docs/DOCUMENTACAO_PYTHON_PROJETO_SAJ.md`](docs/DOCUMENTACAO_PYTHON_PROJETO_SAJ.md).
+- **Visão técnica dos ficheiros JavaScript** (`static/`): [`docs/DOCUMENTACAO_JS_PROJETO_SAJ.md`](docs/DOCUMENTACAO_JS_PROJETO_SAJ.md).
 - Regras para o agente no Cursor: `.cursor/rules/metodologia-joao-barbosa.mdc`.
 - Contexto persistente do agente: [`AGENTS.md`](AGENTS.md).
 
@@ -26,7 +28,7 @@ Sistema centralizado para gestão e cobrança de consórcios: importação de ar
 | `static/` | CSS e JS por módulo (`cobranca.js`, `busca.js`, …) + assets compartilhados (`contrato_detalhes_modal.js`, `tramitacoes_detail.js`). |
 | `Python/` | Scripts chamados por subprocess a partir do app: tracker GM, importação, distribuição de cobrança. Depende de `Python/layout.json` e `pessoa_satellite.py`. |
 | `Banco/` | Scripts auxiliares de criação/seed do MySQL (uso manual ou deploy). |
-| `docs/` | Documentação do projeto (metodologia, etc.). |
+| `docs/` | Metodologia, [documentação Python](docs/DOCUMENTACAO_PYTHON_PROJETO_SAJ.md), [documentação JS](docs/DOCUMENTACAO_JS_PROJETO_SAJ.md), etc. |
 | `docs/conversa-agentes/` | Exportações antigas de conversas com agentes (não usadas em runtime). |
 
 Renomear ou mover `templates/` ou `static/` exige ajustar `url_for`, `render_template` e tags `<script>`/`href` em todo o projeto.

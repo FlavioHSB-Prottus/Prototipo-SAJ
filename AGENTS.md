@@ -58,6 +58,7 @@ Sistema web para gestao de cobranca de consorcios, com foco em:
 - Analise usa `ocorrencia.data_arquivo` para eventos de aberto/fechado/indenizado.
 - Visao de 30/60/90 dias usa mes selecionado + dois meses seguintes.
 - Definicao de safra prioriza entrada em cobranca (contrato novo/voltou) e parcela de entrada.
+- Export Excel (`/api/performance/export/xlsx`): aba **Resumo Safras** com cohort (contratos + soma R$ parcela metrica + soma R$ `valor_credito`), blocos separados **Performado** (faixas d30/d60/d90/d+ por prazo pagamento vs vencimento) e **Nao performado** (b30/b60/b90/b+ por atraso em aberto); abas **Resumo Safras pivot** (dados longos com `Table` do Excel) e **Resumo pivot notas** para montar tabela dinamica e segmentadores. CSV Power BI inclui tabela `resumo_safra_tidy` com as mesmas dimensoes.
 
 ### 4.6 Discador
 - Botao de ligar deve acionar API backend (`/api/discar`), nunca expor token no frontend.

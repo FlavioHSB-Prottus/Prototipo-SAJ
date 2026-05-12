@@ -6574,7 +6574,7 @@ def api_dashboard():
         "WHERE o.status = 'aberto' AND o.descricao LIKE '%%contrato voltou%%'", []
     )
     serie_entradas_safra = _series(
-        "WHERE o.status = 'aberto' AND (o.descricao = 'contrato novo' OR o.descricao = 'contrato voltou')",
+        "WHERE o.status = 'aberto' AND (o.descricao = 'contrato novo' OR LOWER(o.descricao) LIKE 'contrato voltou%%')",
         [],
     )
     # Mesma regra de "performado" no Performance: parcela quitada com atraso na quitação entre 0 e 90 dias.
@@ -7515,7 +7515,7 @@ FROM (
     SELECT id_contrato, MIN(data_arquivo) AS data_arquivo
     FROM ocorrencia
     WHERE status = 'aberto'
-      AND (descricao = 'contrato novo' OR descricao = 'contrato voltou')
+      AND (descricao = 'contrato novo' OR LOWER(descricao) LIKE 'contrato voltou%%')
       AND data_arquivo >= %s AND data_arquivo <= %s
     GROUP BY id_contrato
 ) o
@@ -7571,6 +7571,15 @@ def _valor_metrica_performance_brl(r) -> float:
       - nao performado: a parcela em aberto que originou a classificacao.
     """
     v = r.get('valor_parcela')
+    try:
+        return float(v) if v is not None and v != '' else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _valor_credito_contrato_brl(r) -> float:
+    """Soma do valor_credito do contrato na linha da safra (export / agregados)."""
+    v = r.get('valor_credito')
     try:
         return float(v) if v is not None and v != '' else 0.0
     except (TypeError, ValueError):
@@ -7757,16 +7766,21 @@ def _aggregate_performance_faixa(cursor, y, m, parte):
     }
     pago = {'d30': 0, 'd60': 0, 'd90': 0, 'dplus': 0}
     pago_v = {k: 0.0 for k in pago}
+    pago_cred = {k: 0.0 for k in pago}
     nab = {'b30': 0, 'b60': 0, 'b90': 0, 'bplus': 0}
     nab_v = {k: 0.0 for k in nab}
+    nab_cred = {k: 0.0 for k in nab}
     vol_val = 0.0
+    vol_cred = 0.0
     for r in rows:
         is_p = _bool_sql(r.get('is_performado'))
         dd = r.get('delay_open')
         seg = _seg_from_delay_days(int(dd) if dd is not None else None)
         keyg = 'performado' if is_p else 'nao_performado'
         v = _valor_metrica_performance_brl(r)
+        cred = _valor_credito_contrato_brl(r)
         vol_val += v
+        vol_cred += cred
         segs[keyg][seg] += 1
         val[keyg][seg] += v
         if is_p:
@@ -7775,35 +7789,46 @@ def _aggregate_performance_faixa(cursor, y, m, parte):
             if rgk in pago:
                 pago[rgk] += 1
                 pago_v[rgk] += v
+                pago_cred[rgk] += cred
             else:
                 pago['dplus'] += 1
                 pago_v['dplus'] += v
+                pago_cred['dplus'] += cred
         else:
             dd_i = int(dd) if dd is not None else None
             bk = _nao_b_from_open_delay(dd_i)
             nab[bk] += 1
             nab_v[bk] += v
+            nab_cred[bk] += cred
 
     d30, d60, d90, dplus = pago['d30'], pago['d60'], pago['d90'], pago['dplus']
     v30, v60, v90, vplus = pago_v['d30'], pago_v['d60'], pago_v['d90'], pago_v['dplus']
+    c30, c60, c90, cplus = pago_cred['d30'], pago_cred['d60'], pago_cred['d90'], pago_cred['dplus']
 
     return {
         'volume': len(rows),
         'volume_val': vol_val,
+        'volume_cred': vol_cred,
         'segmentos': segs,
         'valor_por_segmento_brl': val,
         'performado_por_prazo_quitacao': dict(pago),
         'performado_por_prazo_quitacao_brl': dict(pago_v),
+        'performado_por_prazo_quitacao_cred': dict(pago_cred),
         'nao_por_atraso_aberto': dict(nab),
         'nao_por_atraso_aberto_brl': dict(nab_v),
+        'nao_por_atraso_aberto_cred': dict(nab_cred),
         'recovery_d30': d30,
         'recovery_v30': v30,
+        'recovery_cred30': c30,
         'recovery_d60': d60,
         'recovery_v60': v60,
+        'recovery_cred60': c60,
         'recovery_d90': d90,
         'recovery_v90': v90,
+        'recovery_cred90': c90,
         'recovery_dplus': dplus,
         'recovery_vplus': vplus,
+        'recovery_credplus': cplus,
     }
 
 
@@ -8084,6 +8109,64 @@ _FAIXA_LABELS_EXPORT = {
 }
 _SAFRA_LABELS_EXPORT = list(_FAIXA_NOMES)
 
+_RESUMO_TIDY_DESC_PERFORMADO = {
+    'd30': 'Performado: ate 30d entre pagamento e vencimento (parcela ref.)',
+    'd60': 'Performado: 31 a 60d entre pagamento e vencimento',
+    'd90': 'Performado: 61 a 90d entre pagamento e vencimento',
+    'dplus': 'Performado: acima de 90d entre pagamento e vencimento',
+}
+_RESUMO_TIDY_DESC_NAO = {
+    'b30': 'Nao performado: atraso em aberto ate 30d (menor vencimento em aberto)',
+    'b60': 'Nao performado: atraso em aberto 31 a 60d',
+    'b90': 'Nao performado: atraso em aberto 61 a 90d',
+    'bplus': 'Nao performado: atraso em aberto acima de 90d',
+}
+
+
+def _build_performance_resumo_tidy(mes_ano, safras_summary_rows):
+    """Uma linha por dimensao (ideal para tabela dinamica / segmentadores no Excel)."""
+    out = []
+    for r in safras_summary_rows:
+        base = {
+            'mes_ano': mes_ano,
+            'safra': r['label'],
+            'periodo_inicio': r['inicio'],
+            'periodo_fim': r['fim'],
+        }
+
+        def push(situacao, faixa_codigo, faixa_desc, medida, valor):
+            out.append({
+                **base,
+                'situacao': situacao,
+                'faixa_codigo': faixa_codigo,
+                'faixa_descricao': faixa_desc,
+                'medida': medida,
+                'valor': valor,
+            })
+
+        push('Cohort', 'total', 'Entradas na safra (contrato novo ou voltou, com parcela vencida no arquivo)',
+             'contratos', r['volume'])
+        push('Cohort', 'total', 'Entradas na safra — soma valor parcela (metrica Performance)',
+             'brl_parcela_metrica', r['volume_parcela_brl'])
+        push('Cohort', 'total', 'Entradas na safra — soma valor do credito do contrato',
+             'brl_valor_credito_contrato', r['volume_credito_brl'])
+
+        for fk in ('d30', 'd60', 'd90', 'dplus'):
+            blk = r['performado'][fk]
+            desc = _RESUMO_TIDY_DESC_PERFORMADO[fk]
+            push('Performado', fk, desc, 'contratos', blk['qtd'])
+            push('Performado', fk, desc, 'brl_parcela_metrica', blk['parcela_brl'])
+            push('Performado', fk, desc, 'brl_valor_credito_contrato', blk['credito_brl'])
+
+        for fk in ('b30', 'b60', 'b90', 'bplus'):
+            blk = r['nao_performado'][fk]
+            desc = _RESUMO_TIDY_DESC_NAO[fk]
+            push('Nao_performado', fk, desc, 'contratos', blk['qtd'])
+            push('Nao_performado', fk, desc, 'brl_parcela_metrica', blk['parcela_brl'])
+            push('Nao_performado', fk, desc, 'brl_valor_credito_contrato', blk['credito_brl'])
+
+    return out
+
 
 def _resolve_export_payload():
     """Le o JSON do POST de exportacao e valida / normaliza o conteudo."""
@@ -8147,15 +8230,50 @@ def _fetch_export_dataset(cursor, ctx):
     for parte in range(4):
         d_a, d_b = _safra_bounds(y, m, parte)
         ag_sum = _aggregate_performance_faixa(cursor, y, m, parte)
+        pp = ag_sum['performado_por_prazo_quitacao']
+        pp_v = ag_sum['performado_por_prazo_quitacao_brl']
+        pp_c = ag_sum['performado_por_prazo_quitacao_cred']
+        npb = ag_sum['nao_por_atraso_aberto']
+        npb_v = ag_sum['nao_por_atraso_aberto_brl']
+        npb_c = ag_sum['nao_por_atraso_aberto_cred']
         safras_summary.append({
             'label': _SAFRA_LABELS_EXPORT[parte],
             'inicio': d_a.isoformat(),
             'fim': d_b.isoformat(),
             'volume': ag_sum['volume'],
+            'volume_parcela_brl': round(ag_sum['volume_val'], 2),
+            'volume_credito_brl': round(ag_sum['volume_cred'], 2),
             'd30': ag_sum['recovery_d30'],
             'd60': ag_sum['recovery_d60'],
             'd90': ag_sum['recovery_d90'],
+            'dplus': ag_sum['recovery_dplus'],
+            'recovery_v30': round(ag_sum['recovery_v30'], 2),
+            'recovery_v60': round(ag_sum['recovery_v60'], 2),
+            'recovery_v90': round(ag_sum['recovery_v90'], 2),
+            'recovery_vplus': round(ag_sum['recovery_vplus'], 2),
+            'recovery_cred30': round(ag_sum['recovery_cred30'], 2),
+            'recovery_cred60': round(ag_sum['recovery_cred60'], 2),
+            'recovery_cred90': round(ag_sum['recovery_cred90'], 2),
+            'recovery_credplus': round(ag_sum['recovery_credplus'], 2),
+            'performado': {
+                fk: {
+                    'qtd': int(pp[fk]),
+                    'parcela_brl': round(float(pp_v[fk]), 2),
+                    'credito_brl': round(float(pp_c[fk]), 2),
+                }
+                for fk in ('d30', 'd60', 'd90', 'dplus')
+            },
+            'nao_performado': {
+                fk: {
+                    'qtd': int(npb[fk]),
+                    'parcela_brl': round(float(npb_v[fk]), 2),
+                    'credito_brl': round(float(npb_c[fk]), 2),
+                }
+                for fk in ('b30', 'b60', 'b90', 'bplus')
+            },
         })
+
+    resumo_tidy = _build_performance_resumo_tidy(ctx['mes'], safras_summary)
 
     # --- Serie para o grafico de barras ---
     series_rows = []
@@ -8275,6 +8393,7 @@ def _fetch_export_dataset(cursor, ctx):
 
     return {
         'resumo': safras_summary,
+        'resumo_tidy': resumo_tidy,
         'series': series_rows,
         'faixas': faixas_rows,
         'contratos': contratos,
@@ -8302,6 +8421,192 @@ def _format_reais_pt_br_export(value):
         return str(value)
     s = f'{n:,.2f}'
     return s.replace(',', 'X').replace('.', ',').replace('X', '.')
+
+
+def _write_performance_resumo_safras_sheet(ws, ctx, dataset, header_font, header_fill, header_align, border):
+    """Planilha larga: cohort + faixas de performado vs nao performado (qtd e dois eixos em R$)."""
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    wrap = Alignment(wrap_text=True, vertical='top')
+    title_font = Font(bold=True, size=12)
+    note_font = Font(size=9)
+
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=30)
+    c = ws.cell(row=1, column=1)
+    c.value = f'Resumo por safra — mes {ctx["mes"]} (export alinhado ao painel Performance)'
+    c.font = title_font
+    c.alignment = wrap
+
+    ws.merge_cells(start_row=2, start_column=1, end_row=3, end_column=30)
+    c2 = ws.cell(row=2, column=1)
+    c2.value = (
+        'Cada linha e uma faixa de calendario do mes (entradas na safra). '
+        'Colunas "Performado": contratos com parcela quitada, por faixa de prazo entre data de pagamento '
+        'e vencimento da parcela de referencia (d30/d60/d90/d+). '
+        'Colunas "Nao performado": contratos ainda em cobranca na parcela de referencia, por atraso em dias '
+        'da menor parcela em aberto (b30/b60/b90/b+). '
+        'R$ parcela = soma da metrica de parcela usada no modulo; R$ credito = soma de valor_credito do contrato. '
+        'Para tabela dinamica e segmentadores no Excel, use a aba "Resumo Safras pivot".'
+    )
+    c2.font = note_font
+    c2.alignment = wrap
+    ws.row_dimensions[2].height = 48
+
+    grp_fill_perf = PatternFill(start_color='1D4ED8', end_color='1D4ED8', fill_type='solid')
+    grp_fill_nao = PatternFill(start_color='C2410C', end_color='C2410C', fill_type='solid')
+    grp_fill_cohort = PatternFill(start_color='047857', end_color='047857', fill_type='solid')
+
+    r0 = 6
+    merges = [
+        ('A', 'C', 'Safra / periodo'),
+        ('D', 'F', 'Cohort (entradas)'),
+        ('G', 'I', 'Performado ate 30d'),
+        ('J', 'L', 'Performado 31-60d'),
+        ('M', 'O', 'Performado 61-90d'),
+        ('P', 'R', 'Performado >90d'),
+        ('S', 'U', 'Nao perf. aberto ate 30d'),
+        ('V', 'X', 'Nao perf. 31-60d'),
+        ('Y', 'AA', 'Nao perf. 61-90d'),
+        ('AB', 'AD', 'Nao perf. >90d aberto'),
+    ]
+    col_pairs = [(1, 3), (4, 6), (7, 9), (10, 12), (13, 15), (16, 18), (19, 21), (22, 24), (25, 27), (28, 30)]
+    for i, (_a, _b, title) in enumerate(merges):
+        c1, c2 = col_pairs[i]
+        ws.merge_cells(start_row=r0, start_column=c1, end_row=r0, end_column=c2)
+        cell = ws.cell(row=r0, column=c1, value=title)
+        cell.font = Font(bold=True, color='FFFFFF', size=10)
+        cell.alignment = header_align
+        cell.border = border
+        if i == 0:
+            cell.fill = header_fill
+        elif i == 1:
+            cell.fill = grp_fill_cohort
+        elif i <= 5:
+            cell.fill = grp_fill_perf
+        else:
+            cell.fill = grp_fill_nao
+        for cc in range(c1 + 1, c2 + 1):
+            ws.cell(row=r0, column=cc).border = border
+
+    sub = [
+        'Safra', 'Inicio', 'Fim',
+        'Contratos', 'R$ parcela', 'R$ credito',
+        'N', 'R$ parc.', 'R$ cred.',
+        'N', 'R$ parc.', 'R$ cred.',
+        'N', 'R$ parc.', 'R$ cred.',
+        'N', 'R$ parc.', 'R$ cred.',
+        'N', 'R$ parc.', 'R$ cred.',
+        'N', 'R$ parc.', 'R$ cred.',
+        'N', 'R$ parc.', 'R$ cred.',
+        'N', 'R$ parc.', 'R$ cred.',
+    ]
+    r1 = r0 + 1
+    for col_idx, h in enumerate(sub, start=1):
+        cell = ws.cell(row=r1, column=col_idx, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        cell.border = border
+
+    brl_fmt = '#,##0.00'
+    money_cols = {5, 6, 8, 9, 11, 12, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 29, 30}
+    data_row = r1 + 1
+    for r in dataset['resumo']:
+        p = r['performado']
+        n = r['nao_performado']
+        vals = [
+            r['label'], r['inicio'], r['fim'],
+            r['volume'], r['volume_parcela_brl'], r['volume_credito_brl'],
+            p['d30']['qtd'], p['d30']['parcela_brl'], p['d30']['credito_brl'],
+            p['d60']['qtd'], p['d60']['parcela_brl'], p['d60']['credito_brl'],
+            p['d90']['qtd'], p['d90']['parcela_brl'], p['d90']['credito_brl'],
+            p['dplus']['qtd'], p['dplus']['parcela_brl'], p['dplus']['credito_brl'],
+            n['b30']['qtd'], n['b30']['parcela_brl'], n['b30']['credito_brl'],
+            n['b60']['qtd'], n['b60']['parcela_brl'], n['b60']['credito_brl'],
+            n['b90']['qtd'], n['b90']['parcela_brl'], n['b90']['credito_brl'],
+            n['bplus']['qtd'], n['bplus']['parcela_brl'], n['bplus']['credito_brl'],
+        ]
+        for col_idx, val in enumerate(vals, start=1):
+            cell = ws.cell(row=data_row, column=col_idx, value=val)
+            cell.border = border
+            if col_idx in money_cols and isinstance(val, (int, float)) and not isinstance(val, bool):
+                cell.number_format = brl_fmt
+        data_row += 1
+
+    widths = [22, 12, 12] + [11] * 27
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+
+def _write_performance_resumo_pivot_sheet(wb, dataset, header_font, header_fill, header_align, border):
+    """Dados longos + tabela do Excel para o usuario montar dinamicas e segmentadores."""
+    from openpyxl.worksheet.table import Table, TableStyleInfo
+    from openpyxl.styles import Font, Alignment
+    from openpyxl.utils import get_column_letter
+
+    ws = wb.create_sheet('Resumo Safras pivot')
+    headers = [
+        'Mes_ano', 'Safra', 'Periodo_inicio', 'Periodo_fim',
+        'Situacao', 'Faixa_codigo', 'Faixa_descricao', 'Medida', 'Valor',
+    ]
+    tidy = dataset.get('resumo_tidy') or []
+    rows = [
+        [
+            t['mes_ano'], t['safra'], t['periodo_inicio'], t['periodo_fim'],
+            t['situacao'], t['faixa_codigo'], t['faixa_descricao'], t['medida'], t['valor'],
+        ]
+        for t in tidy
+    ]
+    for col_idx, h in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        cell.border = border
+    brl_medidas = {'brl_parcela_metrica', 'brl_valor_credito_contrato'}
+    brl_fmt = '#,##0.00'
+    for row_idx, r in enumerate(rows, start=2):
+        for col_idx, val in enumerate(r, start=1):
+            cell = ws.cell(row=row_idx, column=col_idx, value=val)
+            cell.border = border
+            if col_idx == 9 and len(r) >= 8 and r[7] in brl_medidas:
+                cell.number_format = brl_fmt
+    nrows = 1 + len(rows)
+    ref = f'A1:{get_column_letter(len(headers))}{max(nrows, 2)}'
+    try:
+        tab = Table(displayName='tblPerfResumoSafra', ref=ref)
+        tab.tableStyleInfo = TableStyleInfo(
+            name='TableStyleMedium9', showFirstColumn=False,
+            showLastColumn=False, showRowStripes=True, showColumnStripes=False,
+        )
+        ws.add_table(tab)
+    except Exception:
+        pass
+    ws.column_dimensions['A'].width = 10
+    ws.column_dimensions['B'].width = 22
+    ws.column_dimensions['C'].width = 12
+    ws.column_dimensions['D'].width = 12
+    ws.column_dimensions['E'].width = 16
+    ws.column_dimensions['F'].width = 10
+    ws.column_dimensions['G'].width = 52
+    ws.column_dimensions['H'].width = 28
+    ws.column_dimensions['I'].width = 14
+
+    ws2 = wb.create_sheet('Resumo pivot notas')
+    ws2['A1'] = 'Como usar'
+    ws2['A1'].font = Font(bold=True, size=12)
+    notes = (
+        '1) Na aba "Resumo Safras pivot", selecione qualquer celula da tabela.\n'
+        '2) Menu Inserir > Tabela dinamica (ou PivotTable).\n'
+        '3) Arraste "Situacao", "Faixa_codigo" ou "Faixa_descricao" para linhas ou filtros.\n'
+        '4) Arraste "Medida" para colunas e "Valor" para valores (soma).\n'
+        '5) Opcional: Inserir > Segmentacao de dados (Slicers) em Situacao, Safra ou Medida.'
+    )
+    ws2['A2'] = notes
+    ws2['A2'].alignment = Alignment(wrap_text=True, vertical='top')
+    ws2.column_dimensions['A'].width = 92
+    ws2.row_dimensions[2].height = 88
 
 
 def _export_to_xlsx(ctx, dataset):
@@ -8345,6 +8650,7 @@ def _export_to_xlsx(ctx, dataset):
         ('Teto atraso (como no grafico)', teto_lbl),
         ('Series selecionadas', series_lbl),
         ('Faixas de atraso (aba auxiliar)', faixas_lbl),
+        ('Resumo Excel', 'Aba "Resumo Safras" (visao larga) + "Resumo Safras pivot" (dados longos; Tabela dinamica) + "Resumo pivot notas".'),
         ('Gerado em', datetime.datetime.now().strftime('%d/%m/%Y %H:%M')),
     ]
     for i, (k, v) in enumerate(info, start=3):
@@ -8353,16 +8659,12 @@ def _export_to_xlsx(ctx, dataset):
     ws0.column_dimensions['A'].width = 24
     ws0.column_dimensions['B'].width = 60
 
-    # Aba 2: Resumo das safras
+    # Aba 2: Resumo das safras (largo + pivot)
     ws1 = wb.create_sheet('Resumo Safras')
-    _write_sheet(
-        ws1,
-        ['Safra', 'Inicio', 'Fim', 'Volume', 'Ate 30 dias', 'Ate 60 dias', 'Ate 90 dias'],
-        [[r['label'], r['inicio'], r['fim'], r['volume'], r['d30'], r['d60'], r['d90']]
-         for r in dataset['resumo']],
-    )
+    _write_performance_resumo_safras_sheet(ws1, ctx, dataset, header_font, header_fill, header_align, border)
+    _write_performance_resumo_pivot_sheet(wb, dataset, header_font, header_fill, header_align, border)
 
-    # Aba 3: Series (tidy long-format, ideal para PowerBI tambem)
+    # Aba: Series (tidy long-format, ideal para PowerBI tambem)
     ws2 = wb.create_sheet('Series Graficas')
     _write_sheet(
         ws2,
@@ -8436,12 +8738,14 @@ def _export_to_csv_powerbi(ctx, dataset):
     for r in dataset['series']:
         writer.writerow(['series', r['safra'], r['data'], r['serie'], r['valor']])
 
-    # Tabela 2 - Resumo safras
-    for r in dataset['resumo']:
-        writer.writerow(['resumo_safra', r['label'], r['inicio'], 'volume', r['volume']])
-        writer.writerow(['resumo_safra', r['label'], r['inicio'], 'd30', r['d30']])
-        writer.writerow(['resumo_safra', r['label'], r['inicio'], 'd60', r['d60']])
-        writer.writerow(['resumo_safra', r['label'], r['inicio'], 'd90', r['d90']])
+    writer.writerow(['tabela', 'mes_ano', 'safra', 'periodo_inicio', 'periodo_fim',
+                     'situacao', 'faixa_codigo', 'faixa_descricao', 'medida', 'valor'])
+    for t in dataset.get('resumo_tidy') or []:
+        writer.writerow([
+            'resumo_safra_tidy',
+            t['mes_ano'], t['safra'], t['periodo_inicio'], t['periodo_fim'],
+            t['situacao'], t['faixa_codigo'], t['faixa_descricao'], t['medida'], t['valor'],
+        ])
 
     # Tabela 3 - Faixas
     for r in dataset['faixas']:
@@ -8536,25 +8840,43 @@ def _export_to_pdf(ctx, dataset):
             pdf.image(tf_bar.name, x=pdf.l_margin, w=page_w, h=90)
             pdf.ln(4)
 
-        # Tabela: Resumo das safras
+        # Tabela: Resumo das safras (compacto; detalhe no Excel)
         pdf.set_font('Helvetica', 'B', 11)
-        pdf.cell(0, 7, 'Resumo das safras', ln=True)
-        pdf.set_font('Helvetica', 'B', 9)
-        pdf.set_fill_color(59, 130, 246); pdf.set_text_color(255, 255, 255)
-        headers = ['Safra', 'Inicio', 'Fim', 'Volume', 'Ate 30d', 'Ate 60d', 'Ate 90d']
-        col_w = [70, 30, 30, 25, 30, 30, 30]
+        pdf.cell(0, 7, 'Resumo das safras (contratos; performado x nao por faixa)', ln=True)
+        pdf.set_font('Helvetica', '', 7)
+        pdf.multi_cell(0, 4, 'Detalhe com R$ parcela, R$ credito e tabela dinamica: exporte em Excel (abas Resumo Safras).', align='L')
+        pdf.ln(1)
+        pdf.set_font('Helvetica', 'B', 7)
+        pdf.set_fill_color(59, 130, 246)
+        pdf.set_text_color(255, 255, 255)
+        headers = [
+            'Safra', 'Ini', 'Fim', 'N', 'P30', 'P60', 'P90', 'P+',
+            'N30', 'N60', 'N90', 'N+',
+        ]
+        col_w = [52, 22, 22, 12, 12, 12, 12, 12, 12, 12, 12, 12]
         for i, h in enumerate(headers):
-            pdf.cell(col_w[i], 7, h, border=1, align='C', fill=True)
+            pdf.cell(col_w[i], 6, h, border=1, align='C', fill=True)
         pdf.ln()
-        pdf.set_font('Helvetica', '', 9)
+        pdf.set_font('Helvetica', '', 7)
         pdf.set_text_color(30, 41, 59)
         for idx, r in enumerate(dataset['resumo']):
             fill = idx % 2 == 1
-            if fill: pdf.set_fill_color(248, 250, 252)
-            else: pdf.set_fill_color(255, 255, 255)
-            vals = [r['label'], r['inicio'], r['fim'], r['volume'], r['d30'], r['d60'], r['d90']]
+            if fill:
+                pdf.set_fill_color(248, 250, 252)
+            else:
+                pdf.set_fill_color(255, 255, 255)
+            p = r['performado']
+            n = r['nao_performado']
+            vals = [
+                str(r['label'])[:26],
+                str(r['inicio'])[5:],
+                str(r['fim'])[5:],
+                str(r['volume']),
+                str(p['d30']['qtd']), str(p['d60']['qtd']), str(p['d90']['qtd']), str(p['dplus']['qtd']),
+                str(n['b30']['qtd']), str(n['b60']['qtd']), str(n['b90']['qtd']), str(n['bplus']['qtd']),
+            ]
             for i, v in enumerate(vals):
-                pdf.cell(col_w[i], 7, str(v), border=1, align='C', fill=True)
+                pdf.cell(col_w[i], 6, v, border=1, align='C', fill=True)
             pdf.ln()
         pdf.ln(4)
 
@@ -8683,7 +9005,7 @@ _DASH_PIE_LABELS = {
 # Inclui entradas_safra (1 ctt) para OR no painel: mesmo escopo do grafico de "Entradas (safra)"
 _PAINEL_DASH_SERIES_WHERE = {**_DASH_SERIES_WHERE}
 _PAINEL_DASH_SERIES_WHERE['entradas_safra'] = (
-    "o.status = 'aberto' AND (o.descricao = 'contrato novo' OR o.descricao = 'contrato voltou')",
+    "o.status = 'aberto' AND (o.descricao = 'contrato novo' OR LOWER(o.descricao) LIKE 'contrato voltou%%')",
     [],
 )
 _PAINEL_DASH_LIM = 500
