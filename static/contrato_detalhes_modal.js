@@ -125,6 +125,7 @@
             negativado_manual: 'Negativado (manual)',
             negativado_tracker: 'Negativado (automático)',
             removido_pagamento: 'Positivação (pagamento)',
+            positivado_tracker: 'Positivação (tracker)',
             removido_manual: 'Positivação (manual)',
             observacao: 'Observação'
         };
@@ -134,7 +135,7 @@
     function negativacaoTipoClass(tipo) {
         if (!tipo) return 'status-active';
         if (String(tipo).indexOf('negativado') === 0) return 'status-danger';
-        if (String(tipo).indexOf('removido') === 0) return 'status-success';
+        if (String(tipo).indexOf('removido') === 0 || tipo === 'positivado_tracker') return 'status-success';
         if (tipo === 'observacao') return 'status-warning';
         return 'status-active';
     }
@@ -176,7 +177,7 @@
             var h = sortedHist[j];
             if (String(h.numero_parcela) !== parc) continue;
             var t = String(h.tipo_evento || '');
-            if (t.indexOf('removido') === 0) return true;
+            if (t.indexOf('removido') === 0 || t === 'positivado_tracker') return true;
         }
         return false;
     }
@@ -299,9 +300,10 @@
                 var rot = negativacaoTipoLabel(ev.tipo_evento);
                 var extra = '';
                 if (ev.funcionario_nome) extra += ' · Operador: ' + esc(ev.funcionario_nome);
-                // removido_pagamento: detalhe ja traz parcela quitada e proxima alvo (texto do tracker).
+                // removido_pagamento / positivado_tracker: detalhe ja inclui parcela e vencimento.
                 if (ev.numero_parcela != null && ev.numero_parcela !== '' &&
-                        String(ev.tipo_evento || '') !== 'removido_pagamento') {
+                        String(ev.tipo_evento || '') !== 'removido_pagamento' &&
+                        String(ev.tipo_evento || '') !== 'positivado_tracker') {
                     extra += ' · Parcela nº ' + esc(ev.numero_parcela);
                 }
                 if (row.emVigor) {
