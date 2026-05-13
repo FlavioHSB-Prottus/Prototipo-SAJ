@@ -335,7 +335,12 @@ def registrar_snapshot_cobranca_dia(cursor, conn, data_referencia):
 
 
 def _ensure_negativacao_table(cursor):
-    """Cria a tabela `negativacao` alinhada ao `app._ensure_negativacao_table` (idempotente)."""
+    """Cria a tabela `negativacao` se nao existir (idempotente).
+
+    Chave unica composta alinhada a `Banco/criar_banco.py` (`negativacao_id_contrato_IDX`).
+    Bases ja criadas com outro UNIQUE nao sao alteradas por CREATE IF NOT EXISTS; migre o
+    indice manualmente se precisar de upsert por (id_contrato, id_parcela).
+    """
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS negativacao (
@@ -350,7 +355,7 @@ def _ensure_negativacao_table(cursor):
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                                      ON UPDATE CURRENT_TIMESTAMP,
-            UNIQUE KEY uk_negativacao_parcela (id_parcela),
+            UNIQUE KEY negativacao_id_contrato_IDX (id_contrato, id_parcela),
             KEY idx_negativacao_contrato (id_contrato),
             CONSTRAINT fk_negativacao_contrato FOREIGN KEY (id_contrato)
                 REFERENCES contrato(id) ON DELETE CASCADE,
@@ -425,15 +430,17 @@ def negativacao_inserir_elegiveis_apos_gm(cursor, _conn, data_referencia, id_arq
     proprio arquivo GM* (nao a data de hoje do servidor), esteja com mais de
     30 e menos de 90 dias de atraso, com mais de 1 parcela aberta.
 
-    * INSERT IGNORE + UNIQUE (id_parcela): a mesma parcela nao entra duas
-      vezes. Inclui contrato com **uma** parcela aberta, se 30 < dias < 90
+    * INSERT ... ON DUPLICATE KEY UPDATE na chave `negativacao_id_contrato_IDX`
+      (id_contrato, id_parcela): reprocessar o mesmo GM actualiza dias_atraso,
+      resposta_api, etc. Inclui contrato com **uma** parcela aberta, se 30 < dias < 90
       (mesma regra de /api/cobranca e "Falta negativar").
 
     * `data_negativacao` no INSERT e fixada no dia de `data_referencia` do GM
-      (meio-dia) para bater o "fato por dia" do arquivo.
+      (meio-dia) para bater o "fato por dia" do arquivo; em duplicado, mantem-se
+      alinhada ao SELECT (mesma data de referencia).
 
-    Retorna o numero de linhas inseridas (Pode ser 0; MySQL ainda pode
-    reportar rowcount=None em versões antigas).
+    Retorna o rowcount do servidor (inseridos ou actualizados; pode ser 0;
+    MySQL/MariaDB pode reportar None em versoes antigas).
     """
     _ensure_negativacao_table(cursor)
 
@@ -455,7 +462,7 @@ def negativacao_inserir_elegiveis_apos_gm(cursor, _conn, data_referencia, id_arq
     )
 
     sql = """
-    INSERT IGNORE INTO negativacao (
+    INSERT INTO negativacao (
         id_contrato, id_parcela, numero_parcela, dias_atraso, status, resposta_api, data_negativacao
     )
     SELECT
@@ -476,6 +483,12 @@ def negativacao_inserir_elegiveis_apos_gm(cursor, _conn, data_referencia, id_arq
     WHERE c.status = 'cobranca'
       AND DATEDIFF(%s, p.vencimento) > 30
       AND DATEDIFF(%s, p.vencimento) < 90
+    ON DUPLICATE KEY UPDATE
+        numero_parcela = VALUES(numero_parcela),
+        dias_atraso = VALUES(dias_atraso),
+        status = VALUES(status),
+        resposta_api = VALUES(resposta_api),
+        data_negativacao = VALUES(data_negativacao)
     """
     cursor.execute(sql, (data_d, j, data_hora, data_d, data_d))
     n = cursor.rowcount
@@ -1361,9 +1374,9 @@ def main():
                 f" -> Tracking Delta Concluido: {n_miss} contratos ausentes no registro_1, {n_add} parcelas novas, {n_paid} parcelas pagas."
             )
 
-        # Historico Serasa: gera ocorrencia na tabela `negativacao` (por parcela,
-        # 1 linha/parcela, sem repeticoes) alinhada a *data do arquivo* GM, para
-        # o painel "Falta negativar" bater com o fato de dias anteriores.
+        # Historico Serasa: upsert em `negativacao` (chave negativacao_id_contrato_IDX:
+        # id_contrato + id_parcela) alinhado a *data do arquivo* GM, para o painel
+        # "Falta negativar" bater com o fato de dias anteriores.
         cursor.execute(
             "SELECT data_arquivo FROM arquivos_gm WHERE id_arquivo_gm = %s",
             (arquivo_gm_id,),
@@ -1374,8 +1387,8 @@ def main():
                 cursor, conn, row_da["data_arquivo"], int(arquivo_gm_id)
             )
             print(
-                f" -> Negativacao: {n_neg} ocorrencia(s) nova(s) inserida(s) em "
-                f"`negativacao` (mesma parcela nunca e duplicada: UNIQUE id_parcela)."
+                f" -> Negativacao: {n_neg} linha(s) afectada(s) em `negativacao` "
+                f"(upsert por id_contrato+id_parcela; historico sem duplicar na mesma data)."
             )
             n_cob = registrar_snapshot_cobranca_dia(cursor, conn, row_da["data_arquivo"])
             print(

@@ -785,13 +785,15 @@ CREATE TABLE `negativacao` (
   `data_negativacao` datetime DEFAULT current_timestamp(),
   `status` varchar(32) NOT NULL DEFAULT 'enviado',
   `resposta_api` text DEFAULT NULL,
+  `id_funcionario` int(11) DEFAULT NULL,
   `created_at` datetime DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `numero_parcela` int(11) DEFAULT NULL,
+  `negativado` bit(1) NOT NULL DEFAULT b'0',
   PRIMARY KEY (`id`),
+  UNIQUE KEY `negativacao_id_contrato_IDX` (`id_contrato`,`id_parcela`) USING BTREE,
   KEY `idx_negativacao_contrato` (`id_contrato`),
   KEY `negativacao_parcela_FK` (`id_parcela`),
-  KEY `negativacao_id_contrato_IDX` (`id_contrato`,`id_parcela`) USING BTREE,
   CONSTRAINT `fk_negativacao_contrato` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
   CONSTRAINT `negativacao_parcela_FK` FOREIGN KEY (`id_parcela`) REFERENCES `parcela` (`id`)
 );
