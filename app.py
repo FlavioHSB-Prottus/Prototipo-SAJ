@@ -37,6 +37,21 @@ PYTHON_DIR = os.path.join(PROJECT_DIR, 'Python')
 PYTHON_EXE = sys.executable
 
 _serasa_conv_txt_module = None
+_serasa_pefin_erros_module = None
+
+
+def _get_serasa_pefin_erros():
+    """Carrega ``Python/serasa_pefin_erros.py`` (tabela PEFIN + parse de linhas de retorno)."""
+    global _serasa_pefin_erros_module
+    if _serasa_pefin_erros_module is None:
+        path = os.path.join(PYTHON_DIR, 'serasa_pefin_erros.py')
+        spec = importlib.util.spec_from_file_location('serasa_pefin_erros', path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f'Nao foi possivel carregar {path}')
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _serasa_pefin_erros_module = mod
+    return _serasa_pefin_erros_module
 
 
 def _get_serasa_conv_txt():
@@ -4637,6 +4652,119 @@ def api_pessoa_detalhe(pessoa_id):
     })
 
 
+def _negativacao_chave_serasa_contrato_nrs16(grupo, cota):
+    """Mesma regra que ``montar_linha_detalhe_inclusao`` / ``serasa_conv_txt`` para grupo+cota."""
+    g = re.sub(r'\D', '', str(grupo or ''))
+    c = re.sub(r'\D', '', str(cota or ''))
+    core = (g + c)[:16]
+    return core.zfill(16) if core else '0' * 16
+
+
+def _negativacao_docs_variantes_pefin_15(doc15: str):
+    """Variantes de documento a comparar com ``pessoa.cpf_cnpj`` normalizado (15 digitos do TXT)."""
+    d = re.sub(r'\D', '', str(doc15 or ''))[-15:].zfill(15)
+    out = []
+    if d:
+        out.append(d)
+        s = d.lstrip('0') or '0'
+        out.append(s)
+        if len(s) >= 11:
+            out.append(s[-11:])
+        if len(s) >= 14:
+            out.append(s[-14:])
+    seen = set()
+    uniq = []
+    for x in out:
+        if x not in seen:
+            seen.add(x)
+            uniq.append(x)
+    return uniq
+
+
+def _negativacao_resolve_contrato_pefin_retorno(cursor, contrato_nrs16: str, doc15: str):
+    """Resolve ``contrato.id`` pela chave 16 digitos do TXT e, se necessario, por CPF/CNPJ do devedor."""
+    k = re.sub(r'\D', '', str(contrato_nrs16 or ''))[-16:].zfill(16)
+    cursor.execute(
+        """
+        SELECT id, grupo, cota FROM contrato
+        WHERE LPAD(SUBSTRING(CONCAT(TRIM(COALESCE(grupo, '')), TRIM(COALESCE(cota, ''))), 1, 16), 16, '0') = %s
+        LIMIT 8
+        """,
+        (k,),
+    )
+    key_rows = _clean_rows(cursor.fetchall())
+    if len(key_rows) == 1:
+        return int(key_rows[0]['id'])
+    variants = _negativacao_docs_variantes_pefin_15(doc15)
+    if not variants:
+        return None
+    ph = ','.join(['%s'] * len(variants))
+    norm_doc = (
+        "REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(p.cpf_cnpj, ''), '.', ''), '-', ''), '/', ''), ' ', '')"
+    )
+    cursor.execute(
+        f"""
+        SELECT c.id, c.grupo, c.cota FROM contrato c
+        INNER JOIN pessoa p ON p.id = c.id_pessoa
+        WHERE {norm_doc} IN ({ph})
+        LIMIT 40
+        """,
+        variants,
+    )
+    doc_rows = _clean_rows(cursor.fetchall())
+    narrowed = [
+        r for r in doc_rows
+        if _negativacao_chave_serasa_contrato_nrs16(r.get('grupo'), r.get('cota')) == k
+    ]
+    if len(key_rows) > 1:
+        allowed = {int(r['id']) for r in key_rows}
+        narrowed = [r for r in narrowed if int(r['id']) in allowed]
+    if len(narrowed) == 1:
+        return int(narrowed[0]['id'])
+    return None
+
+
+def _negativacao_data_evento_de_referencia_pefin(yyyymmdd: str):
+    """Data do evento a partir da data de referencia da linha PEFIN (AAAAMMDD)."""
+    s = (yyyymmdd or '').strip()
+    if len(s) == 8 and s.isdigit():
+        try:
+            d = datetime.date(int(s[:4]), int(s[4:6]), int(s[6:8]))
+            return datetime.datetime.combine(d, datetime.time.min)
+        except ValueError:
+            pass
+    return datetime.datetime.now()
+
+
+def _negativacao_montar_detalhe_pefin_retorno(
+    nome_arquivo: str,
+    parsed: dict,
+    *,
+    pefin_desc,
+):
+    """Texto para coluna ``detalhe`` (importacao de retorno SERASA)."""
+    seq = parsed.get('sequencial_linha_arquivo') or '?'
+    cods = parsed.get('codigos_erro') or []
+    partes = [
+        f'Retorno SERASA PEFIN ficheiro={nome_arquivo!r} seq_linha={seq}',
+        f"contrato_nrs_16={parsed.get('contrato_nrs_16')}",
+        f"documento_15={parsed.get('documento_15')}",
+        f"valor_centavos={parsed.get('valor_centavos')}",
+    ]
+    if not cods:
+        partes.append('Nenhum codigo de erro PEFIN na zona de retorno (531-593).')
+    else:
+        linhas_erro = []
+        for cod in cods:
+            desc = pefin_desc(cod) if callable(pefin_desc) else None
+            if desc:
+                linhas_erro.append(f'{cod} — {desc}')
+            else:
+                linhas_erro.append(f'{cod} (descricao nao encontrada na tabela local)')
+        partes.append('Erros: ' + '; '.join(linhas_erro))
+    return ' | '.join(partes)
+
+
 def _negativacao_parcela_display_key(row):
     """Chave única por parcela dentro do contrato para exibição.
 
@@ -4845,16 +4973,25 @@ def _dedupe_negativacao_ativas_exibicao(rows):
     return out
 
 
+def _negativacao_historico_tipo_padrao_neg_rem(tipo_evento):
+    """Tipos sujeitos à deduplicação min/max na timeline do contrato."""
+    t = (tipo_evento or '').strip().lower()
+    return t.startswith('negativado') or t.startswith('removido') or t == 'positivado_tracker'
+
+
 def _dedupe_negativacao_historico_exibicao(rows):
     """Por parcela: no máximo uma negativação (primeira data) e uma positivação (última data).
 
-    Observações (`observacao`) são todas preservadas.
+    Observações (`observacao`) são todas preservadas. Outros tipos (ex.: retorno PEFIN,
+    ``observacao`` já tratada) são preservados sem deduplicação por parcela.
     """
     obs = [r for r in rows if (r.get('tipo_evento') or '') == 'observacao']
     outros = [r for r in rows if (r.get('tipo_evento') or '') != 'observacao']
+    padrao = [r for r in outros if _negativacao_historico_tipo_padrao_neg_rem(r.get('tipo_evento'))]
+    especiais = [r for r in outros if not _negativacao_historico_tipo_padrao_neg_rem(r.get('tipo_evento'))]
 
     grupos = {}
-    for r in outros:
+    for r in padrao:
         k = _negativacao_parcela_display_key(r)
         grupos.setdefault(k, []).append(r)
 
@@ -4876,6 +5013,7 @@ def _dedupe_negativacao_historico_exibicao(rows):
                 max(rem, key=lambda x: (str(x.get('data_evento') or ''), int(x.get('id') or 0)))
             )
     out.extend(obs)
+    out.extend(especiais)
     out.sort(key=lambda x: (str(x.get('data_evento') or ''), int(x.get('id') or 0)))
     return out
 
@@ -11968,7 +12106,7 @@ def _negativacao_carteira_sql_date_evento(alias, carteira_dn_ini, carteira_dn_fi
 def _negativacao_carteira_deve_incluir_positivas(evento):
     """Mescla positivações do histórico na Carteira (exceto quando o filtro é só negativação)."""
     ev = (evento or '').strip().lower()
-    if ev in ('observacao',):
+    if ev in ('observacao', 'negativacao_retorno', 'positivacao_retorno'):
         return False
     if ev in ('negativado', 'negativado_tracker', 'negativado_manual'):
         return False
@@ -12284,7 +12422,21 @@ def _negativacao_listagem_payload_interno(
             params_at.extend(par_g)
 
     if evento not in ('', 'todos', 'all'):
-        if apenas_cobranca:
+        if evento in ('negativacao_retorno', 'positivacao_retorno'):
+            sub_exist = (
+                'EXISTS (SELECT 1 FROM negativacao_historico hx WHERE hx.id_contrato = n.id_contrato '
+                'AND hx.tipo_evento = %s'
+            )
+            params_at.append(evento)
+            dn_ini = carteira_dn_ini if apenas_cobranca else data_inicio
+            dn_fim = carteira_dn_fim if apenas_cobranca else data_fim
+            ds_sql, ds_par = _negativacao_carteira_sql_date_evento('hx', dn_ini, dn_fim)
+            if ds_sql:
+                sub_exist = sub_exist + ' AND ' + ds_sql
+                params_at.extend(ds_par)
+            sub_exist += ')'
+            where_at.append(sub_exist)
+        elif apenas_cobranca:
             if evento in ('positivado', 'observacao', 'removido_pagamento', 'removido_manual', 'positivado_tracker'):
                 where_at.append('1=0')
             elif evento == 'negativado_tracker':
@@ -12884,6 +13036,143 @@ def api_negativacao_serasa_arquivo_txt():
         download_name=fname,
         mimetype='text/plain; charset=iso-8859-1',
     )
+
+
+@app.route('/api/negativacao/serasa-retorno-txt', methods=['POST'])
+def api_negativacao_serasa_retorno_txt():
+    """Importa TXT de retorno PEFIN (detalhe ``1I`` / ``1E``) e grava ``negativacao_historico``.
+
+    Campo multipart ``arquivo``: ficheiro de 600 caracteres por linha (latin-1), como os exemplos
+    em ``ARQUIVO SERASA/Retorno/``. Cabeçalho (``0``) e trailer (``9``) são ignorados.
+    """
+    if not session.get('funcionario_id'):
+        return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
+    up = request.files.get('arquivo')
+    if not up or not getattr(up, 'filename', None):
+        return jsonify({'error': 'Ficheiro em falta (campo ``arquivo``).'}), 400
+    nome = secure_filename(up.filename) or 'retorno_pefin.txt'
+    raw = up.read()
+    if not raw:
+        return jsonify({'error': 'Ficheiro vazio.'}), 400
+    if len(raw) > 25 * 1024 * 1024:
+        return jsonify({'error': 'Ficheiro demasiado grande (limite 25MB).'}), 400
+
+    try:
+        pef = _get_serasa_pefin_erros()
+    except Exception as exc:
+        app.logger.exception('serasa_pefin_erros: falha ao carregar modulo')
+        return jsonify({'error': f'Modulo PEFIN indisponivel: {exc}'}), 500
+
+    try:
+        fid = int(session.get('funcionario_id'))
+    except (TypeError, ValueError):
+        fid = None
+
+    texto = raw.decode('latin-1', errors='replace')
+    linhas = texto.splitlines()
+    lin_len = int(getattr(pef, 'LINHA_DETALHE_PEFIN_LEN', 600))
+
+    inseridos = 0
+    ignorados = 0
+    nao_resolvidos = []
+    err_msgs = []
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        _ensure_negativacao_historico_table(cursor)
+        for raw_line in linhas:
+            line = raw_line.rstrip('\r')
+            if not line.strip():
+                ignorados += 1
+                continue
+            if len(line) != lin_len:
+                ignorados += 1
+                continue
+            c0 = line[0]
+            if c0 in ('0', '9'):
+                ignorados += 1
+                continue
+            parsed = pef.parse_linha_detalhe_pefin_retorno(line)
+            if not parsed:
+                ignorados += 1
+                continue
+            id_contrato = _negativacao_resolve_contrato_pefin_retorno(
+                cursor,
+                parsed.get('contrato_nrs_16'),
+                parsed.get('documento_15'),
+            )
+            if not id_contrato:
+                nao_resolvidos.append({
+                    'sequencial': parsed.get('sequencial_linha_arquivo'),
+                    'motivo': 'contrato_nao_resolvido',
+                })
+                continue
+            tipo_ev = (
+                'negativacao_retorno'
+                if (parsed.get('tipo_operacao_ie') or '').upper() == 'I'
+                else 'positivacao_retorno'
+            )
+            detalhe = _negativacao_montar_detalhe_pefin_retorno(
+                nome, parsed, pefin_desc=pef.descricao_codigo_erro
+            )
+            data_ev = _negativacao_data_evento_de_referencia_pefin(
+                parsed.get('data_referencia_yyyymmdd')
+            )
+            _insert_negativacao_historico(
+                cursor,
+                id_contrato,
+                None,
+                None,
+                tipo_ev,
+                data_ev,
+                id_funcionario=fid,
+                dias_atraso=None,
+                status_snapshot=None,
+                detalhe=detalhe,
+                id_arquivo_gm=None,
+            )
+            inseridos += 1
+        conn.commit()
+    except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        app.logger.exception('api_negativacao_serasa_retorno_txt')
+        err_msgs.append(str(exc))
+        return jsonify({
+            'success': False,
+            'error': str(exc),
+            'inseridos': inseridos,
+            'ignorados': ignorados,
+            'nao_resolvidos': nao_resolvidos,
+            'erros': err_msgs,
+        }), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    app.logger.info(
+        'negativacao serasa-retorno-txt: ficheiro=%s inseridos=%s ignorados=%s nao_resolv=%s',
+        nome,
+        inseridos,
+        ignorados,
+        len(nao_resolvidos),
+    )
+    return jsonify({
+        'success': True,
+        'inseridos': inseridos,
+        'ignorados': ignorados,
+        'nao_resolvidos': nao_resolvidos,
+        'erros': err_msgs,
+    })
 
 
 @app.route('/api/negativacao/observacao', methods=['POST'])

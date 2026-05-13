@@ -127,6 +127,8 @@ document.addEventListener('DOMContentLoaded', function () {
     var negDataFim = document.getElementById('neg_data_fim');
     var negBtnLimpar = document.getElementById('negBtnLimpar');
     var negBtnExportarExcel = document.getElementById('negBtnExportarExcel');
+    var negBtnImportarRetornoSerasa = document.getElementById('negBtnImportarRetornoSerasa');
+    var negInputRetornoSerasa = document.getElementById('negInputRetornoSerasa');
     var negResultsSection = document.getElementById('negResultsSection');
     var negNoResults = document.getElementById('negNoResults');
     var negAtivosMeta = document.getElementById('negAtivosMeta');
@@ -154,7 +156,9 @@ document.addEventListener('DOMContentLoaded', function () {
             removido_pagamento: 'Positivacao (pagamento)',
             positivado_tracker: 'Positivacao (tracker)',
             removido_manual: 'Positivacao (manual)',
-            observacao: 'Observacao'
+            observacao: 'Observacao',
+            negativacao_retorno: 'Retorno PEFIN (negativacao)',
+            positivacao_retorno: 'Retorno PEFIN (positivacao)'
         };
         return m[t] || (t || '-');
     }
@@ -1101,6 +1105,57 @@ document.addEventListener('DOMContentLoaded', function () {
         return params;
     }
 
+    function importarRetornoSerasaTxt(file) {
+        if (!file) return;
+        var fd = new FormData();
+        fd.append('arquivo', file, file.name);
+        var btn = negBtnImportarRetornoSerasa;
+        var prev = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> A importar...';
+        }
+        fetch('/api/negativacao/serasa-retorno-txt', {
+            method: 'POST',
+            body: fd,
+            credentials: 'same-origin'
+        })
+            .then(function (r) {
+                return r.json().then(function (j) {
+                    return { ok: r.ok, j: j };
+                }).catch(function () {
+                    return { ok: r.ok, j: {} };
+                });
+            })
+            .then(function (o) {
+                var j = o.j;
+                if (!o.ok || !j.success) {
+                    throw new Error((j && (j.error || j.message)) ? (j.error || j.message) : 'Falha na importacao');
+                }
+                var nr = (j.nao_resolvidos && j.nao_resolvidos.length) ? j.nao_resolvidos.length : 0;
+                var msg = 'Importacao concluida. Inseridos: ' + (j.inseridos || 0) +
+                    '; linhas ignoradas (cabecalho/rodape ou invalidas): ' + (j.ignorados || 0) +
+                    '; contratos nao resolvidos: ' + nr + '.';
+                if (nr > 0 && j.nao_resolvidos) {
+                    msg += ' Verifique grupo/cota ou CPF no cadastro.';
+                }
+                alert(msg);
+                if (negResultsSection && !negResultsSection.classList.contains('d-none')) {
+                    load();
+                }
+            })
+            .catch(function (err) {
+                alert('Nao foi possivel importar o TXT: ' + (err.message || err));
+            })
+            .finally(function () {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = prev;
+                }
+                if (negInputRetornoSerasa) negInputRetornoSerasa.value = '';
+            });
+    }
+
     function exportNegativacaoExcel() {
         if (!negBtnExportarExcel || negBtnExportarExcel.disabled) return;
         var prevHtml = negBtnExportarExcel.innerHTML;
@@ -1336,6 +1391,16 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (negBtnExportarExcel) {
         negBtnExportarExcel.addEventListener('click', exportNegativacaoExcel);
+    }
+
+    if (negBtnImportarRetornoSerasa && negInputRetornoSerasa) {
+        negBtnImportarRetornoSerasa.addEventListener('click', function () {
+            negInputRetornoSerasa.click();
+        });
+        negInputRetornoSerasa.addEventListener('change', function () {
+            var f = negInputRetornoSerasa.files && negInputRetornoSerasa.files[0];
+            if (f) importarRetornoSerasaTxt(f);
+        });
     }
 
     bindNegSplitPanels();

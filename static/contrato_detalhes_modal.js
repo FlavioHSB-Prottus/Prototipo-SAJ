@@ -127,6 +127,8 @@
             removido_pagamento: 'Positivação (pagamento)',
             positivado_tracker: 'Positivação (tracker)',
             removido_manual: 'Positivação (manual)',
+            negativacao_retorno: 'Retorno SERASA (negativação)',
+            positivacao_retorno: 'Retorno SERASA (positivação)',
             observacao: 'Observação'
         };
         return m[tipo] || (tipo || 'Evento');
