@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 .Python
 *.so
+venv/
 .env
 
 # IDE / OS
