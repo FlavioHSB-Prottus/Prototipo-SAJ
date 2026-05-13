@@ -4721,9 +4721,12 @@ def _negativacao_date_only_sql(val):
 def _negativacao_fetch_serasa_inclusao_payloads(cursor, ids_ordered, *, inner_negativacao=True):
     """Monta lista de dicts para ``montar_linha_detalhe_inclusao`` na ordem de ``ids_ordered``.
 
-    ``inner_negativacao`` (negativar): exige linha activa em ``negativacao``. Para positivar (TXT
-    exclusao), usa ``LEFT JOIN`` e data de referencia a partir do historico quando o registo activo
-    ja nao existe (ex.: positivado_tracker).
+    ``inner_negativacao`` (negativar): exige linha activa em ``negativacao``. O valor no TXT (centavos)
+    e a soma de ``COALESCE(valor_total, valor_nominal)`` de todas as parcelas do contrato com
+    ``status = 'cobranca'`` (uma linha por parcela seleccionada, mesmo montante por contrato).
+
+    Para positivar (TXT exclusao), usa ``LEFT JOIN`` em ``negativacao``, data de referencia a partir
+    do historico quando o registo activo ja nao existe, e valor por parcela (parcela alvo).
     """
     if not ids_ordered:
         return []
@@ -4732,6 +4735,10 @@ def _negativacao_fetch_serasa_inclusao_payloads(cursor, ids_ordered, *, inner_ne
     if inner_negativacao:
         neg_join = 'INNER JOIN negativacao n ON n.id_parcela = p.id'
         data_neg_sql = 'n.data_negativacao AS data_negativacao'
+        valor_sql = (
+            "(SELECT CAST(ROUND(COALESCE(SUM(COALESCE(p2.valor_total, p2.valor_nominal, 0)), 0) * 100) AS SIGNED) "
+            "FROM parcela p2 WHERE p2.id_contrato = c.id AND p2.status = 'cobranca')"
+        )
     else:
         neg_join = 'LEFT JOIN negativacao n ON n.id_parcela = p.id'
         data_neg_sql = (
@@ -4742,6 +4749,7 @@ def _negativacao_fetch_serasa_inclusao_payloads(cursor, ids_ordered, *, inner_ne
             "AND nh.tipo_evento IN ('negativado_manual','negativado_tracker'))"
             ') AS data_negativacao'
         )
+        valor_sql = 'CAST(ROUND(COALESCE(p.valor_total, p.valor_nominal, 0) * 100) AS SIGNED)'
     cursor.execute(
         f"""
         SELECT
@@ -4758,7 +4766,7 @@ def _negativacao_fetch_serasa_inclusao_payloads(cursor, ids_ordered, *, inner_ne
           e.cep,
           c.grupo,
           c.cota,
-          CAST(ROUND(COALESCE(p.valor_total, p.valor_nominal, 0) * 100) AS SIGNED) AS valor_centavos,
+          {valor_sql} AS valor_centavos,
           emp.apelido AS empresa_apelido,
           cred.cpf_cnpj AS credor_documento,
           COALESCE(
