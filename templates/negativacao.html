@@ -246,6 +246,8 @@
                     <option value="removido_pagamento">Positivação por pagamento</option>
                     <option value="positivado_tracker">Positivação (tracker)</option>
                     <option value="removido_manual">Positivação manual</option>
+                    <option value="negativacao_retorno">Retorno PEFIN (negativação / inclusão)</option>
+                    <option value="positivacao_retorno">Retorno PEFIN (positivação / exclusão)</option>
                 </select>
             </div>
             <div class="form-group">
@@ -276,6 +278,11 @@
                 <div class="neg-cobranca-inline-btns">
                     <button type="submit" class="btn-search"><i class="fa-solid fa-magnifying-glass"></i> Pesquisar</button>
                     <button type="button" class="btn-secondary" id="negBtnLimpar">Limpar</button>
+                    <button type="button" class="btn-secondary" id="negBtnImportarRetornoSerasa"
+                        title="Importar TXT de retorno PEFIN (inclusao 1I / exclusao 1E) e gravar em negativacao_historico">
+                        <i class="fa-solid fa-file-import"></i> Importar TXT retorno SERASA
+                    </button>
+                    <input type="file" id="negInputRetornoSerasa" accept=".txt,text/plain" class="d-none" aria-hidden="true">
                     <button type="button" class="btn-secondary" id="negBtnExportarExcel"
                         title="Baixa Excel com duas abas (negativação e positivação), usando os filtros e a ordenação atuais das tabelas">
                         <i class="fa-solid fa-file-excel" style="color:#107c41;"></i> Exportar Excel
