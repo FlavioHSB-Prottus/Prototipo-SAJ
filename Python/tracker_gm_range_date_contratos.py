@@ -16,6 +16,7 @@ import os
 import re
 import subprocess
 import sys
+from decimal import Decimal, InvalidOperation
 
 import pymysql
 
@@ -366,12 +367,55 @@ def _ensure_negativacao_table(cursor):
     )
 
 
+def _format_detalhe_negativacao_parcela(valor, vencimento, prefixo="Negativacao"):
+    """Texto padrao do historico (tracker): valor e vencimento da parcela.
+
+    `prefixo`: ex. Negativacao (negativado_tracker) ou Positivacao (positivado_tracker).
+    """
+    if isinstance(vencimento, datetime.datetime):
+        vd = vencimento.strftime("%d/%m/%Y")
+    elif isinstance(vencimento, datetime.date):
+        vd = vencimento.strftime("%d/%m/%Y")
+    elif vencimento is not None and str(vencimento).strip():
+        vd = str(vencimento)[:10]
+    else:
+        vd = "-"
+    if valor is None:
+        vtxt = "-"
+    else:
+        try:
+            vtxt = f"{Decimal(str(valor)):.2f}"
+        except (InvalidOperation, TypeError, ValueError):
+            vtxt = str(valor)
+    return f"{prefixo} (valor da parcela: {vtxt}, vencimento: {vd})"
+
+
+def _id_arquivo_gm_from_resposta_api(raw):
+    """Extrai id_arquivo_gm do JSON em resposta_api (tracker)."""
+    if raw is None:
+        return None
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+    try:
+        j = json.loads(raw) if isinstance(raw, str) else raw
+        if not isinstance(j, dict):
+            return None
+        v = j.get("id_arquivo_gm")
+        return int(v) if v is not None else None
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
 def _ensure_negativacao_historico_table(cursor):
     """Alinhado a app._ensure_negativacao_historico_table (append-only)."""
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS negativacao_historico (
             id BIGINT PRIMARY KEY AUTO_INCREMENT,
+            id_arquivo_gm BIGINT NULL DEFAULT NULL,
             id_contrato BIGINT NOT NULL,
             id_parcela BIGINT NULL,
             numero_parcela INT NULL,
@@ -382,12 +426,15 @@ def _ensure_negativacao_historico_table(cursor):
             status_snapshot VARCHAR(64) NULL,
             detalhe TEXT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            KEY idx_neg_hist_arquivo_gm (id_arquivo_gm),
             KEY idx_neg_hist_contrato (id_contrato),
             KEY idx_neg_hist_parcela (id_parcela),
             KEY idx_neg_hist_data (data_evento),
             KEY idx_neg_hist_tipo (tipo_evento),
             CONSTRAINT fk_neg_hist_contrato FOREIGN KEY (id_contrato)
-                REFERENCES contrato(id) ON DELETE CASCADE
+                REFERENCES contrato(id) ON DELETE CASCADE,
+            CONSTRAINT fk_neg_hist_arquivo_gm FOREIGN KEY (id_arquivo_gm)
+                REFERENCES arquivos_gm(id_arquivo_gm) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """
     )
@@ -399,17 +446,28 @@ def _sync_negativacao_historico_pos_tracker(cursor, data_hora_ref):
     cursor.execute(
         """
         INSERT INTO negativacao_historico (
-            id_contrato, id_parcela, numero_parcela, tipo_evento, data_evento,
+            id_arquivo_gm, id_contrato, id_parcela, numero_parcela, tipo_evento, data_evento,
             id_funcionario, dias_atraso, status_snapshot, detalhe
         )
-        SELECT n.id_contrato, n.id_parcela, n.numero_parcela, 'negativado_tracker',
-               n.data_negativacao, NULL, n.dias_atraso, n.status,
-               CONCAT(
-                   'Registro automático pelo arquivo GM (data referência ',
-                   DATE_FORMAT(n.data_negativacao, '%d/%m/%Y'),
-                   ').'
-               )
+        SELECT
+            NULLIF(
+                CAST(
+                    NULLIF(TRIM(BOTH '"' FROM JSON_UNQUOTE(JSON_EXTRACT(COALESCE(NULLIF(TRIM(n.resposta_api), ''), '{}'), '$.id_arquivo_gm'))), '')
+                    AS UNSIGNED
+                ),
+                0
+            ),
+            n.id_contrato, n.id_parcela, n.numero_parcela, 'negativado_tracker',
+            n.data_negativacao, NULL, n.dias_atraso, n.status,
+            CONCAT(
+                'Negativacao (valor da parcela: ',
+                COALESCE(CAST(COALESCE(p.valor_total, p.valor_nominal) AS CHAR), '-'),
+                ', vencimento: ',
+                IFNULL(DATE_FORMAT(p.vencimento, '%d/%m/%Y'), '-'),
+                ')'
+            )
         FROM negativacao n
+        INNER JOIN parcela p ON p.id = n.id_parcela
         WHERE n.status = 'registrado_tracker'
           AND n.data_negativacao <=> %s
           AND NOT EXISTS (
@@ -622,19 +680,29 @@ def _ensure_historico_negativado_tracker_para_linha(cursor, row_n):
     data_ev = _normalize_data_hora_negativacao(row_n.get("data_negativacao"))
     if data_ev is None:
         data_ev = datetime.datetime.now()
-    det = (
-        "Registro automático pelo arquivo GM (data referência "
-        f"{data_ev.strftime('%d/%m/%Y')}"
-        ")."
-    )
+    id_agm = _id_arquivo_gm_from_resposta_api(row_n.get("resposta_api"))
+    v_parcela = v_venc = None
+    try:
+        cursor.execute(
+            "SELECT valor_total, valor_nominal, vencimento FROM parcela WHERE id = %s LIMIT 1",
+            (int(id_parcela),),
+        )
+        rp = cursor.fetchone()
+        if rp:
+            v_parcela = rp.get("valor_total") if rp.get("valor_total") is not None else rp.get("valor_nominal")
+            v_venc = rp.get("vencimento")
+    except Exception:
+        pass
+    det = _format_detalhe_negativacao_parcela(v_parcela, v_venc)
     cursor.execute(
         """
         INSERT INTO negativacao_historico (
-            id_contrato, id_parcela, numero_parcela, tipo_evento, data_evento,
+            id_arquivo_gm, id_contrato, id_parcela, numero_parcela, tipo_evento, data_evento,
             id_funcionario, dias_atraso, status_snapshot, detalhe
-        ) VALUES (%s, %s, %s, %s, %s, NULL, %s, %s, %s)
+        ) VALUES (%s, %s, %s, %s, %s, %s, NULL, %s, %s, %s)
         """,
         (
+            id_agm,
             int(row_n["id_contrato"]),
             int(id_parcela),
             row_n.get("numero_parcela"),
@@ -653,18 +721,29 @@ def _sync_negativacao_historico_negativado_tracker_faltantes(cursor):
     cursor.execute(
         """
         INSERT INTO negativacao_historico (
-            id_contrato, id_parcela, numero_parcela, tipo_evento, data_evento,
+            id_arquivo_gm, id_contrato, id_parcela, numero_parcela, tipo_evento, data_evento,
             id_funcionario, dias_atraso, status_snapshot, detalhe
         )
-        SELECT n.id_contrato, n.id_parcela, n.numero_parcela, 'negativado_tracker',
-               COALESCE(n.data_negativacao, NOW()),
-               NULL, n.dias_atraso, n.status,
-               CONCAT(
-                   'Registro automático pelo arquivo GM (data referência ',
-                   DATE_FORMAT(COALESCE(n.data_negativacao, NOW()), '%d/%m/%Y'),
-                   ').'
-               )
+        SELECT
+            NULLIF(
+                CAST(
+                    NULLIF(TRIM(BOTH '"' FROM JSON_UNQUOTE(JSON_EXTRACT(COALESCE(NULLIF(TRIM(n.resposta_api), ''), '{}'), '$.id_arquivo_gm'))), '')
+                    AS UNSIGNED
+                ),
+                0
+            ),
+            n.id_contrato, n.id_parcela, n.numero_parcela, 'negativado_tracker',
+            COALESCE(n.data_negativacao, NOW()),
+            NULL, n.dias_atraso, n.status,
+            CONCAT(
+                'Negativacao (valor da parcela: ',
+                COALESCE(CAST(COALESCE(p.valor_total, p.valor_nominal) AS CHAR), '-'),
+                ', vencimento: ',
+                IFNULL(DATE_FORMAT(p.vencimento, '%d/%m/%Y'), '-'),
+                ')'
+            )
         FROM negativacao n
+        INNER JOIN parcela p ON p.id = n.id_parcela
         WHERE n.status = 'registrado_tracker'
           AND NOT EXISTS (
               SELECT 1 FROM negativacao_historico h
@@ -673,64 +752,6 @@ def _sync_negativacao_historico_negativado_tracker_faltantes(cursor):
           )
         """
     )
-
-
-def _detalhe_positivacao_pagamento(cursor, id_contrato, arquivo_gm_id, numero_parcela_quitada):
-    """Texto do histórico: parcela positivada + próxima parcela-alvo para negativação (regra 31–89 dias)."""
-    data_ref = _data_referencia_arquivo_gm(cursor, arquivo_gm_id)
-    np_q = numero_parcela_quitada
-    try:
-        np_txt = str(int(np_q)) if np_q is not None else ""
-    except (TypeError, ValueError):
-        np_txt = str(np_q) if np_q is not None else ""
-    if not np_txt:
-        np_txt = "(parcela)"
-
-    partes = [
-        f"Positivação por pagamento: a parcela nº {np_txt} foi quitada e a negativação "
-        "foi retirada para essa parcela neste cadastro."
-    ]
-
-    try:
-        cursor.execute(
-            """
-            SELECT p.numero_parcela, DATEDIFF(%s, p.vencimento) AS dias_atraso
-            FROM parcela p
-            WHERE p.id_contrato = %s AND p.status = 'cobranca'
-            ORDER BY p.vencimento ASC, p.id ASC
-            LIMIT 1
-            """,
-            (data_ref, id_contrato),
-        )
-        alvo = cursor.fetchone()
-    except Exception:
-        alvo = None
-
-    if alvo and alvo.get("numero_parcela") is not None:
-        try:
-            na = int(alvo["numero_parcela"])
-        except (TypeError, ValueError):
-            na = alvo["numero_parcela"]
-        try:
-            dias = int(alvo.get("dias_atraso") or 0)
-        except (TypeError, ValueError):
-            dias = 0
-        if 30 < dias < 90:
-            partes.append(
-                f"Parcela que poderá ser negativada em seguida (em aberto mais antiga por vencimento): "
-                f"nº {na}, com {dias} dias de atraso na data de referência — dentro da janela 31–89 dias."
-            )
-        else:
-            partes.append(
-                f"Próxima parcela em aberto mais antiga por vencimento: nº {na}, com {dias} dias de "
-                "atraso na data de referência. A negativação automática só considera atraso entre 31 e 89 dias."
-            )
-    else:
-        partes.append(
-            "Não há outra parcela em aberto neste contrato para nova negativação neste momento."
-        )
-
-    return " ".join(partes)
 
 
 def _liberar_negativacao_parcela_paga(cursor, conn, id_parcela, id_contrato, arquivo_gm_id):
@@ -755,25 +776,33 @@ def _liberar_negativacao_parcela_paga(cursor, conn, id_parcela, id_contrato, arq
     except Exception:
         pass
     data_evento_pos = _data_hora_evento_arquivo_gm(cursor, arquivo_gm_id)
+    v_parcela = v_venc = None
     try:
-        detalhe_hist = _detalhe_positivacao_pagamento(
-            cursor,
-            int(row["id_contrato"]),
-            arquivo_gm_id,
-            row.get("numero_parcela"),
+        cursor.execute(
+            "SELECT valor_total, valor_nominal, vencimento FROM parcela WHERE id = %s LIMIT 1",
+            (int(id_parcela),),
         )
+        rp = cursor.fetchone()
+        if rp:
+            v_parcela = rp.get("valor_total") if rp.get("valor_total") is not None else rp.get("valor_nominal")
+            v_venc = rp.get("vencimento")
+    except Exception:
+        pass
+    detalhe_hist = _format_detalhe_negativacao_parcela(v_parcela, v_venc, prefixo="Positivacao")
+    try:
         cursor.execute(
             """
             INSERT INTO negativacao_historico (
-                id_contrato, id_parcela, numero_parcela, tipo_evento, data_evento,
+                id_arquivo_gm, id_contrato, id_parcela, numero_parcela, tipo_evento, data_evento,
                 id_funcionario, dias_atraso, status_snapshot, detalhe
-            ) VALUES (%s, %s, %s, %s, %s, NULL, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, NULL, %s, %s, %s)
             """,
             (
+                int(arquivo_gm_id) if arquivo_gm_id is not None else None,
                 int(row["id_contrato"]),
                 int(row["id_parcela"]),
                 row.get("numero_parcela"),
-                "removido_pagamento",
+                "positivado_tracker",
                 data_evento_pos,
                 row.get("dias_atraso"),
                 row.get("status"),

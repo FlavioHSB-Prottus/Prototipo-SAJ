@@ -152,6 +152,7 @@ document.addEventListener('DOMContentLoaded', function () {
             negativado_manual: 'Negativado (manual)',
             negativado_tracker: 'Negativado (automatico)',
             removido_pagamento: 'Positivacao (pagamento)',
+            positivado_tracker: 'Positivacao (tracker)',
             removido_manual: 'Positivacao (manual)',
             observacao: 'Observacao'
         };
@@ -177,7 +178,7 @@ document.addEventListener('DOMContentLoaded', function () {
     /** Badge da coluna Status quando tipo_evento vem na linha (ex.: resposta estendida). */
     function badgeClassTipoEventoNeg(t) {
         var s = String(t || '');
-        if (s.indexOf('removido') === 0) return 'status-success';
+        if (s.indexOf('removido') === 0 || s === 'positivado_tracker') return 'status-success';
         if (s === 'observacao') return 'status-active';
         return 'status-danger';
     }
@@ -186,13 +187,13 @@ document.addEventListener('DOMContentLoaded', function () {
     function rowCarteiraBulkPositivar(r) {
         if (r.serasa_elegivel_positivar) return true;
         var t = String(r.tipo_evento || '');
-        return t.indexOf('removido') === 0;
+        return t.indexOf('removido') === 0 || t === 'positivado_tracker';
     }
 
     /** Negativar todos: só linhas de negativação ativa (tracker/falha), não positivação do histórico. */
     function rowCarteiraBulkNegativar(r) {
         var t = String(r.tipo_evento || '');
-        if (t.indexOf('removido') === 0) return false;
+        if (t.indexOf('removido') === 0 || t === 'positivado_tracker') return false;
         return !!r.serasa_elegivel_negativar;
     }
 
@@ -217,6 +218,7 @@ document.addEventListener('DOMContentLoaded', function () {
             negativado_manual: 'Negativado manual',
             negativado_tracker: 'Negativado (tracker)',
             removido_pagamento: 'Positivacao (pagamento)',
+            positivado_tracker: 'Positivacao (tracker)',
             removido_manual: 'Positivacao (manual)'
         };
         return m[ev] || ev;

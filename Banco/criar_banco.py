@@ -15,11 +15,11 @@ import pymysql
 DB_HOST = os.environ.get("DB_HOST", "localhost")
 DB_USER = os.environ.get("DB_USER", "root")
 DB_PASSWORD = os.environ.get("DB_PASSWORD", "root")
-DB_NAME = os.environ.get("DB_NAME", "consorcio_gm")
+DB_NAME = os.environ.get("DB_NAME", "consorciogm2")
 # 2. SQL PURO E COM PONTO-E-VÍRGULA
 RAW_SQL = """
 CREATE TABLE `arquivos_gm` (
-  `id_arquivo_gm` int(11) NOT NULL AUTO_INCREMENT,
+  `id_arquivo_gm` bigint(20) NOT NULL AUTO_INCREMENT,
   `data_arquivo` date DEFAULT NULL,
   `conteudo` longtext DEFAULT NULL,
   `data_processamento` timestamp NULL DEFAULT current_timestamp(),
@@ -159,7 +159,7 @@ CREATE TABLE `header` (
   `empresa` varchar(50) DEFAULT NULL,
   `data` varchar(15) DEFAULT NULL,
   `numero_do_lote` varchar(6) DEFAULT NULL,
-  `id_arquivo_gm` int(11) DEFAULT NULL,
+  `id_arquivo_gm` bigint(20) NOT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id_registro`),
@@ -206,7 +206,7 @@ CREATE TABLE `registro2` (
   `tx_adm` varchar(30) DEFAULT NULL,
   `fd_reserva` varchar(30) DEFAULT NULL,
   `seguro` varchar(30) DEFAULT NULL,
-  `id_arquivo_gm` int(11) DEFAULT NULL,
+  `id_arquivo_gm` bigint(20) NOT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id_registro`),
@@ -223,7 +223,7 @@ CREATE TABLE `registro2` (
 );
 
 CREATE TABLE `registro3` (
-  `id_registro` int(11) NOT NULL AUTO_INCREMENT,
+  `id_registro` bigint(20) NOT NULL AUTO_INCREMENT,
   `tipo` varchar(1) DEFAULT NULL,
   `grupo` varchar(6) DEFAULT NULL,
   `cota` varchar(4) DEFAULT NULL,
@@ -244,7 +244,7 @@ CREATE TABLE `registro3` (
   `matricula` varchar(8) DEFAULT NULL,
   `cartorio` varchar(50) DEFAULT NULL,
   `vl_avaliacao` varchar(30) DEFAULT NULL,
-  `id_arquivo_gm` int(11) DEFAULT NULL,
+  `id_arquivo_gm` bigint(20) NOT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id_registro`),
@@ -254,7 +254,7 @@ CREATE TABLE `registro3` (
 );
 
 CREATE TABLE `registro4` (
-  `id_registro` int(11) NOT NULL AUTO_INCREMENT,
+  `id_registro` bigint(20) NOT NULL AUTO_INCREMENT,
   `tipo` varchar(1) DEFAULT NULL,
   `grupo` varchar(6) DEFAULT NULL,
   `cota` varchar(4) DEFAULT NULL,
@@ -267,7 +267,7 @@ CREATE TABLE `registro4` (
   `fone` varchar(15) DEFAULT NULL,
   `ramal` varchar(4) DEFAULT NULL,
   `observação_1` varchar(255) DEFAULT NULL,
-  `id_arquivo_gm` int(11) DEFAULT NULL,
+  `id_arquivo_gm` bigint(20) NOT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id_registro`),
@@ -276,7 +276,7 @@ CREATE TABLE `registro4` (
 );
 
 CREATE TABLE `registro5` (
-  `id_registro` int(11) NOT NULL AUTO_INCREMENT,
+  `id_registro` bigint(20) NOT NULL AUTO_INCREMENT,
   `tipo` varchar(1) DEFAULT NULL,
   `grupo` varchar(6) DEFAULT NULL,
   `cota` varchar(4) DEFAULT NULL,
@@ -331,7 +331,7 @@ CREATE TABLE `registro5` (
   `ddd_d_ref_aval` varchar(3) DEFAULT NULL,
   `fon_d_aval` varchar(15) DEFAULT NULL,
   `ram_d_aval` varchar(4) DEFAULT NULL,
-  `id_arquivo_gm` int(11) DEFAULT NULL,
+  `id_arquivo_gm` bigint(20) NOT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id_registro`),
@@ -341,7 +341,7 @@ CREATE TABLE `registro5` (
 );
 
 CREATE TABLE `registro_1` (
-  `id_registro` int(11) NOT NULL AUTO_INCREMENT,
+  `id_registro` bigint(20) NOT NULL AUTO_INCREMENT,
   `tipo` varchar(1) DEFAULT NULL,
   `grupo` varchar(6) DEFAULT NULL,
   `cota` varchar(4) DEFAULT NULL,
@@ -404,7 +404,7 @@ CREATE TABLE `registro_1` (
   `nome_rev` varchar(40) DEFAULT NULL,
   `codigo_da_campanha` varchar(6) DEFAULT NULL,
   `numero_do_contrato` varchar(10) DEFAULT NULL,
-  `id_arquivo_gm` int(11) DEFAULT NULL,
+  `id_arquivo_gm` bigint(20) NOT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id_registro`),
@@ -420,7 +420,7 @@ CREATE TABLE `registro_1` (
 );
 
 CREATE TABLE `registro_6` (
-  `id_registro` int(11) NOT NULL AUTO_INCREMENT,
+  `id_registro` bigint(20) NOT NULL AUTO_INCREMENT,
   `tipo` varchar(1) DEFAULT NULL,
   `grupo` varchar(6) DEFAULT NULL,
   `cota` varchar(4) DEFAULT NULL,
@@ -440,7 +440,7 @@ CREATE TABLE `registro_6` (
   `tx_adm` varchar(30) DEFAULT NULL,
   `fd_reserva` varchar(30) DEFAULT NULL,
   `seguro` varchar(30) DEFAULT NULL,
-  `id_arquivo_gm` int(11) DEFAULT NULL,
+  `id_arquivo_gm` bigint(20) NOT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id_registro`),
@@ -466,7 +466,7 @@ CREATE TABLE `telefone` (
 );
 
 CREATE TABLE `trailer` (
-  `id_registro` int(11) NOT NULL AUTO_INCREMENT,
+  `id_registro` bigint(20) NOT NULL AUTO_INCREMENT,
   `tipo_reg` varchar(1) DEFAULT NULL,
   `data` varchar(15) DEFAULT NULL,
   `total_reg_1` varchar(30) DEFAULT NULL,
@@ -475,7 +475,7 @@ CREATE TABLE `trailer` (
   `qtd_parcelas_1` varchar(10) DEFAULT NULL,
   `valor_parcelas_1` varchar(30) DEFAULT NULL,
   `numero_do_lote` varchar(8) DEFAULT NULL,
-  `id_arquivo_gm` int(11) DEFAULT NULL,
+  `id_arquivo_gm` bigint(20) NOT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id_registro`),
@@ -548,7 +548,7 @@ CREATE TABLE `funcionario_cobranca` (
 CREATE TABLE `ocorrencia` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_contrato` bigint(20) NOT NULL,
-  `id_arquivo_gm` int(11) DEFAULT NULL,
+  `id_arquivo_gm` bigint(20) NOT NULL,
   `descricao` varchar(255) DEFAULT '',
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
@@ -602,7 +602,7 @@ CREATE TABLE `performance` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_ocorrencia` bigint(20) NOT NULL,
   `id_contrato` bigint(20) NOT NULL,
-  `id_arquivo_gm` int(11) DEFAULT NULL,
+  `id_arquivo_gm` bigint(20) NOT NULL,
   `data_arquivo` date NOT NULL,
   `grupo` varchar(20) DEFAULT NULL,
   `cota` varchar(20) DEFAULT NULL,
@@ -857,6 +857,29 @@ CREATE TABLE `registro_email` (
   CONSTRAINT `registro_email_ibfk_2` FOREIGN KEY (`id_pessoa`) REFERENCES `pessoa` (`id`) ON DELETE CASCADE,
   CONSTRAINT `registro_email_ibfk_3` FOREIGN KEY (`id_email`) REFERENCES `email` (`id`) ON DELETE CASCADE,
   CONSTRAINT `registro_email_ibfk_4` FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE
+);
+
+CREATE TABLE `negativacao_historico` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `id_arquivo_gm` bigint(20) NOT NULL,
+  `id_contrato` bigint(20) NOT NULL,
+  `id_parcela` bigint(20) DEFAULT NULL,
+  `numero_parcela` int(11) DEFAULT NULL,
+  `tipo_evento` varchar(40) NOT NULL,
+  `data_evento` datetime NOT NULL DEFAULT current_timestamp(),
+  `id_funcionario` int(11) DEFAULT NULL,
+  `dias_atraso` int(11) DEFAULT NULL,
+  `status_snapshot` varchar(64) DEFAULT NULL,
+  `detalhe` text DEFAULT NULL,
+  `created_at` datetime DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_neg_hist_arquivo_gm` (`id_arquivo_gm`),
+  KEY `idx_neg_hist_contrato` (`id_contrato`),
+  KEY `idx_neg_hist_parcela` (`id_parcela`),
+  KEY `idx_neg_hist_data` (`data_evento`),
+  KEY `idx_neg_hist_tipo` (`tipo_evento`),
+  CONSTRAINT `fk_neg_hist_contrato` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_neg_hist_arquivo_gm` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE
 );
 """
 

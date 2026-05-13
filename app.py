@@ -4839,7 +4839,12 @@ def _dedupe_negativacao_historico_exibicao(rows):
     out = []
     for lst in grupos.values():
         neg = [x for x in lst if str(x.get('tipo_evento') or '').startswith('negativado')]
-        rem = [x for x in lst if str(x.get('tipo_evento') or '').startswith('removido')]
+        rem = [
+            x
+            for x in lst
+            if str(x.get('tipo_evento') or '').startswith('removido')
+            or str(x.get('tipo_evento') or '').strip().lower() == 'positivado_tracker'
+        ]
         if neg:
             out.append(
                 min(neg, key=lambda x: (str(x.get('data_evento') or ''), int(x.get('id') or 0)))
@@ -11225,6 +11230,7 @@ def _ensure_negativacao_historico_table(cursor):
         """
         CREATE TABLE IF NOT EXISTS negativacao_historico (
             id BIGINT PRIMARY KEY AUTO_INCREMENT,
+            id_arquivo_gm BIGINT NULL DEFAULT NULL,
             id_contrato BIGINT NOT NULL,
             id_parcela BIGINT NULL,
             numero_parcela INT NULL,
@@ -11235,15 +11241,53 @@ def _ensure_negativacao_historico_table(cursor):
             status_snapshot VARCHAR(64) NULL,
             detalhe TEXT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            KEY idx_neg_hist_arquivo_gm (id_arquivo_gm),
             KEY idx_neg_hist_contrato (id_contrato),
             KEY idx_neg_hist_parcela (id_parcela),
             KEY idx_neg_hist_data (data_evento),
             KEY idx_neg_hist_tipo (tipo_evento),
             CONSTRAINT fk_neg_hist_contrato FOREIGN KEY (id_contrato)
-                REFERENCES contrato(id) ON DELETE CASCADE
+                REFERENCES contrato(id) ON DELETE CASCADE,
+            CONSTRAINT fk_neg_hist_arquivo_gm FOREIGN KEY (id_arquivo_gm)
+                REFERENCES arquivos_gm(id_arquivo_gm) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """
     )
+    _ensure_negativacao_historico_id_arquivo_gm_column(cursor)
+
+
+def _ensure_negativacao_historico_id_arquivo_gm_column(cursor):
+    """Adiciona `id_arquivo_gm` em `negativacao_historico` quando a tabela ja existia sem a coluna."""
+    try:
+        cursor.execute(
+            "SELECT COUNT(*) AS c FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'negativacao_historico' "
+            "AND COLUMN_NAME = 'id_arquivo_gm'"
+        )
+        row = cursor.fetchone()
+        cnt = int(row['c'] if isinstance(row, dict) else (row[0] if row else 0))
+        if cnt == 0:
+            cursor.execute(
+                "ALTER TABLE negativacao_historico "
+                "ADD COLUMN id_arquivo_gm BIGINT NULL DEFAULT NULL AFTER id"
+            )
+            try:
+                cursor.execute(
+                    "ALTER TABLE negativacao_historico "
+                    "ADD KEY idx_neg_hist_arquivo_gm (id_arquivo_gm)"
+                )
+            except Exception:
+                pass
+            try:
+                cursor.execute(
+                    "ALTER TABLE negativacao_historico "
+                    "ADD CONSTRAINT fk_neg_hist_arquivo_gm FOREIGN KEY (id_arquivo_gm) "
+                    "REFERENCES arquivos_gm(id_arquivo_gm) ON DELETE SET NULL"
+                )
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 def _insert_negativacao_historico(
@@ -11257,6 +11301,7 @@ def _insert_negativacao_historico(
     dias_atraso=None,
     status_snapshot=None,
     detalhe=None,
+    id_arquivo_gm=None,
 ):
     """Insere um evento no histórico (sem deduplicação — quem chama decide)."""
     if data_evento is None:
@@ -11265,11 +11310,12 @@ def _insert_negativacao_historico(
     cursor.execute(
         """
         INSERT INTO negativacao_historico (
-            id_contrato, id_parcela, numero_parcela, tipo_evento, data_evento,
+            id_arquivo_gm, id_contrato, id_parcela, numero_parcela, tipo_evento, data_evento,
             id_funcionario, dias_atraso, status_snapshot, detalhe
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
+            id_arquivo_gm,
             id_contrato,
             id_parcela,
             numero_parcela,
@@ -11985,7 +12031,7 @@ def _negativacao_listagem_fetch_positivacao_rows(
         return []
 
     where = [
-        "h.tipo_evento IN ('removido_pagamento','removido_manual')",
+        "h.tipo_evento IN ('removido_pagamento','removido_manual','positivado_tracker')",
         date_sql,
     ]
     params = list(date_params)
@@ -12028,7 +12074,9 @@ def _negativacao_listagem_fetch_positivacao_rows(
         where.append('h.status_snapshot = %s')
         params.append(status_ativo)
     if ev == 'removido_pagamento':
-        where.append("h.tipo_evento = 'removido_pagamento'")
+        where.append("h.tipo_evento IN ('removido_pagamento','positivado_tracker')")
+    elif ev == 'positivado_tracker':
+        where.append("h.tipo_evento = 'positivado_tracker'")
     elif ev == 'removido_manual':
         where.append("h.tipo_evento = 'removido_manual'")
 
@@ -12121,11 +12169,11 @@ def _split_negativacao_ativos_prioridade(rows):
 
 
 def _split_negativacao_ativos_negativados_positivados(rows):
-    """Carteira Negativação: negativados (sem evento removido_* na linha) vs positivados (removido_*)."""
+    """Carteira Negativação: negativados (sem evento removido_* / positivado_tracker na linha) vs positivados."""
     negativados, positivados = [], []
     for r in rows:
         t = str((r.get('tipo_evento') or '')).strip().lower()
-        if t.startswith('removido'):
+        if t.startswith('removido') or t == 'positivado_tracker':
             positivados.append(r)
         else:
             negativados.append(r)
@@ -12211,14 +12259,14 @@ def _negativacao_listagem_payload_interno(
 
     if evento not in ('', 'todos', 'all'):
         if apenas_cobranca:
-            if evento in ('positivado', 'observacao', 'removido_pagamento', 'removido_manual'):
+            if evento in ('positivado', 'observacao', 'removido_pagamento', 'removido_manual', 'positivado_tracker'):
                 where_at.append('1=0')
             elif evento == 'negativado_tracker':
                 where_at.append("n.status = 'registrado_tracker'")
             elif evento == 'negativado_manual':
                 where_at.append("n.status IN ('enviado', 'falhou')")
         else:
-            if evento in ('positivado', 'observacao', 'removido_pagamento', 'removido_manual'):
+            if evento in ('positivado', 'observacao', 'removido_pagamento', 'removido_manual', 'positivado_tracker'):
                 where_at.append('1=0')
             elif evento == 'negativado_tracker':
                 where_at.append("n.status = 'registrado_tracker'")
