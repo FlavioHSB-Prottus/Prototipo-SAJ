@@ -154,7 +154,7 @@ document.addEventListener('DOMContentLoaded', function () {
             negativado_manual: 'Negativado (manual)',
             negativado_tracker: 'Negativado (automatico)',
             removido_pagamento: 'Positivacao (pagamento)',
-            positivado_tracker: 'Positivacao (tracker)',
+            positivado_tracker: 'Positivado (automático)',
             removido_manual: 'Positivacao (manual)',
             observacao: 'Observacao',
             negativacao_retorno: 'Retorno PEFIN (negativacao)',
@@ -222,7 +222,7 @@ document.addEventListener('DOMContentLoaded', function () {
             negativado_manual: 'Negativado manual',
             negativado_tracker: 'Negativado (tracker)',
             removido_pagamento: 'Positivacao (pagamento)',
-            positivado_tracker: 'Positivacao (tracker)',
+            positivado_tracker: 'Positivado (automático)',
             removido_manual: 'Positivacao (manual)'
         };
         return m[ev] || ev;

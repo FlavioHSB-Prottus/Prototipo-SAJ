@@ -125,7 +125,7 @@
             negativado_manual: 'Negativado (manual)',
             negativado_tracker: 'Negativado (automático)',
             removido_pagamento: 'Positivação (pagamento)',
-            positivado_tracker: 'Positivação (tracker)',
+            positivado_tracker: 'Positivado (automático)',
             removido_manual: 'Positivação (manual)',
             negativacao_retorno: 'Retorno SERASA (negativação)',
             positivacao_retorno: 'Retorno SERASA (positivação)',
@@ -302,10 +302,9 @@
                 var rot = negativacaoTipoLabel(ev.tipo_evento);
                 var extra = '';
                 if (ev.funcionario_nome) extra += ' · Operador: ' + esc(ev.funcionario_nome);
-                // removido_pagamento / positivado_tracker: detalhe ja inclui parcela e vencimento.
+                // removido_pagamento: detalhe costuma ja trazer contexto da parcela; demais tipos alinham sufixo.
                 if (ev.numero_parcela != null && ev.numero_parcela !== '' &&
-                        String(ev.tipo_evento || '') !== 'removido_pagamento' &&
-                        String(ev.tipo_evento || '') !== 'positivado_tracker') {
+                        String(ev.tipo_evento || '') !== 'removido_pagamento') {
                     extra += ' · Parcela nº ' + esc(ev.numero_parcela);
                 }
                 if (row.emVigor) {
