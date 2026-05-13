@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""SERASA-CONVEM layout: fixed 600-char lines, CRLF (negativacao/inclusao e positivacao/exclusao).
+"""SERASA-CONVEM layout: fixed 600-char lines, CRLF (negativacao/inclusao 1I e positivacao/exclusao 1E).
 
 Examples under TXT Negativacao e Positivacao/. Generic PROREDE manual uses 256 chars; CONVEM samples use 600.
 
@@ -265,7 +265,9 @@ def montar_arquivo_txt(
 ) -> tuple[bytes, str]:
     """Build file bytes (latin-1, CRLF) and suggested filename.
 
-    modo: inclusao (negativacao, detail lines) or exclusao (positivacao, header+trailer only per GM sample).
+    modo: inclusao (negativacao, linhas **1I**, motivo 00) ou exclusao (positivacao, linhas **1E**,
+    motivo 02), ambos com cabecalho + detalhes 600 chars + rodape, alinhado ao legado PHP
+    ``sistema.geracao.arquivo.negativacao.serasa.php``.
 
     Env:
       SERASA_CONV_TEMPLATE_DIR - folder with SERASA_GM_*4912*.TXT and *4910*.TXT
@@ -337,10 +339,28 @@ def montar_arquivo_txt(
             seq += 1
         out_lines.append(montar_linha_trailer(seq))
     else:
+        if not linhas_detalhe_payload:
+            raise ValueError('exclusao requires at least one parcel row.')
         h = patch_header_data_remessa(hdr_exc, ymd)
         h = patch_header_identificacao(h, ident_e)
         out_lines.append(h)
-        out_lines.append(montar_linha_trailer(2))
+        seq = 2
+        for i, payload in enumerate(linhas_detalhe_payload, start=1):
+            pl = dict(payload)
+            cod_linha = pl.pop('codigo_credor', None) or cod_cred
+            pl.setdefault('tipo_operacao_ie', 'E')
+            out_lines.append(
+                montar_linha_detalhe_inclusao(
+                    seq_linha_arquivo=seq,
+                    seq_interno6=i,
+                    cx=cx,
+                    zeros40=z40,
+                    codigo_credor=cod_linha,
+                    **pl,
+                )
+            )
+            seq += 1
+        out_lines.append(montar_linha_trailer(seq))
 
     body = '\r\n'.join(out_lines) + '\r\n'
     # Nome do ficheiro para o operador (layout interno segue inclusao/exclusao SERASA-CONVEM).

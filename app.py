@@ -4704,16 +4704,9 @@ def _negativacao_serasa_erro_elegibilidade_txt(tipo, ids, por_parcela):
                     '(negativar: apenas tracker ou falha de envio).'
                 )
     else:
-        for ip in ids:
-            st = por_parcela.get(ip)
-            if st is None:
-                continue
-            if st == _NEG_STATUS_AGUARDANDO_POS_SERASA:
-                continue
-            return (
-                'Uma ou mais parcelas nao estao elegiveis '
-                '(positivar: sem cadastro ativo ou apenas aguardando envio Serasa).'
-            )
+        # Positivar: a listagem (Carteira) pode incluir eventos de historico sem linha activa em
+        # `negativacao` (ex.: positivado_tracker apaga o registo). A UI filtra com rowCarteiraBulkPositivar.
+        pass
     return None
 
 
@@ -4725,18 +4718,36 @@ def _negativacao_date_only_sql(val):
     return val
 
 
-def _negativacao_fetch_serasa_inclusao_payloads(cursor, ids_ordered):
-    """Monta lista de dicts para ``montar_linha_detalhe_inclusao`` na ordem de ``ids_ordered``."""
+def _negativacao_fetch_serasa_inclusao_payloads(cursor, ids_ordered, *, inner_negativacao=True):
+    """Monta lista de dicts para ``montar_linha_detalhe_inclusao`` na ordem de ``ids_ordered``.
+
+    ``inner_negativacao`` (negativar): exige linha activa em ``negativacao``. Para positivar (TXT
+    exclusao), usa ``LEFT JOIN`` e data de referencia a partir do historico quando o registo activo
+    ja nao existe (ex.: positivado_tracker).
+    """
     if not ids_ordered:
         return []
     ph = ','.join(['%s'] * len(ids_ordered))
     field_ord = ','.join(['%s'] * len(ids_ordered))
+    if inner_negativacao:
+        neg_join = 'INNER JOIN negativacao n ON n.id_parcela = p.id'
+        data_neg_sql = 'n.data_negativacao AS data_negativacao'
+    else:
+        neg_join = 'LEFT JOIN negativacao n ON n.id_parcela = p.id'
+        data_neg_sql = (
+            'COALESCE('
+            'n.data_negativacao,'
+            '(SELECT MAX(nh.data_evento) FROM negativacao_historico nh '
+            'WHERE nh.id_parcela = p.id '
+            "AND nh.tipo_evento IN ('negativado_manual','negativado_tracker'))"
+            ') AS data_negativacao'
+        )
     cursor.execute(
         f"""
         SELECT
           p.id AS id_parcela,
           p.vencimento,
-          n.data_negativacao,
+          {data_neg_sql},
           dev.cpf_cnpj,
           dev.nome_completo,
           dev.data_nascimento,
@@ -4756,8 +4767,8 @@ def _negativacao_fetch_serasa_inclusao_payloads(cursor, ids_ordered):
           ) AS nome_credor
         FROM parcela p
         INNER JOIN contrato c ON c.id = p.id_contrato
-        INNER JOIN pessoa dev ON dev.id = c.id_pessoa
-        INNER JOIN negativacao n ON n.id_parcela = p.id
+        LEFT JOIN pessoa dev ON dev.id = c.id_pessoa
+        {neg_join}
         LEFT JOIN endereco e ON e.id = (
           SELECT x.id FROM endereco x
           WHERE x.id_pessoa = dev.id
@@ -12776,9 +12787,11 @@ def api_negativacao_serasa_arquivo_txt():
     """Gera ficheiro TXT SERASA-CONVEM para download.
 
     Negativar: inclusao com linhas de detalhe **1I** (motivo ``00``), layout alinhado ao legado PHP
-    (endereco 45 + bairro 20, valor em centavos, bloco ``J10`` + CNPJ/nome credor). Positivar: exclusao
-    sem linhas de detalhe (apenas cabecalho e rodape), como o modelo ``SERASA_GM_*4910*.TXT``; os
-    ``ids`` servem para validacao de elegibilidade alinhada a UI e ao mock ``positivar-lote-serasa``.
+    (endereco 45 + bairro 20, valor em centavos, bloco ``J10`` + CNPJ/nome credor). Positivar:
+    exclusao com linhas **1E** (motivo ``02``), mesma estrutura de ficheiro que
+    ``sistema.geracao.arquivo.negativacao.serasa.php`` (cabecalho + detalhes + rodape), cabecalho
+    a partir do modelo ``SERASA_GM_*4910*.TXT``. Os ``ids`` servem para validacao de elegibilidade
+    alinhada a UI e ao mock ``positivar-lote-serasa``.
     """
     if not session.get('funcionario_id'):
         return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
@@ -12804,6 +12817,8 @@ def api_negativacao_serasa_arquivo_txt():
     cursor = conn.cursor()
     try:
         _ensure_negativacao_table(cursor)
+        if tipo != 'negativar':
+            _ensure_negativacao_historico_table(cursor)
         por_parcela = _negativacao_serasa_status_por_parcela(cursor, ids)
         err_elig = _negativacao_serasa_erro_elegibilidade_txt(tipo, ids, por_parcela)
         if err_elig:
@@ -12815,16 +12830,14 @@ def api_negativacao_serasa_arquivo_txt():
             app.logger.exception('serasa_conv_txt: falha ao carregar modulo')
             return jsonify({'error': f'Modulo de layout SERASA indisponivel: {exc}'}), 500
 
-        if tipo == 'negativar':
-            linhas = _negativacao_fetch_serasa_inclusao_payloads(cursor, ids)
-            if len(linhas) != len(ids):
-                return jsonify({
-                    'error': 'Nao foi possivel obter dados de todas as parcelas para o arquivo.',
-                }), 400
-            modo = 'inclusao'
-        else:
-            modo = 'exclusao'
-            linhas = []
+        linhas = _negativacao_fetch_serasa_inclusao_payloads(
+            cursor, ids, inner_negativacao=(tipo == 'negativar')
+        )
+        if len(linhas) != len(ids):
+            return jsonify({
+                'error': 'Nao foi possivel obter dados de todas as parcelas para o arquivo.',
+            }), 400
+        modo = 'inclusao' if tipo == 'negativar' else 'exclusao'
 
         body, fname_sug = mod.montar_arquivo_txt(modo, linhas)
     except ValueError as exc:
