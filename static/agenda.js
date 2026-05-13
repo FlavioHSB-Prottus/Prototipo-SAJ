@@ -637,7 +637,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!status) return '';
         let s = String(status).toLowerCase();
         if (s === 'cobranca' || s === 'aberto' || s === 'em cobranca' || s === 'em cobrança') return 'status-active';
-        if (s === 'pago' || s === 'fechado') return 'status-success';
+        if (s === 'pago' || s === 'pago total' || s === 'pago parcial' || s === 'fechado') return 'status-success';
         if (s === 'indenizado') return 'status-warning';
         if (s === 'parcela paga') return 'status-success';
         if (s === 'parcela vencida') return 'status-danger';

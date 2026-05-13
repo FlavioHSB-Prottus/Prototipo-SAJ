@@ -78,8 +78,11 @@ DB_CONFIG = {
 }
 
 # Status em BD: contrato.status, parcela.status, ocorrencia.status; performance.ocorrencia_status.
+# ocorrencia.status (contrato no GM): quitacao por pagamento usa 'pago total' ou 'pago parcial'
+# (tracker); parcela/contrato continuam cobranca|pago|indenizado.
 _STATUS_BD_COBRANCA = 'cobranca'
 _STATUS_BD_PAGO = 'pago'
+_STATUS_OCORRENCIA_PAGO_TOTAL = 'pago total'
 _LEGACY_STATUS_CONTRATO_MAP = {'aberto': _STATUS_BD_COBRANCA, 'fechado': _STATUS_BD_PAGO}
 _STATUS_CONTRATO_VALIDOS = frozenset((_STATUS_BD_COBRANCA, _STATUS_BD_PAGO, 'indenizado'))
 
@@ -6044,7 +6047,8 @@ def _build_relatorio_query(tipo, data_inicial, data_final, prioridade=None):
     elif tipo == 'voltaram':
         where = "WHERE o.status = 'cobranca' AND o.descricao LIKE '%%contrato voltou%%'"
     elif tipo == 'pagos':
-        where = "WHERE c.status = 'pago' AND o.status = 'pago'"
+        where = "WHERE c.status = 'pago' AND o.status = %s"
+        params = [_STATUS_OCORRENCIA_PAGO_TOTAL, data_inicial, data_final]
     elif tipo == 'indenizados':
         where = "WHERE c.status = 'indenizado' AND o.status = 'indenizado'"
     elif tipo == 'pagos_parcialmente':
@@ -6603,7 +6607,10 @@ def api_dashboard():
         by_month = {r['mes']: int(r['n'] or 0) for r in cursor.fetchall()}
         return [by_month.get(m, 0) for m in all_months]
 
-    serie_pagos = _series("WHERE o.status = 'pago'", [])
+    serie_pagos = _series(
+        "WHERE o.status IN ('pago total','pago parcial')",
+        [],
+    )
     serie_indenizados = _series("WHERE o.status = 'indenizado'", [])
     # Ocorrencias (nao 1x por contrato) — alinha ao relatorio: status=aberto + LIKE
     serie_novos = _series_ocorrencias_aberto(
@@ -7912,7 +7919,7 @@ def _daily_series(cursor, d1, d2):
 
     Labels vem no formato 'dd/mm' e as 3 series sao:
       - novos       : ocorrencias com descricao 'contrato novo' (status=aberto)
-      - pagos       : ocorrencias com status='pago'
+      - pagos       : ocorrencias com status 'pago total' ou 'pago parcial' (grafico dashboard)
       - indenizados : ocorrencias com status='indenizado'
     """
     if d2 < d1:
@@ -9022,7 +9029,7 @@ _DASH_SERIES_LABELS = {
     'pagos_parcial': 'Contratos pagos parcialmente (0–90 d)',
 }
 _DASH_SERIES_WHERE = {
-    'pagos':       ("o.status = 'pago'", []),
+    'pagos':       ("o.status IN ('pago total','pago parcial')", []),
     'indenizados': ("o.status = 'indenizado'", []),
     'novos':       ("o.status = 'cobranca' AND o.descricao LIKE '%%novo%%'", []),
     'retomados':   ("o.status = 'cobranca' AND o.descricao LIKE '%%contrato voltou%%'", []),

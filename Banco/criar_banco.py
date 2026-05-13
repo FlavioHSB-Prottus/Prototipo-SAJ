@@ -552,7 +552,7 @@ CREATE TABLE `ocorrencia` (
   `descricao` varchar(255) DEFAULT '',
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  `status` enum('cobranca','pago','indenizado','parcela paga','parcela vencida','parcela indenizada') DEFAULT NULL,
+  `status` enum('cobranca','pago total','pago parcial','indenizado','parcela paga','parcela vencida','parcela indenizada') DEFAULT NULL,
   `data_arquivo` date DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `id_contrato` (`id_contrato`),
