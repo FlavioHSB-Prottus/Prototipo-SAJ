@@ -24,7 +24,8 @@ import pymysql
 from pessoa_satellite import upsert_avalista_contatos, upsert_devedor_contatos
 
 OCORRENCIA_COBRANCA = "cobranca"
-OCORRENCIA_PAGO = "pago"
+OCORRENCIA_PAGO_TOTAL = "pago total"
+OCORRENCIA_PAGO_PARCIAL = "pago parcial"
 OCORRENCIA_INDENIZADO = "indenizado"
 OCORRENCIA_PARCELA_PAGA = "parcela paga"
 OCORRENCIA_PARCELA_VENCIDA = "parcela vencida"
@@ -32,7 +33,8 @@ OCORRENCIA_PARCELA_VENCIDA = "parcela vencida"
 OCORRENCIA_STATUS = frozenset(
     {
         OCORRENCIA_COBRANCA,
-        OCORRENCIA_PAGO,
+        OCORRENCIA_PAGO_TOTAL,
+        OCORRENCIA_PAGO_PARCIAL,
         OCORRENCIA_INDENIZADO,
         OCORRENCIA_PARCELA_PAGA,
         OCORRENCIA_PARCELA_VENCIDA,
@@ -559,6 +561,64 @@ def negativacao_inserir_elegiveis_apos_gm(cursor, _conn, data_referencia, id_arq
     except Exception:
         pass
     return int(n) if n is not None else 0
+
+
+def _ensure_ocorrencia_status_enum_pago_total_parcial(cursor, conn):
+    """Se `ocorrencia.status` ainda nao inclui 'pago total'/'pago parcial', aplica migracao leve.
+
+    Evita DataError 1265 quando o script SQL manual nao foi executado. So altera `ocorrencia`.
+    """
+    try:
+        cursor.execute(
+            """
+            SELECT COLUMN_TYPE AS ct FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ocorrencia'
+              AND COLUMN_NAME = 'status'
+            LIMIT 1
+            """
+        )
+        row = cursor.fetchone()
+    except Exception:
+        return
+    if not row:
+        return
+    ct = str(
+        row.get("COLUMN_TYPE")
+        or row.get("column_type")
+        or row.get("ct")
+        or ""
+    ).lower()
+    if "pago total" in ct:
+        return
+    try:
+        cursor.execute(
+            """
+            ALTER TABLE ocorrencia
+            MODIFY COLUMN `status` ENUM(
+                'cobranca','pago','pago total','pago parcial','indenizado',
+                'parcela paga','parcela vencida','parcela indenizada'
+            ) DEFAULT NULL
+            """
+        )
+        cursor.execute(
+            "UPDATE ocorrencia SET status = 'pago total' WHERE status = 'pago'"
+        )
+        cursor.execute(
+            """
+            ALTER TABLE ocorrencia
+            MODIFY COLUMN `status` ENUM(
+                'cobranca','pago total','pago parcial','indenizado',
+                'parcela paga','parcela vencida','parcela indenizada'
+            ) DEFAULT NULL
+            """
+        )
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
 
 
 def insert_ocorrencia(cursor, id_contrato, arquivo_gm_id, status, descricao):
@@ -1136,6 +1196,7 @@ def _build_contrato_cache(cursor, keys):
 def apply_delta(cursor, conn, arquivo_gm_id,
                 prev_r1_set, prev_r2_set, prev_r2_venc,
                 curr_r1_set, curr_r2_set, curr_r2_venc):
+    _ensure_ocorrencia_status_enum_pago_total_parcial(cursor, conn)
     if prev_r1_set is None:
         print(" -> Sem arquivo anterior. Populando estado inicial absoluto (originacao)...")
 
@@ -1203,13 +1264,11 @@ def apply_delta(cursor, conn, arquivo_gm_id,
                 diff_dias = (data_arquivo_date - min_venc).days
 
         if diff_dias >= DIAS_INDENIZACAO_CONTRATO:
-            status_o = OCORRENCIA_INDENIZADO
             desc = "contrato indenizado"
             status_parc = "indenizado"
         else:
-            status_o = OCORRENCIA_PAGO
-            desc = "contrato fechado"
             status_parc = "pago"
+            desc_fechamento_total = "contrato fechado"
 
         # Quitação das parcelas do contrato que sai do arquivo (registro1).
         # Para fechamento por pagamento: mesma semântica do ramo removed_parcels/paid_parcels —
@@ -1247,8 +1306,29 @@ def apply_delta(cursor, conn, arquivo_gm_id,
                     cursor, cid, arquivo_gm_id, OCORRENCIA_PARCELA_PAGA, f"parcela {num} paga"
                 )
 
-        cursor.execute("UPDATE contrato SET status = %s WHERE id = %s", (status_o, cid))
-        insert_ocorrencia(cursor, cid, arquivo_gm_id, status_o, desc)
+        if status_parc == "indenizado":
+            cursor.execute(
+                "UPDATE contrato SET status = %s WHERE id = %s",
+                (OCORRENCIA_INDENIZADO, cid),
+            )
+            insert_ocorrencia(cursor, cid, arquivo_gm_id, OCORRENCIA_INDENIZADO, desc)
+        else:
+            cursor.execute(
+                "SELECT COUNT(*) AS cnt FROM parcela WHERE id_contrato = %s AND status = 'cobranca'",
+                (cid,),
+            )
+            row_cob = cursor.fetchone()
+            n_cobranca = int((row_cob or {}).get("cnt") or 0)
+            if n_cobranca > 0:
+                status_occ = OCORRENCIA_PAGO_PARCIAL
+                desc_occ = (
+                    "quitacao parcial (parcelas em cobranca no sistema; contrato ausente no GM)"
+                )
+            else:
+                status_occ = OCORRENCIA_PAGO_TOTAL
+                desc_occ = desc_fechamento_total
+            cursor.execute("UPDATE contrato SET status = %s WHERE id = %s", ("pago", cid))
+            insert_ocorrencia(cursor, cid, arquivo_gm_id, status_occ, desc_occ)
 
     added_contracts = curr_r1_set - prev_r1_set
     for grupo, cota in added_contracts:

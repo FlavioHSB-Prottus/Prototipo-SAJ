@@ -16,7 +16,7 @@
         if (!status) return '';
         var s = String(status).toLowerCase();
         if (s === 'cobranca' || s === 'aberto' || s === 'em cobranca' || s === 'em cobrança') return 'status-active';
-        if (s === 'pago' || s === 'fechado') return 'status-success';
+        if (s === 'pago' || s === 'pago total' || s === 'pago parcial' || s === 'fechado') return 'status-success';
         if (s === 'indenizado') return 'status-warning';
         return 'status-active';
     }

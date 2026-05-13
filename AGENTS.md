@@ -94,7 +94,8 @@ Lote na pagina de importacao (preview, POST envio, export Excel): gestor/admin, 
 
 ## 5) Tabelas e entidades chave
 
-- `contrato.status` / `parcela.status`: valores ENUM **`cobranca`**, **`pago`**, **`indenizado`** (antes `aberto`/`fechado`; migrar com `Banco/migrate_status_aberto_fechado_para_cobranca_pago.sql`). `ocorrencia.status` e `performance.ocorrencia_status` alinham os mesmos literais onde aplicável.
+- `contrato.status` / `parcela.status`: valores ENUM **`cobranca`**, **`pago`**, **`indenizado`** (antes `aberto`/`fechado`; migrar com `Banco/migrate_status_aberto_fechado_para_cobranca_pago.sql`).
+- `ocorrencia.status`: inclui **`pago total`** e **`pago parcial`** (substituem o antigo `pago` para o fecho do contrato no GM no tracker: `pago total` quando não restam parcelas em `cobranca`; `pago parcial` quando ainda existem). Migracao só em `ocorrencia`: [`Banco/migrate_ocorrencia_pago_para_total_parcial.sql`](Banco/migrate_ocorrencia_pago_para_total_parcial.sql). Demais valores: `cobranca`, `indenizado`, `parcela paga`, `parcela vencida`, `parcela indenizada`. `performance.ocorrencia_status` mantém o ENUM existente (copia `o.status` só para ocorrencias de entrada em safra, em geral `cobranca`).
 - `contrato`, `pessoa`, `parcela`, `ocorrencia`
 - `telefone`, `email`, `endereco`
 - `tramitacao`, `agenda`
