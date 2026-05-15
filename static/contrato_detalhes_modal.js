@@ -42,14 +42,7 @@
         return 'R$ ' + num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
-    /** Ordem no mesmo dia: ocorrencias de parcela antes das de contrato. */
-    function ocorrenciaOrdemParcelaContrato(o) {
-        var st = String(o.status || '').toLowerCase();
-        var desc = String(o.descricao || '').toLowerCase();
-        if (st.indexOf('parcela') !== -1) return 0;
-        if (/\bparcela\b/.test(desc)) return 0;
-        return 1;
-    }
+    var CONTRATO_PARCELAS_STATUS_TODOS = '__todos__';
 
     function calendarDayKey(val) {
         var raw = String(val || '').trim();
@@ -66,23 +59,94 @@
         return isNaN(t) ? 0 : t;
     }
 
+    /** Mais recente primeiro: dia desc, depois hora desc, depois id desc. */
     function sortOcorrenciasForTimeline(arr) {
         return arr.slice().sort(function (a, b) {
             var da = calendarDayKey(a.data_arquivo);
             var db = calendarDayKey(b.data_arquivo);
-            if (da !== db) return da < db ? -1 : da > db ? 1 : 0;
-            var oa = ocorrenciaOrdemParcelaContrato(a);
-            var ob = ocorrenciaOrdemParcelaContrato(b);
-            if (oa !== ob) return oa - ob;
+            if (da !== db) return da < db ? 1 : da > db ? -1 : 0;
             var ta = parseDataArquivoMs(a.data_arquivo);
             var tb = parseDataArquivoMs(b.data_arquivo);
-            if (ta !== tb) return ta - tb;
+            if (ta !== tb) return tb - ta;
             var ida = parseInt(a.id, 10);
             var idb = parseInt(b.id, 10);
             ida = isNaN(ida) ? 0 : ida;
             idb = isNaN(idb) ? 0 : idb;
-            return ida - idb;
+            return idb - ida;
         });
+    }
+
+    function buildParcelasSectionHtml(parcelas) {
+        if (!parcelas || !parcelas.length) return '';
+        var labelsByLower = {};
+        parcelas.forEach(function (p) {
+            var raw = (p.status != null && p.status !== '') ? String(p.status) : '-';
+            var lo = raw.toLowerCase();
+            if (!Object.prototype.hasOwnProperty.call(labelsByLower, lo)) {
+                labelsByLower[lo] = raw;
+            }
+        });
+        var lowers = Object.keys(labelsByLower);
+        lowers.sort();
+        var hasCobranca = lowers.indexOf('cobranca') !== -1;
+        var defaultVal = hasCobranca ? 'cobranca' : CONTRATO_PARCELAS_STATUS_TODOS;
+
+        var html = '';
+        html += '<div class="detail-section" data-contrato-parcelas-section="1">';
+        html += '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:10px">';
+        html += '<h3 style="margin:0"><i class="fa-solid fa-list-ol"></i> Parcelas (' + parcelas.length + ')</h3>';
+        html += '<span style="font-size:0.85rem;color:#64748b">A mostrar <strong class="js-contrato-parcelas-visible">0</strong> de <strong>' +
+            parcelas.length + '</strong></span>';
+        html += '<label style="display:inline-flex;align-items:center;gap:8px;margin-left:auto;font-size:0.88rem;color:#334155;flex-wrap:wrap">';
+        html += 'Status <select id="contratoParcelasStatusFilter" class="form-control" style="max-width:220px;display:inline-block">';
+        html += '<option value="' + esc(CONTRATO_PARCELAS_STATUS_TODOS) + '"' +
+            (defaultVal === CONTRATO_PARCELAS_STATUS_TODOS ? ' selected' : '') + '>Todos</option>';
+        lowers.forEach(function (lo) {
+            var sel = defaultVal === lo ? ' selected' : '';
+            html += '<option value="' + esc(lo) + '"' + sel + '>' + esc(labelsByLower[lo]) + '</option>';
+        });
+        html += '</select></label></div>';
+        html += '<div class="table-responsive"><table class="styled-table modal-table"><thead><tr>';
+        html += '<th>Nro</th><th>Vencimento</th><th>Valor Nominal</th><th>Multa/Juros</th><th>Valor Total</th><th>Status</th>';
+        html += '</tr></thead><tbody id="contratoParcelasTbody">';
+        parcelas.forEach(function (p) {
+            var stRaw = (p.status != null && p.status !== '') ? String(p.status) : '-';
+            var stLo = stRaw.toLowerCase();
+            var hide = defaultVal !== CONTRATO_PARCELAS_STATUS_TODOS && stLo !== defaultVal;
+            html += '<tr data-parcela-status="' + esc(stLo) + '"' + (hide ? ' style="display:none"' : '') + '>';
+            html += '<td>' + esc(p.numero_parcela) + '</td>';
+            html += '<td>' + formatDate(p.vencimento) + '</td>';
+            html += '<td>' + formatCurrency(p.valor_nominal) + '</td>';
+            html += '<td>' + formatCurrency(p.multa_juros) + '</td>';
+            html += '<td class="fw-bold">' + formatCurrency(p.valor_total) + '</td>';
+            html += '<td><span class="status-badge ' + getStatusClass(p.status) + '">' + esc(p.status || '-') + '</span></td>';
+            html += '</tr>';
+        });
+        html += '</tbody></table></div></div>';
+        return html;
+    }
+
+    function initParcelasFilter(container) {
+        if (!container || !container.querySelector) return;
+        var sel = container.querySelector('#contratoParcelasStatusFilter');
+        var tb = container.querySelector('#contratoParcelasTbody');
+        var visEl = container.querySelector('.js-contrato-parcelas-visible');
+        if (!sel || !tb) return;
+        function apply() {
+            var v = sel.value;
+            var rows = tb.querySelectorAll('tr');
+            var n = 0;
+            for (var i = 0; i < rows.length; i++) {
+                var tr = rows[i];
+                var st = tr.getAttribute('data-parcela-status') || '';
+                var show = v === CONTRATO_PARCELAS_STATUS_TODOS || st === v;
+                tr.style.display = show ? '' : 'none';
+                if (show) n += 1;
+            }
+            if (visEl) visEl.textContent = String(n);
+        }
+        sel.addEventListener('change', apply);
+        apply();
     }
 
     var _MESES_PT = [
@@ -518,21 +582,7 @@
         html += renderBemSection(data.bens);
 
         if (data.parcelas && data.parcelas.length > 0) {
-            html += '<div class="detail-section"><h3><i class="fa-solid fa-list-ol"></i> Parcelas (' + data.parcelas.length + ')</h3>';
-            html += '<div class="table-responsive"><table class="styled-table modal-table"><thead><tr>';
-            html += '<th>Nro</th><th>Vencimento</th><th>Valor Nominal</th><th>Multa/Juros</th><th>Valor Total</th><th>Status</th>';
-            html += '</tr></thead><tbody>';
-            data.parcelas.forEach(function (p) {
-                html += '<tr>';
-                html += '<td>' + esc(p.numero_parcela) + '</td>';
-                html += '<td>' + formatDate(p.vencimento) + '</td>';
-                html += '<td>' + formatCurrency(p.valor_nominal) + '</td>';
-                html += '<td>' + formatCurrency(p.multa_juros) + '</td>';
-                html += '<td class="fw-bold">' + formatCurrency(p.valor_total) + '</td>';
-                html += '<td><span class="status-badge ' + getStatusClass(p.status) + '">' + esc(p.status || '-') + '</span></td>';
-                html += '</tr>';
-            });
-            html += '</tbody></table></div></div>';
+            html += buildParcelasSectionHtml(data.parcelas);
         }
 
         if (data.ocorrencias && data.ocorrencias.length > 0) {
@@ -550,6 +600,8 @@
             : '';
 
         modalContent.innerHTML = html;
+
+        initParcelasFilter(modalContent);
 
         if (typeof TramitacoesDetalhe !== 'undefined') {
             TramitacoesDetalhe.attachModal(modalContent, c.id, {
@@ -620,6 +672,8 @@
         close: closeModal,
         buildOcorrenciasTimelineHtml: buildOcorrenciasTimelineHtml,
         buildNegativacaoSectionHtml: buildNegativacaoSectionHtml,
+        buildParcelasSectionHtml: buildParcelasSectionHtml,
+        initParcelasFilter: initParcelasFilter,
     };
 
     document.addEventListener('DOMContentLoaded', bindModalUiOnce);
