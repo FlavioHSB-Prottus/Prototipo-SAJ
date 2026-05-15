@@ -1,0 +1,147 @@
+/* Importacao GM em segundo plano — bolha + painel (todas as paginas exceto /importacao) */
+
+#sajImportBgRoot {
+    position: fixed;
+    right: 22px;
+    bottom: 22px;
+    z-index: 10050;
+    font-family: Inter, system-ui, sans-serif;
+}
+
+#sajImportBgBubble {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    color: #fff;
+    box-shadow: 0 8px 24px rgba(37, 99, 235, 0.45);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    border: none;
+    padding: 0;
+    line-height: 1.1;
+}
+
+#sajImportBgBubble:hover {
+    filter: brightness(1.06);
+}
+
+#sajImportBgPct {
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+#sajImportBgLbl {
+    font-size: 0.55rem;
+    opacity: 0.9;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+#sajImportBgOverlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    z-index: 10051;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+
+#sajImportBgOverlay.saj-ib-open {
+    display: flex;
+}
+
+#sajImportBgCard {
+    background: #fff;
+    border-radius: 12px;
+    max-width: 720px;
+    width: 100%;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+}
+
+#sajImportBgCardHead {
+    padding: 14px 18px;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+#sajImportBgCardHead h3 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #0f172a;
+}
+
+#sajImportBgCloseX {
+    border: none;
+    background: transparent;
+    font-size: 1.4rem;
+    line-height: 1;
+    cursor: pointer;
+    color: #64748b;
+}
+
+#sajImportBgLog {
+    flex: 1;
+    overflow: auto;
+    padding: 12px 16px;
+    font-family: ui-monospace, monospace;
+    font-size: 0.78rem;
+    background: #0f172a;
+    color: #e2e8f0;
+    min-height: 200px;
+    max-height: 48vh;
+}
+
+#sajImportBgLog .log-line {
+    margin: 0 0 4px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+#sajImportBgLog .log-alert { color: #fca5a5; }
+#sajImportBgLog .log-success { color: #86efac; }
+#sajImportBgLog .log-update { color: #93c5fd; }
+#sajImportBgLog .log-info { color: #cbd5e1; }
+
+#sajImportBgActions {
+    padding: 12px 16px 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: flex-end;
+    border-top: 1px solid #e5e7eb;
+}
+
+#sajImportBgActions button {
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 0.875rem;
+    cursor: pointer;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #334155;
+}
+
+#sajImportBgActions .saj-ib-primary {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #fff;
+}
+
+#sajImportBgActions .saj-ib-danger {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: #991b1b;
+}

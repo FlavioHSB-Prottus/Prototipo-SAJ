@@ -11,6 +11,8 @@
 
     <link rel="stylesheet" href="{{ url_for('static', filename='home.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='busca.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='importacao_background.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='sessao_idle.css') }}">
     <style>
         #globalPvInsertModal .modal-container { width: 96vw; max-width: 980px; }
         #globalPvInsertModal .modal-body { overflow-x: hidden; max-height: 72vh; }
@@ -330,6 +332,19 @@
         </div>
     </div>
 
+    <div id="sessaoIdleOverlay" class="sessao-idle-overlay-root" aria-hidden="true">
+        <div id="sessaoIdleCard" role="dialog" aria-modal="true" aria-labelledby="sessaoIdleTitle">
+            <h2 id="sessaoIdleTitle">Olá! Você ainda está por aí?</h2>
+            <p>Verificamos que você está inativo há 50 minutos.</p>
+            <p>Por motivos de segurança, se não houver nenhuma interação com o sistema, seu usuário será deslogado em:</p>
+            <div id="sessaoIdleCountdown" aria-live="polite">10:00</div>
+            <div id="sessaoIdleActions">
+                <button type="button" id="sessaoIdleBtnPresente">Ainda estou aqui!</button>
+                <button type="button" id="sessaoIdleBtnSair">Não estou mais usando, pode deslogar meu usuário do sistema.</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Script para lógica de UI global -->
     <script src="{{ url_for('static', filename='home.js') }}"></script>
     <script src="{{ url_for('static', filename='avisos.js') }}"></script>
@@ -343,6 +358,8 @@
     <script src="{{ url_for('static', filename='whatsapp_sender.js') }}"></script>
     <script src="{{ url_for('static', filename='sms_messagecenter.js') }}"></script>
     <script src="{{ url_for('static', filename='email_html_busca.js') }}"></script>
+    <script src="{{ url_for('static', filename='importacao_background.js') }}"></script>
+    <script src="{{ url_for('static', filename='sessao_idle.js') }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 

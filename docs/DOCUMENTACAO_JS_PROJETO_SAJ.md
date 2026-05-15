@@ -1,6 +1,6 @@
 # Documentacao JavaScript - Prototipo SAJ
 
-Este documento lista **todos os ficheiros `.js` em `static/`** (28 no estado atual do repo), como carregam nos **templates**, que **APIs Flask** chamam e que **outros scripts** assumem como dependencia. Complementa **`docs/DOCUMENTACAO_PYTHON_PROJETO_SAJ.md`** (lado servidor).
+Este documento lista **todos os ficheiros `.js` em `static/`** (30 no estado atual do repo), como carregam nos **templates**, que **APIs Flask** chamam e que **outros scripts** assumem como dependencia. Complementa **`docs/DOCUMENTACAO_PYTHON_PROJETO_SAJ.md`** (lado servidor).
 
 **Convencao:** quase tudo e **vanilla JS** (sem bundler). Ordem de `<script>` em `templates/layout.html` importa: bibliotecas globais (`tramitacoes_detail`, `contrato_detalhes_modal`, ...) antes das paginas que as invocam.
 
@@ -10,7 +10,7 @@ Este documento lista **todos os ficheiros `.js` em `static/`** (28 no estado atu
 
 ## 1. Onde os scripts entram (mapa rapido)
 
-**Em todas as paginas autenticadas** (`templates/layout.html`, antes de `{% block scripts %}`): `home.js`, `avisos.js`, `notificacoes.js`, `tramitacoes_detail.js`, `contrato_campos.js`, `contrato_detalhes_modal.js`, `pasta_virtual_insert_global.js`, `contato_add_global.js`, `discador.js`, `whatsapp_sender.js`, `sms_messagecenter.js`, `email_html_busca.js`.
+**Em todas as paginas autenticadas** (`templates/layout.html`, antes de `{% block scripts %}`): `home.js`, `avisos.js`, `notificacoes.js`, `tramitacoes_detail.js`, `contrato_campos.js`, `contrato_detalhes_modal.js`, `pasta_virtual_insert_global.js`, `contato_add_global.js`, `discador.js`, `whatsapp_sender.js`, `sms_messagecenter.js`, `email_html_busca.js`, `importacao_background.js`, `sessao_idle.js`. **CSS global no layout:** `importacao_background.css`, `sessao_idle.css`.
 
 **So em paginas especificas** (bloco `scripts` de cada template): ver secao 3.
 
@@ -34,6 +34,8 @@ layout (global)
   whatsapp_sender.js -> POST /api/enviar-whatsapp
   sms_messagecenter.js -> POST /api/enviar-sms
   email_html_busca.js -> POST /api/enviar-email-html
+  importacao_background.js -> bolha GM + painel log (polling/SSE), sessionStorage, beforeunload so ao fechar separador
+  sessao_idle.js -> aviso 50 min + 10 min, POST /api/sessao/atividade
 
 Paginas
   busca.js / cobranca.js / ... -> montam modal #detalhesModal e chamam TramitacoesDetalhe + ContratoDetalhesModal
@@ -44,7 +46,7 @@ Paginas
 
 ---
 
-## 3. Inventario por ficheiro (28 em `static/`)
+## 3. Inventario por ficheiro (30 em `static/`)
 
 Para cada ficheiro: **papel**, **APIs** (quando aplicavel), **HTML / globals**, **paginas**.
 
@@ -102,7 +104,15 @@ Header: relogio, data, dropdown perfil, tema, selector empresa (`/api/sessao/emp
 
 ### `static/importacao.js`
 
-Upload multiplo/pasta, POST **`/api/upload`**, SSE **`/api/processar`** (EventSource ou fetch stream), painel distribuicao `/api/importacao/distribuicao`, transferencias, SMS/e-mail automaticos (preview GET, POST, Excel GET), negativacao/positivacao Excel, aprovar distribuicao. **Template:** `importacao.html`.
+Upload multiplo/pasta, POST **`/api/upload`**. **Processamento:** apos upload, **`POST /api/importacao/background/start`** com JSON `{ temp_dir }` inicia job no servidor; o log na pagina usa **`EventSource`** em **`GET /api/importacao/background/<job_id>/stream?from=0`** (mesmo formato de eventos que o SSE classico). Em conflito (409) reaproveita `job_id` devolvido. **`sessionStorage`:** `saj_import_bg_job_id`, `saj_import_bg_active` (`'1'` enquanto corre); eventos `saj-import-bg-started` / `saj-import-bg-ended`; **`resumeImportJobIfAny()`** no `DOMContentLoaded` reabre painel/SSE ao voltar a `/importacao`. Painel distribuicao: **`/api/importacao/distribuicao`**, transferencias, SMS/e-mail automaticos (preview, POST, Excel), negativacao/positivacao Excel, aprovar. O endpoint legado **`GET /api/processar?dir=...`** (SSE sem thread) continua disponivel para o mesmo pipeline, mas o fluxo normal da pagina e o modo background. **Template:** `importacao.html`.
+
+### `static/importacao_background.js`
+
+IIFE global (layout). **Bolha** fixa com percentagem de progresso em **todas** as rotas **excepto** `/importacao` (onde o log completo fica no modulo). **Polling** `GET .../state` a cada ~900 ms quando ha `sessionStorage.saj_import_bg_active === '1'` e `saj_import_bg_job_id`; **nao** apaga `sessionStorage` em erro HTTP generico — apenas em **`running: false`** com sucesso ou **`404`** (job inexistente). **Painel:** `GET .../snapshot` para renderizar log; botoes Fechar, Ir para importacao (marca navegacao interna antes de `location`), Cancelar (`POST .../cancel`). **`beforeunload`:** aviso de perda de importacao **so** quando o utilizador fecha o separador/janela — navegacao interna same-origin e marcada em **captura** (`click` em `<a href>`, `submit` de formularios) com flag `internalNavigation`; **`window.__sajMarkInternalNavigationForImport`** exposto para `location.href` programatico (notificacoes, tutoriais, sessao idle logout, relatorios export, importacao neg-pos). **Template:** global.
+
+### `static/sessao_idle.js`
+
+IIFE global (layout). Inatividade: **50 min** sem eventos (`mousedown`, `keydown`, `scroll`, `touchstart`, `click`); modal com contagem **10 min**; botoes **Ainda estou aqui** (renova timers + **`POST /api/sessao/atividade`** com throttle ~2 min) e **Nao estou mais usando...** (redirect `/logout` apos chamar `__sajMarkInternalNavigationForImport` se existir). Enquanto o modal esta aberto, **so** esses botoes renovam a sessao (cliques na pagina por tras nao reiniciam o grace period). Ver documentacao Python para `_idle_last` no servidor. **Template:** global.
 
 ### `static/negativacao.js`
 
@@ -114,7 +124,7 @@ Listagem negativacao: `/api/negativacao/listagem`, Excel, envio SERASA, positiva
 
 ### `static/notificacoes.js`
 
-Dropdown do sininho: GET **`/api/notificacoes`**, marcar lida **`/api/notificacoes/lida`**, modal "todas" **`/api/notificacoes/todas`**. Tipos: aviso, agenda, mensagem, solicitacao, protocolo. **Template:** global.
+Dropdown do sininho: GET **`/api/notificacoes`**, marcar lida **`/api/notificacoes/lida`**, modal "todas" **`/api/notificacoes/todas`**. Tipos: aviso, agenda, mensagem, solicitacao, protocolo. Em **`irPara`**, antes de `window.location.href`, chama **`window.__sajMarkInternalNavigationForImport`** (se definido) para nao disparar o `beforeunload` da importacao em segundo plano ao seguir links "Ir". **Template:** global.
 
 ### `static/operadores.js`
 
@@ -144,7 +154,7 @@ Performance JB: GET **`/api/performance?mes=YYYY-MM`** (JSON do painel: safras, 
 
 ### `static/relatorios.js`
 
-Filtros relatorio, `/api/relatorios`, export excel/pdf URLs, ordenacao, modal detalhe; opcional e-mail em lote (`RELATORIOS_EMAIL_MASSA`, `/api/relatorios/email-lote`). **Template:** `relatorios.html`.
+Filtros relatorio, `/api/relatorios`, export excel/pdf por **`window.location.href`** para URLs da API (antes chama **`__sajMarkInternalNavigationForImport`** para nao confundir com fecho de separador durante importacao GM). Ordenacao, modal detalhe; opcional e-mail em lote (`RELATORIOS_EMAIL_MASSA`, `/api/relatorios/email-lote`). **Template:** `relatorios.html`.
 
 ### `static/solicitacao_moderacao.js`
 
@@ -160,7 +170,7 @@ Delegacao **`.btn-mensagem`**: prompt ou SMS auto contrato, POST **`/api/enviar-
 
 ### `static/tutoriais.js`
 
-Array `TUTORIAIS` (conteudo pedagogico), UI de passos por modulo, link para rotas. **Template:** `home.html` apenas.
+Array `TUTORIAIS` (conteudo pedagogico), UI de passos por modulo; botao "Ir para modulo" usa **`__sajMarkInternalNavigationForImport`** antes de `window.location.href`. **Template:** `home.html` apenas.
 
 ### `static/whatsapp_sender.js`
 
@@ -192,7 +202,7 @@ Delegacao **`.btn-whatsapp`**: POST **`/api/enviar-whatsapp`**. Mensagem automat
 
 ## 5. APIs HTTP mais tocadas pelo frontend (referencia cruzada)
 
-Nao e lista exaustiva do `app.py`; e o conjunto que aparece com mais frequencia nos JS acima: `/api/busca`, `/api/contrato/<id>`, `/api/pessoa/<id>`, `/api/cobranca`, `/api/dashboard`, `/api/performance`, **`/api/performance/panel_contratos`**, **`/api/performance/export/<formato>`**, `/api/relatorios`, `/api/importacao/*`, `/api/negativacao/*`, `/api/automacao/*`, `/api/enviar-*`, `/api/discar`, `/api/agenda`, `/api/pasta-virtual*`, `/api/avisos`, `/api/notificacoes*`, `/api/solicitacao*`, `/api/admin/funcionario`, `/api/consorciados`, `/api/avalistas`, `/api/operadores/dashboard`.
+Nao e lista exaustiva do `app.py`; e o conjunto que aparece com mais frequencia nos JS acima: `/api/busca`, `/api/contrato/<id>`, `/api/pessoa/<id>`, `/api/cobranca`, `/api/dashboard`, `/api/performance`, **`/api/performance/panel_contratos`**, **`/api/performance/export/<formato>`**, `/api/relatorios`, `/api/importacao/*`, **`/api/importacao/background/start`**, **`/api/importacao/background/<job_id>/stream`**, **`.../snapshot`**, **`.../state`**, **`.../cancel`**, **`POST /api/sessao/atividade`**, `/api/negativacao/*`, `/api/automacao/*`, `/api/enviar-*`, `/api/discar`, `/api/agenda`, `/api/pasta-virtual*`, `/api/avisos`, `/api/notificacoes*`, `/api/solicitacao*`, `/api/admin/funcionario`, `/api/consorciados`, `/api/avalistas`, `/api/operadores/dashboard`, `/api/upload`, `/api/processar` (SSE legado).
 
 Detalhe de contratos e SQL ficam em `DOCUMENTACAO_PYTHON_PROJETO_SAJ.md`.
 
@@ -202,6 +212,8 @@ Detalhe de contratos e SQL ficam em `DOCUMENTACAO_PYTHON_PROJETO_SAJ.md`.
 
 O `README.md` assinala **duplicacao** da funcao `renderContratoModal` (e HTML associado) entre `busca.js`, `cobranca.js`, `agenda.js`, etc. Qualquer alteracao visual no modal de contrato pode exigir tocar em varios ficheiros ate haver unificacao.
 
+**Importacao GM em segundo plano:** novos `window.location.href = '...'` same-origin (sem clique num `<a>`) devem chamar **`window.__sajMarkInternalNavigationForImport()`** antes da atribuicao, para o aviso `beforeunload` nao aparecer ao navegar dentro da app com importacao activa (ver `importacao_background.js` e exemplos em `notificacoes.js`, `relatorios.js`, `sessao_idle.js`, `tutoriais.js`, `importacao.js`).
+
 ---
 
 ## 7. Seguranca no cliente (lembrete)
@@ -210,4 +222,4 @@ Tokens de integracao **nao** devem ser introduzidos em JS para novas features; o
 
 ---
 
-*Ver tambem: `docs/DOCUMENTACAO_PYTHON_PROJETO_SAJ.md`. Estado do repositorio: 28 scripts em `static/`.*
+*Ver tambem: `docs/DOCUMENTACAO_PYTHON_PROJETO_SAJ.md`. Estado do repositorio: 30 scripts em `static/`.*

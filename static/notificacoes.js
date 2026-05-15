@@ -47,6 +47,9 @@
 
     function irPara(tipo, refId) {
         const id = encodeURIComponent(String(refId));
+        if (window.__sajMarkInternalNavigationForImport) {
+            window.__sajMarkInternalNavigationForImport();
+        }
         if (tipo === "agenda") {
             window.location.href = "/agenda?notif_id=" + id;
             return;

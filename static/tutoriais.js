@@ -590,6 +590,9 @@ const TUTORIAIS = [
                 )
                 .join("");
             detailGoBtn.onclick = () => {
+                if (window.__sajMarkInternalNavigationForImport) {
+                    window.__sajMarkInternalNavigationForImport();
+                }
                 window.location.href = t.rota;
             };
             detailGoBtn.innerHTML = `Ir para ${t.nome} <i class="fa-solid fa-arrow-right"></i>`;
