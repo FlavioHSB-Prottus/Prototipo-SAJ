@@ -18,9 +18,6 @@ Thumbs.db
 *.tmp
 /tmp/
 
-# Base local de TXT GM (historico) — NUNCA commitar/push; so existe no disco do desenvolvedor
-ARQUIVO GM/
-
 # Residuos de extracao / SO
 .odt_content_extract.xml
 **/desktop.ini
