@@ -2,14 +2,12 @@
 
 Sistema centralizado para gestão e cobrança de consórcios: importação de arquivos GM, carteira, negativação, relatórios e cadastros. Use o menu lateral para navegar entre os módulos.
 
-## Metodologia e padrões
+## Metodologia e padroes
 
-- Documento original: `Metodologia - Joao Barbosa.odt` (raiz).
-- **Versão adaptada** ao stack Python/Flask/MySQL deste repo: [`docs/METODOLOGIA-JOAO-BARBOSA.md`](docs/METODOLOGIA-JOAO-BARBOSA.md).
-- **Visão técnica dos ficheiros Python**: [`docs/DOCUMENTACAO_PYTHON_PROJETO_SAJ.md`](docs/DOCUMENTACAO_PYTHON_PROJETO_SAJ.md).
-- **Visão técnica dos ficheiros JavaScript** (`static/`): [`docs/DOCUMENTACAO_JS_PROJETO_SAJ.md`](docs/DOCUMENTACAO_JS_PROJETO_SAJ.md).
-- Regras para o agente no Cursor: `.cursor/rules/metodologia-joao-barbosa.mdc`.
-- Contexto persistente do agente: [`AGENTS.md`](AGENTS.md).
+- **Metodologia obrigatoria (texto completo):** [`.cursor/rules/metodologia-joao-barbosa.mdc`](.cursor/rules/metodologia-joao-barbosa.mdc) — regras de engenharia e processo; **nao** podem ser descumpridas em alteracoes ao projeto.
+- **Produto e negocio:** [`AGENTS.md`](AGENTS.md).
+- **Documentacao tecnica (modulos, APIs, fluxos):** [`docs/DOCUMENTACAO_PYTHON_PROJETO_SAJ.md`](docs/DOCUMENTACAO_PYTHON_PROJETO_SAJ.md), [`docs/DOCUMENTACAO_JS_PROJETO_SAJ.md`](docs/DOCUMENTACAO_JS_PROJETO_SAJ.md).
+- **Referencias (PDFs, SERASA, PHP legado):** [`docs/referencias/README.md`](docs/referencias/README.md).
 
 ## Configuração e segredos
 
@@ -17,19 +15,22 @@ Sistema centralizado para gestão e cobrança de consórcios: importação de ar
 2. Variáveis **`DB_*`** alinham o Flask aos scripts em `Python/` (`DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`; opcional `DB_PORT`).
 3. **`FLASK_SECRET_KEY`** para sessão em produção.
 4. Opcional: **`DISCADOR_URL`**, **`DISCADOR_USUARIO`**, **`DISCADOR_TOKEN`** — API de discagem (botão Ligar nos telefones; ver `.env.example`). O ramal de origem vem do cadastro do funcionário logado (`funcionario.ramal`).
-5. Sem arquivo `.env`, o aplicativo usa os **mesmos padrões de desenvolvimento** de antes (`localhost`, usuário `root`, etc.).
+5. **E-mail Google Workspace (só lote automático na página Importação):** `GOOGLE_SMTP_*` em `.env`; implementação em [`Python/google_workspace_smtp.py`](Python/google_workspace_smtp.py) (carregado por `app.py`).
+6. Sem arquivo `.env`, o aplicativo usa os **mesmos padrões de desenvolvimento** de antes (`localhost`, usuário `root`, etc.).
 
 ## Layout do repositório
 
 | Caminho | Função |
 |---------|--------|
 | `app.py` | Aplicação Flask (rotas, APIs e regras de negócio). Monólito intencional neste protótipo. |
+| `Python/google_workspace_smtp.py` | SMTP opcional Google Workspace para e-mails automáticos da **Importação** (quando `GOOGLE_SMTP_*` está definido). |
 | `templates/` | Páginas HTML (estendem `layout.html`). |
 | `static/` | CSS e JS por módulo (`cobranca.js`, `busca.js`, …) + assets compartilhados (`contrato_detalhes_modal.js`, `tramitacoes_detail.js`). |
-| `Python/` | Scripts chamados por subprocess a partir do app: tracker GM, importação, distribuição de cobrança. Depende de `Python/layout.json` e `pessoa_satellite.py`. |
+| `Python/` | Scripts GM (subprocesso), SERASA, distribuição, performance, **SMTP Google** (`google_workspace_smtp.py`). Modelos TXT SERASA em `Python/serasa_templates/`. |
 | `Banco/` | Scripts auxiliares de criação/seed do MySQL (uso manual ou deploy). |
-| `docs/` | Metodologia, [documentação Python](docs/DOCUMENTACAO_PYTHON_PROJETO_SAJ.md), [documentação JS](docs/DOCUMENTACAO_JS_PROJETO_SAJ.md), etc. |
-| `docs/conversa-agentes/` | Exportações antigas de conversas com agentes (não usadas em runtime). |
+| `docs/` | Documentacao tecnica (`DOCUMENTACAO_*`), [`docs/referencias/`](docs/referencias/) (PDFs, amostras SERASA, PHP legado como referencia). |
+
+**`ARQUIVO GM/` (local, obrigatório na tua máquina):** é a tua **base de ficheiros TXT GM** (histórico/arquivo morto). **Não é** o destino do upload da aplicação (a importação na web usa pastas temporárias via `/api/upload`). **Não deve ser commitada nem enviada ao remoto** — está em `.gitignore` para só existir no teu disco e nunca “subir” no `git push`.
 
 Renomear ou mover `templates/` ou `static/` exige ajustar `url_for`, `render_template` e tags `<script>`/`href` em todo o projeto.
 

@@ -21,6 +21,7 @@ Sistema web para gestao de cobranca de consorcios, com foco em:
 
 ## 3) Convencoes criticas (sempre aplicar)
 
+- Metodologia de engenharia **obrigatoria** para agentes e desenvolvimento: `.cursor/rules/metodologia-joao-barbosa.mdc` (sempre aplicar; nao descumprir).
 - Nao commitar segredos (`.env`, tokens, credenciais).
 - Usar variaveis de ambiente: `DB_*`, opcional `MYSQL_*`, `FLASK_SECRET_KEY`.
 - Mudancas pequenas e legiveis; evitar refactor amplo sem pedido explicito.
@@ -74,7 +75,7 @@ Lote na pagina de importacao (preview, POST envio, export Excel): gestor/admin, 
 
 **Disparo (pontos fixos):** envio/preview apenas quando essa diferenca e **exactamente** **0, 16, 31, 61 ou 85** dias (sem faixas).
 
-**Canais:** para cada contrato elegivel, o POST pode enviar **SMS**, **e-mail** ou **ambos** via JSON opcional `{"canais":["sms"]}`, `["email"]` ou `["sms","email"]` (padrao: ambos). SMS via MessageCenter `enviarsms`. **E-mail na pagina Importacao** (`usar_smtp_google=True`): se `GOOGLE_SMTP_USER` e `GOOGLE_SMTP_PASSWORD` estiverem definidos (`smtp.py`), **SMTP Google Workspace**; senao **MessageCenter** `EnviarEmailHtml`. **E-mail na Cobrança** e restantes fluxos que usam `_auto_envio_contrato_canais`: sempre MessageCenter. **Mesmo texto** (`_mensagem_sms_auto_importacao` → HTML + parte texto opcional no SMTP).
+**Canais:** para cada contrato elegivel, o POST pode enviar **SMS**, **e-mail** ou **ambos** via JSON opcional `{"canais":["sms"]}`, `["email"]` ou `["sms","email"]` (padrao: ambos). SMS via MessageCenter `enviarsms`. **E-mail na pagina Importacao** (`usar_smtp_google=True`): se `GOOGLE_SMTP_USER` e `GOOGLE_SMTP_PASSWORD` estiverem definidos (`Python/google_workspace_smtp.py`), **SMTP Google Workspace**; senao **MessageCenter** `EnviarEmailHtml`. **E-mail na Cobrança** e restantes fluxos que usam `_auto_envio_contrato_canais`: sempre MessageCenter. **Mesmo texto** (`_mensagem_sms_auto_importacao` → HTML + parte texto opcional no SMTP).
 
 **Preview (modal):** `_sms_automatizados_analise` usa `_SMS_AUTOM_PREVIEW_ROTEIRO_SQL` — mesmo critério que `_SMS_AUTOM_EXCEL_SQL` (lista exportável) — mais contagens em memória de telefone/e-mail e lotes para `envio hoje`. No JSON, `sms_previstos` / `emails_previstos` contam **contratos** com pelo menos um contacto válido no canal (alinha ao Excel); `sms_mensagens_previstas` / `email_mensagens_previstas` contam **mensagens** (um SMS por número válido, um e-mail por endereço válido), como o POST. `contratos_previstos_algum_canal` = contratos com SMS ou e-mail previsto. O POST em lote continua a iterar `_SMS_AUTOM_DISTRIBUICAO_SQL` e `_resolve_ids_registro_*` por tentativa.
 

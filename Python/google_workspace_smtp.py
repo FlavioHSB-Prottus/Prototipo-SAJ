@@ -1,6 +1,7 @@
 """Envio de e-mail via SMTP do Google Workspace (Gmail smtp.gmail.com, STARTTLS).
 
-Credenciais via ambiente (não commitar valores reais):
+Usado pelo Flask em ``app.py`` (lote automatico da pagina Importacao quando
+``GOOGLE_SMTP_*`` esta definido). Credenciais via ambiente (nao commitar valores reais):
   GOOGLE_SMTP_USER, GOOGLE_SMTP_PASSWORD (senha de app)
 Opcionais: GOOGLE_SMTP_HOST (default smtp.gmail.com), GOOGLE_SMTP_PORT (587),
            GOOGLE_SMTP_FROM (default = GOOGLE_SMTP_USER)

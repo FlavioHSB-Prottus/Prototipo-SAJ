@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """SERASA-CONVEM layout: fixed 600-char lines, CRLF (negativacao/inclusao 1I e positivacao/exclusao 1E).
 
-Examples under TXT Negativacao e Positivacao/. Generic PROREDE manual uses 256 chars; CONVEM samples use 600.
+Default templates: ``Python/serasa_templates/`` (SERASA_GM_*4912*.TXT / *4910*.TXT). Manual PROREDE (PDF) em ``docs/referencias/serasa/pdf/``. Layout CONVEM: 600 chars por linha.
 
 Optional env vars: see montar_arquivo_txt docstring.
 """
@@ -112,7 +112,7 @@ def _montar_j10_bloco_credor_51(
     nome_razao37: str | None,
     codigo_credor: str,
 ) -> str:
-    """51 caracteres: CNPJ 14 + nome credor 37 (como sistema.geracao.arquivo.negativacao.serasa.php)."""
+    """51 caracteres: CNPJ 14 + nome credor 37 (como o legado PHP em docs/referencias/legacy-php/)."""
     cod = _fit_num_digits(codigo_credor, 4)[-4:]
     if cod == '5015':
         cnpj_d = _fit_num_digits(cnpj14, 14) if cnpj14 else '61074175000138'
@@ -266,8 +266,8 @@ def montar_arquivo_txt(
     """Build file bytes (latin-1, CRLF) and suggested filename.
 
     modo: inclusao (negativacao, linhas **1I**, motivo 00) ou exclusao (positivacao, linhas **1E**,
-    motivo 02), ambos com cabecalho + detalhes 600 chars + rodape, alinhado ao legado PHP
-    ``sistema.geracao.arquivo.negativacao.serasa.php``.
+    motivo 02), ambos com cabecalho + detalhes 600 chars + rodape,     alinhado ao legado PHP em
+    ``docs/referencias/legacy-php/sistema.geracao.arquivo.negativacao.serasa.php``.
 
     Env:
       SERASA_CONV_TEMPLATE_DIR - folder with SERASA_GM_*4912*.TXT and *4910*.TXT
@@ -280,9 +280,9 @@ def montar_arquivo_txt(
     if modo not in ('inclusao', 'exclusao'):
         raise ValueError('modo must be inclusao or exclusao')
 
-    root = Path(__file__).resolve().parent.parent
+    py_dir = Path(__file__).resolve().parent
     tdir = template_dir or Path(
-        os.environ.get('SERASA_CONV_TEMPLATE_DIR') or (root / 'TXT Negativacao e Positivacao')
+        os.environ.get('SERASA_CONV_TEMPLATE_DIR') or (py_dir / 'serasa_templates')
     )
 
     glob4912 = sorted(tdir.glob('SERASA_GM_*4912*.TXT'))

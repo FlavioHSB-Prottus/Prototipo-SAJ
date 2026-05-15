@@ -54,7 +54,7 @@ Popular `relacao_contrato_operador` (Excel SAJ) separadamente:
     python3 Banco/popular_relacao_operadores_saj.py
 
 Documentação do projeto (metodologia, segurança, convenções):
-    docs/METODOLOGIA-JOAO-BARBOSA.md na raiz do repositório.
+    .cursor/rules/metodologia-joao-barbosa.mdc.
 """
 import os
 import re

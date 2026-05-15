@@ -10,7 +10,7 @@ Uso:
 Ambiente: DB_HOST, DB_USER, DB_PASSWORD, DB_NAME (igual app.py e outros scripts).
 
 Documentacao do projeto:
-    docs/METODOLOGIA-JOAO-BARBOSA.md na raiz do repositorio.
+    .cursor/rules/metodologia-joao-barbosa.mdc.
 """
 from __future__ import annotations
 

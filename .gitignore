@@ -13,7 +13,11 @@ venv/
 .DS_Store
 Thumbs.db
 
-# Logs / tempor�rios
+# Logs / temporarios
 *.log
 *.tmp
 /tmp/
+
+# Residuos de extracao / SO
+.odt_content_extract.xml
+**/desktop.ini

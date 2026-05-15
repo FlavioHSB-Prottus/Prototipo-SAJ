@@ -3,7 +3,7 @@
 Criação / atualização do schema MySQL (SQL embutido em RAW_SQL).
 
 Documentação do projeto (metodologia, segurança, convenções):
-    docs/METODOLOGIA-JOAO-BARBOSA.md na raiz do repositório.
+    .cursor/rules/metodologia-joao-barbosa.mdc.
 """
 import argparse
 import os

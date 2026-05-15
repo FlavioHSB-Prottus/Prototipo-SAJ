@@ -8,7 +8,7 @@ Uso (na raiz do projeto):
     python Python/tracker_gm_range_date_contratos.py
 
 Documentação do projeto (metodologia, segurança, convenções):
-    docs/METODOLOGIA-JOAO-BARBOSA.md na raiz do repositório.
+    .cursor/rules/metodologia-joao-barbosa.mdc.
 """
 import datetime
 import json
