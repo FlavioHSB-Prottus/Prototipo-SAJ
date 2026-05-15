@@ -546,25 +546,12 @@ document.addEventListener('DOMContentLoaded', function () {
         html += renderBemSection(data.bens);
 
         // Parcelas
-        if (data.parcelas && data.parcelas.length > 0) {
-            html += '<div class="detail-section"><h3><i class="fa-solid fa-list-ol"></i> Parcelas (' + data.parcelas.length + ')</h3>';
-            html += '<div class="table-responsive"><table class="styled-table modal-table"><thead><tr>';
-            html += '<th>Nro</th><th>Vencimento</th><th>Valor Nominal</th><th>Multa/Juros</th><th>Valor Total</th><th>Status</th>';
-            html += '</tr></thead><tbody>';
-            data.parcelas.forEach(function (p) {
-                html += '<tr>';
-                html += '<td>' + esc(p.numero_parcela) + '</td>';
-                html += '<td>' + formatDate(p.vencimento) + '</td>';
-                html += '<td>' + formatCurrency(p.valor_nominal) + '</td>';
-                html += '<td>' + formatCurrency(p.multa_juros) + '</td>';
-                html += '<td class="fw-bold">' + formatCurrency(p.valor_total) + '</td>';
-                html += '<td><span class="status-badge ' + getStatusClass(p.status) + '">' + esc(p.status || '-') + '</span></td>';
-                html += '</tr>';
-            });
-            html += '</tbody></table></div></div>';
+        if (data.parcelas && data.parcelas.length > 0 && window.ContratoDetalhesModal &&
+                typeof window.ContratoDetalhesModal.buildParcelasSectionHtml === 'function') {
+            html += window.ContratoDetalhesModal.buildParcelasSectionHtml(data.parcelas);
         }
 
-        // Ocorrencias (ordem cronológica, cabeçalhos por mês, parcelas antes de contrato no mesmo dia)
+        // Ocorrencias (timeline: mais recente primeiro; ver ContratoDetalhesModal)
         if (data.ocorrencias && data.ocorrencias.length > 0 && window.ContratoDetalhesModal && typeof window.ContratoDetalhesModal.buildOcorrenciasTimelineHtml === 'function') {
             html += window.ContratoDetalhesModal.buildOcorrenciasTimelineHtml(data.ocorrencias);
         }
@@ -582,6 +569,10 @@ document.addEventListener('DOMContentLoaded', function () {
             : '';
 
         modalContent.innerHTML = html;
+
+        if (window.ContratoDetalhesModal && typeof window.ContratoDetalhesModal.initParcelasFilter === 'function') {
+            window.ContratoDetalhesModal.initParcelasFilter(modalContent);
+        }
 
         if (_fromPessoa) {
             var backBtn = modalContent.querySelector('.btn-voltar-pessoa');
