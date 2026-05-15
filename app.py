@@ -13,12 +13,15 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
+import uuid
 import importlib.util
 
 import pymysql
 import requests
 from pymysql.err import IntegrityError, OperationalError
-from flask import Flask, Response, render_template, request, redirect, url_for, jsonify, send_file, session, flash, abort
+from flask import Flask, Response, render_template, request, redirect, url_for, jsonify, send_file, session, flash, abort, stream_with_context
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
@@ -104,6 +107,50 @@ DB_CONFIG = {
     'database': os.environ.get('DB_NAME', os.environ.get('MYSQL_DATABASE', 'consorcio_gm')),
     'charset': 'utf8mb4',
 }
+
+# Inatividade: tempo maximo (segundos) sem renovar `session['_idle_last']` antes de encerrar a sessao.
+_SESSION_IDLE_MAX_SEC = int(os.environ.get('SESSION_IDLE_MAX_SEC', '3600'))
+
+
+def _request_skips_idle_touch():
+    """Pedidos automaticos que nao devem renovar a marca de actividade da sessao."""
+    p = request.path or ''
+    if p.startswith('/api/importacao/background/'):
+        return True
+    if p == '/api/notificacoes':
+        return True
+    return False
+
+
+def _session_idle_expired_response():
+    """Limpa a sessao e devolve resposta adequada (API vs pagina)."""
+    session.clear()
+    if request.path.startswith('/api/'):
+        return jsonify(
+            {'error': 'Sessão encerrada por inatividade.', 'sessao_expirada': True}
+        ), 401
+    flash('Sua sessão expirou por inatividade. Faça login novamente.', 'message')
+    return redirect(url_for('login'))
+
+
+def _enforce_and_touch_session_idle():
+    """Se autenticado: expira sessao apos inactividade; actualiza `_idle_last` quando aplicavel."""
+    if not session.get('funcionario_id'):
+        return None
+    now = time.time()
+    raw = session.get('_idle_last')
+    if raw is not None:
+        try:
+            last = float(raw)
+        except (TypeError, ValueError):
+            last = None
+        if last is not None and (now - last) > _SESSION_IDLE_MAX_SEC:
+            return _session_idle_expired_response()
+    if not _request_skips_idle_touch():
+        session['_idle_last'] = now
+        session.modified = True
+    return None
+
 
 # Status em BD: contrato.status, parcela.status, ocorrencia.status; performance.ocorrencia_status.
 # ocorrencia.status (contrato no GM): quitacao por pagamento usa 'pago total' ou 'pago parcial'
@@ -224,6 +271,18 @@ def _cobranca_html_ok(path):
         '/mensagem',
     )
     return any(path.startswith(p) for p in prefixes)
+
+
+@app.before_request
+def _session_idle_and_touch():
+    """Expira sessao por inactividade e renova `_idle_last` antes dos outros before_request."""
+    if request.endpoint is None:
+        return None
+    if request.endpoint in ('login', 'static', 'recuperar_senha', 'logout'):
+        return None
+    if not session.get('funcionario_id'):
+        return None
+    return _enforce_and_touch_session_idle()
 
 
 @app.before_request
@@ -368,6 +427,8 @@ def _enforce_empresa_escopo_bradesco_gm():
     # Troca de empresa no servidor
     if path.startswith('/api/sessao/empresa'):
         return None
+    if path.startswith('/api/sessao/atividade'):
+        return None
     if not _bradesco_contexto_gm_restrito():
         return None
     if _path_ok_bradesco_em_gm(path):
@@ -394,6 +455,8 @@ def _enforce_bradesco_contexto_sem_modulos():
         return None
 
     if path.startswith('/api/sessao/empresa'):
+        return None
+    if path.startswith('/api/sessao/atividade'):
         return None
     if path.startswith('/api/funcionario/perfil'):
         return None
@@ -556,6 +619,8 @@ def login():
             session['empresa_ativa'] = 'Bradesco'
         else:
             session['empresa_ativa'] = fe
+        session['_idle_last'] = time.time()
+        session.modified = True
         return redirect(url_for('home'))
 
     if session.get('funcionario_id'):
@@ -591,6 +656,14 @@ def api_sessao_empresa():
     session['empresa_ativa'] = nova
     session.modified = True
     return jsonify({'ok': True, 'empresa_ativa': nova})
+
+
+@app.route('/api/sessao/atividade', methods=['POST'])
+def api_sessao_atividade():
+    """Marca uso humano no servidor (renova `_idle_last` via before_request)."""
+    if not session.get('funcionario_id'):
+        return jsonify({'error': 'Não autenticado.'}), 401
+    return jsonify({'ok': True})
 
 
 @app.route('/minha-foto', methods=['GET', 'POST'])
@@ -673,11 +746,11 @@ def _require_login():
     public = {'login', 'static', 'recuperar_senha', 'logout'}
     if request.endpoint in public:
         return None
-    if session.get('funcionario_id'):
-        return None
-    if request.path.startswith('/api/'):
-        return jsonify({'error': 'Não autenticado'}), 401
-    return redirect(url_for('login'))
+    if not session.get('funcionario_id'):
+        if request.path.startswith('/api/'):
+            return jsonify({'error': 'Não autenticado'}), 401
+        return redirect(url_for('login'))
+    return None
 
 @app.route('/home', methods=['GET', 'POST'])
 def home():
@@ -1339,9 +1412,67 @@ def _sse_event(data_dict):
     return f"data: {json.dumps(data_dict, ensure_ascii=False)}\n\n"
 
 
+_import_pipeline_events_fn = None
+_import_jobs = {}
+_import_job_lock = threading.Lock()
+
+
+def _get_iter_importacao_events():
+    """Carrega ``Python/importacao_pipeline_events.py`` uma vez (iter_importacao_events)."""
+    global _import_pipeline_events_fn
+    if _import_pipeline_events_fn is None:
+        path = os.path.join(PYTHON_DIR, 'importacao_pipeline_events.py')
+        spec = importlib.util.spec_from_file_location('importacao_pipeline_events', path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f'Nao foi possivel carregar {path}')
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _import_pipeline_events_fn = mod.iter_importacao_events
+    return _import_pipeline_events_fn
+
+
+def _importacao_background_worker(job_id, temp_dir, funcionario_id):
+    """Executa o pipeline num thread daemon e grava eventos em ``_import_jobs``."""
+    it_fn = _get_iter_importacao_events()
+    job = _import_jobs.get(job_id)
+    if not job:
+        return
+    try:
+        for ev in it_fn(
+            temp_dir,
+            job,
+            python_dir=PYTHON_DIR,
+            python_exe=PYTHON_EXE,
+            subprocess_env=_SUBPROCESS_ENV,
+            popen_extra=_POPEN_EXTRA,
+            schema_pronto=_schema_pronto_para_importacao,
+            classify_log=_classify_log_level,
+        ):
+            with _import_job_lock:
+                job['events'].append(ev)
+                if ev.get('type') == 'progress':
+                    job['progress'] = int(ev.get('value') or 0)
+                elif ev.get('type') == 'status':
+                    job['status_text'] = (ev.get('text') or '')[:500]
+                if len(job['events']) > 4500:
+                    job['events'] = job['events'][-3500:]
+                if ev.get('type') in ('done', 'error'):
+                    job['result'] = ev
+                    break
+    except Exception as exc:
+        app.logger.exception('importacao background worker')
+        with _import_job_lock:
+            job['events'].append({'type': 'log', 'level': 'alert', 'text': str(exc)})
+            job['events'].append({'type': 'error', 'text': str(exc)})
+    finally:
+        with _import_job_lock:
+            job['running'] = False
+            job['active_proc'] = None
+
+
 @app.route('/api/processar')
 def api_processar():
-    """Endpoint SSE que executa os 2 scripts em sequencia, streamando stdout."""
+    """Endpoint SSE que executa as fases de importacao, streamando stdout."""
     temp_dir = request.args.get('dir', '')
     if not temp_dir or not os.path.isdir(temp_dir):
         def err():
@@ -1349,191 +1480,173 @@ def api_processar():
         return Response(err(), mimetype='text/event-stream')
 
     def generate():
-        # ------------------------------------------------------------------
-        # Pre-check: banco com tabelas (evita 11x o mesmo ERRO 1146 no log)
-        # ------------------------------------------------------------------
-        ok_schema, err_schema = _schema_pronto_para_importacao()
-        if not ok_schema:
-            yield _sse_event(
-                {'type': 'log', 'level': 'alert', 'text': err_schema}
-            )
-            yield _sse_event(
-                {
-                    'type': 'status',
-                    'text': 'Importacao nao iniciada: crie o schema do banco primeiro.',
-                }
-            )
-            yield _sse_event({'type': 'progress', 'value': 0})
-            yield _sse_event(
-                {
-                    'type': 'done',
-                    'summary': err_schema,
-                    'distribuicao_ready': False,
-                    'schema_error': True,
-                }
-            )
-            return
-
-        # ------------------------------------------------------------------
-        # FASE 1: Importacao bruta (import_only_arquivos_gm.py)
-        # ------------------------------------------------------------------
-        yield _sse_event({'type': 'status', 'text': 'Fase 1/2 - Importando Arquivos para o Banco...'})
-        yield _sse_event({'type': 'progress', 'value': 5})
-
-        script1 = os.path.join(PYTHON_DIR, 'import_only_arquivos_gm.py')
-        proc1 = subprocess.Popen(
-            [PYTHON_EXE, '-u', script1, temp_dir],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding='utf-8',
-            errors='replace',
-            env=_SUBPROCESS_ENV,
-            **_POPEN_EXTRA,
-        )
-
-        total_files = sum(
-            1
-            for root, _dirs, files in os.walk(temp_dir)
-            for f in files
-            if f.lower().endswith('.txt')
-        )
-        imported_count = 0
-
-        for line in iter(proc1.stdout.readline, ''):
-            line = line.rstrip('\n\r')
-            if not line:
-                continue
-            level = _classify_log_level(line)
-            yield _sse_event({'type': 'log', 'level': level, 'text': line})
-
-            if 'importado com sucesso' in line.lower():
-                imported_count += 1
-                progress = 5 + int((imported_count / max(total_files, 1)) * 40)
-                yield _sse_event({'type': 'progress', 'value': min(progress, 45)})
-
-        proc1.wait()
-        yield _sse_event({'type': 'progress', 'value': 48})
-
-        if proc1.returncode and proc1.returncode != 0:
-            yield _sse_event({'type': 'log', 'level': 'alert', 'text': f'Script de importacao finalizou com codigo {proc1.returncode}'})
-
-        # ------------------------------------------------------------------
-        # FASE 2: Tracker (tracker_gm_range_date_contratos.py)
-        # ------------------------------------------------------------------
-        yield _sse_event({'type': 'status', 'text': 'Fase 2/2 - Processando Contratos e Rastreando Deltas...'})
-        yield _sse_event({'type': 'progress', 'value': 50})
-
-        all_dates = []
-        for root, _dirs, files in os.walk(temp_dir):
-            for fname in files:
-                if not fname.lower().endswith('.txt'):
-                    continue
-                fpath = os.path.join(root, fname)
-                try:
-                    with open(fpath, 'r', encoding='latin1') as fh:
-                        header = fh.readline().replace('\r', '').replace('\n', '')
-                    if not header.startswith('H') or len(header) < 73:
-                        continue
-                    ts = header[65:73]
-                    if not ts.isdigit() or len(ts) != 8:
-                        continue
-                    all_dates.append(f"{ts[0:4]}-{ts[4:6]}-{ts[6:8]}")
-                except Exception:
-                    continue
-
-        if not all_dates:
-            yield _sse_event({'type': 'log', 'level': 'alert', 'text': 'Nenhuma data valida encontrada nos arquivos importados.'})
-            yield _sse_event({'type': 'progress', 'value': 100})
-            yield _sse_event({'type': 'done', 'summary': f'{imported_count} arquivos importados. Nenhuma data para tracker.'})
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            return
-
-        start_date = min(all_dates)
-        end_date = max(all_dates)
-
-        yield _sse_event({'type': 'log', 'level': 'info', 'text': f'Range de datas detectado: {start_date} ate {end_date}'})
-
-        script2 = os.path.join(PYTHON_DIR, 'tracker_gm_range_date_contratos.py')
-        proc2 = subprocess.Popen(
-            [PYTHON_EXE, '-u', script2],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding='utf-8',
-            errors='replace',
-            env=_SUBPROCESS_ENV,
-            **_POPEN_EXTRA,
-        )
-
-        proc2.stdin.write(start_date + '\n')
-        proc2.stdin.write(end_date + '\n')
-        proc2.stdin.flush()
-        proc2.stdin.close()
-
-        line_count = 0
-        for line in iter(proc2.stdout.readline, ''):
-            line = line.rstrip('\n\r')
-            if not line:
-                continue
-            level = _classify_log_level(line)
-            yield _sse_event({'type': 'log', 'level': level, 'text': line})
-
-            line_count += 1
-            progress = 50 + min(int(line_count * 2), 40)
-            yield _sse_event({'type': 'progress', 'value': min(progress, 92)})
-
-        proc2.wait()
-
-        if proc2.returncode and proc2.returncode != 0:
-            yield _sse_event({'type': 'log', 'level': 'alert', 'text': f'Script tracker finalizou com codigo {proc2.returncode}'})
-
-        # ------------------------------------------------------------------
-        # FASE 3: Distribuicao de funcionarios de cobranca
-        # ------------------------------------------------------------------
-        yield _sse_event({'type': 'status', 'text': 'Fase 3/3 - Distribuindo contratos entre os funcionarios de cobranca...'})
-        yield _sse_event({'type': 'progress', 'value': 96})
-
-        script3 = os.path.join(PYTHON_DIR, 'distribuir_funcionarios_cobranca.py')
-        proc3 = subprocess.Popen(
-            [PYTHON_EXE, '-u', script3],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding='utf-8',
-            errors='replace',
-            env=_SUBPROCESS_ENV,
-            **_POPEN_EXTRA,
-        )
-
-        for line in iter(proc3.stdout.readline, ''):
-            line = line.rstrip('\n\r')
-            if not line:
-                continue
-            level = _classify_log_level(line)
-            yield _sse_event({'type': 'log', 'level': level, 'text': line})
-
-        proc3.wait()
-        distribuicao_ok = (proc3.returncode == 0)
-
-        if not distribuicao_ok:
-            yield _sse_event({'type': 'log', 'level': 'alert', 'text': f'Script de distribuicao finalizou com codigo {proc3.returncode}'})
-
-        # ------------------------------------------------------------------
-        # Limpeza e finalizacao
-        # ------------------------------------------------------------------
-        shutil.rmtree(temp_dir, ignore_errors=True)
-
-        yield _sse_event({'type': 'progress', 'value': 100})
-        yield _sse_event({'type': 'status', 'text': 'Processamento Concluido com Sucesso!'})
-        yield _sse_event({
-            'type': 'done',
-            'summary': f'{imported_count} arquivos importados e processados.',
-            'distribuicao_ready': distribuicao_ok,
-        })
+        it_fn = _get_iter_importacao_events()
+        for ev in it_fn(
+            temp_dir,
+            None,
+            python_dir=PYTHON_DIR,
+            python_exe=PYTHON_EXE,
+            subprocess_env=_SUBPROCESS_ENV,
+            popen_extra=_POPEN_EXTRA,
+            schema_pronto=_schema_pronto_para_importacao,
+            classify_log=_classify_log_level,
+        ):
+            yield _sse_event(ev)
 
     return Response(generate(), mimetype='text/event-stream')
+
+
+@app.route('/api/importacao/background/start', methods=['POST'])
+def api_importacao_background_start():
+    """Inicia importacao GM em thread no servidor; retorna ``job_id`` para SSE/polling."""
+    if not session.get('funcionario_id'):
+        return jsonify({'error': 'Nao autenticado.'}), 401
+    payload = request.get_json(silent=True) or {}
+    raw = (payload.get('temp_dir') or '').strip()
+    temp_dir = _validate_incoming_temp_dir(raw)
+    if not temp_dir:
+        return jsonify({'error': 'Pasta temporaria invalida ou expirada.'}), 400
+
+    fid = session.get('funcionario_id')
+    with _import_job_lock:
+        existing = None
+        for jid, j in _import_jobs.items():
+            if j.get('funcionario_id') == fid and j.get('running'):
+                existing = jid
+                break
+        if existing:
+            return jsonify(
+                {
+                    'error': 'Ja existe uma importacao em andamento para sua sessao.',
+                    'job_id': existing,
+                }
+            ), 409
+        stale = [k for k, v in list(_import_jobs.items()) if v.get('funcionario_id') == fid and not v.get('running')]
+        for k in stale[:8]:
+            _import_jobs.pop(k, None)
+
+    job_id = uuid.uuid4().hex
+    job = {
+        'funcionario_id': fid,
+        'temp_dir': temp_dir,
+        'running': True,
+        'cancel_requested': False,
+        'active_proc': None,
+        'events': [],
+        'progress': 0,
+        'status_text': '',
+        'result': None,
+    }
+    with _import_job_lock:
+        _import_jobs[job_id] = job
+
+    th = threading.Thread(
+        target=_importacao_background_worker,
+        args=(job_id, temp_dir, fid),
+        daemon=True,
+    )
+    th.start()
+    return jsonify({'job_id': job_id})
+
+
+@app.route('/api/importacao/background/<job_id>/stream')
+def api_importacao_background_stream(job_id):
+    """SSE: eventos da importacao em background (parametro ``from`` = indice inicial)."""
+    if not session.get('funcionario_id'):
+        def err401():
+            yield _sse_event({'type': 'error', 'text': 'Nao autenticado.'})
+        return Response(err401(), mimetype='text/event-stream')
+
+    with _import_job_lock:
+        job = _import_jobs.get(job_id)
+    if not job or str(job.get('funcionario_id')) != str(session.get('funcionario_id')):
+        def err403():
+            yield _sse_event({'type': 'error', 'text': 'Importacao nao encontrada ou sem permissao.'})
+        return Response(err403(), mimetype='text/event-stream')
+
+    try:
+        start_idx = max(0, int(request.args.get('from') or 0))
+    except (TypeError, ValueError):
+        start_idx = 0
+
+    def gen():
+        last = start_idx
+        while True:
+            with _import_job_lock:
+                evs = list(job['events'])
+                running = job['running']
+            while last < len(evs):
+                ev = evs[last]
+                yield _sse_event(ev)
+                if ev.get('type') in ('done', 'error'):
+                    return
+                last += 1
+            if not running and last >= len(evs):
+                # Cliente ligou com from=len(evs) (ex.: job acabou entre snapshot e EventSource).
+                if start_idx >= len(evs) and len(evs) > 0:
+                    term = evs[-1]
+                    if term.get('type') in ('done', 'error'):
+                        yield _sse_event(term)
+                return
+            time.sleep(0.12)
+
+    return Response(stream_with_context(gen()), mimetype='text/event-stream')
+
+
+@app.route('/api/importacao/background/<job_id>/snapshot')
+def api_importacao_background_snapshot(job_id):
+    """JSON: fila de eventos ate ao momento (para reabrir log)."""
+    if not session.get('funcionario_id'):
+        return jsonify({'error': 'Nao autenticado.'}), 401
+    with _import_job_lock:
+        job = _import_jobs.get(job_id)
+    if not job or str(job.get('funcionario_id')) != str(session.get('funcionario_id')):
+        return jsonify({'error': 'Importacao nao encontrada.'}), 404
+    return jsonify(
+        {
+            'events': job['events'],
+            'progress': job['progress'],
+            'status_text': job['status_text'],
+            'running': job['running'],
+        }
+    )
+
+
+@app.route('/api/importacao/background/<job_id>/state')
+def api_importacao_background_state(job_id):
+    """JSON leve para bolha de progresso (polling)."""
+    if not session.get('funcionario_id'):
+        return jsonify({'error': 'Nao autenticado.'}), 401
+    with _import_job_lock:
+        job = _import_jobs.get(job_id)
+    if not job or str(job.get('funcionario_id')) != str(session.get('funcionario_id')):
+        return jsonify({'error': 'Importacao nao encontrada.'}), 404
+    return jsonify(
+        {
+            'progress': job['progress'],
+            'status_text': job['status_text'],
+            'running': job['running'],
+        }
+    )
+
+
+@app.route('/api/importacao/background/<job_id>/cancel', methods=['POST'])
+def api_importacao_background_cancel(job_id):
+    """Marca cancelamento e envia terminate ao subprocesso activo."""
+    if not session.get('funcionario_id'):
+        return jsonify({'error': 'Nao autenticado.'}), 401
+    with _import_job_lock:
+        job = _import_jobs.get(job_id)
+        if not job or str(job.get('funcionario_id')) != str(session.get('funcionario_id')):
+            return jsonify({'error': 'Importacao nao encontrada.'}), 404
+        job['cancel_requested'] = True
+        proc = job.get('active_proc')
+    if proc:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+    return jsonify({'ok': True})
 
 
 # ---------------------------------------------------------------------------

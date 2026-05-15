@@ -159,12 +159,18 @@ document.addEventListener('DOMContentLoaded', function () {
     // --- Exportar Excel ---
     btnExcel.addEventListener('click', function () {
         if (!validar()) return;
+        if (window.__sajMarkInternalNavigationForImport) {
+            window.__sajMarkInternalNavigationForImport();
+        }
         window.location.href = buildUrl('/api/relatorios/excel', getParams());
     });
 
     // --- Exportar PDF ---
     btnPdf.addEventListener('click', function () {
         if (!validar()) return;
+        if (window.__sajMarkInternalNavigationForImport) {
+            window.__sajMarkInternalNavigationForImport();
+        }
         window.location.href = buildUrl('/api/relatorios/pdf', getParams());
     });
 

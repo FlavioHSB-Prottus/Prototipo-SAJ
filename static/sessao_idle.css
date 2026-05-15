@@ -1,0 +1,84 @@
+/* Modal de aviso de inatividade (logout automatico apos 1h). */
+#sessaoIdleOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 11000;
+    background: rgba(15, 23, 42, 0.55);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    font-family: Inter, system-ui, sans-serif;
+}
+
+#sessaoIdleOverlay.sessao-idle-open {
+    display: flex;
+}
+
+#sessaoIdleCard {
+    background: #fff;
+    border-radius: 14px;
+    max-width: 520px;
+    width: 100%;
+    box-shadow: 0 24px 48px rgba(15, 23, 42, 0.2);
+    padding: 26px 28px 22px;
+}
+
+#sessaoIdleCard h2 {
+    margin: 0 0 12px;
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: #0f172a;
+}
+
+#sessaoIdleCard p {
+    margin: 0 0 10px;
+    font-size: 0.95rem;
+    line-height: 1.55;
+    color: #334155;
+}
+
+#sessaoIdleCountdown {
+    font-size: 1.75rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: #b45309;
+    margin: 14px 0 18px;
+    text-align: center;
+}
+
+#sessaoIdleActions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+#sessaoIdleActions button {
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    text-align: center;
+    line-height: 1.35;
+}
+
+#sessaoIdleBtnPresente {
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    color: #fff;
+}
+
+#sessaoIdleBtnPresente:hover {
+    filter: brightness(1.05);
+}
+
+#sessaoIdleBtnSair {
+    background: #f1f5f9;
+    color: #475569;
+    border: 1px solid #e2e8f0;
+}
+
+#sessaoIdleBtnSair:hover {
+    background: #e2e8f0;
+}

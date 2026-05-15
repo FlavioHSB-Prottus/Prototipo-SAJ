@@ -207,6 +207,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const UPLOAD_PHASE_CAP = 45;
 
     let highestProgress = 0;
+    let activeImportEventSource = null;
 
     function buildUploadBatches(files) {
         const batches = [];
@@ -265,6 +266,8 @@ document.addEventListener('DOMContentLoaded', () => {
     btnProcessar.addEventListener('click', async () => {
         if (selectedFiles.length === 0) return;
 
+        sessionStorage.setItem('saj_import_bg_active', '1');
+
         btnProcessar.classList.add('disabled');
         btnProcessar.setAttribute('disabled', 'true');
         btnProcessar.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Enviando arquivos...';
@@ -310,16 +313,75 @@ document.addEventListener('DOMContentLoaded', () => {
 
             btnProcessar.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Processando Lote...';
             progressStatusText.textContent = 'Upload concluido. Aguardando processamento...';
-            startSSE(tempDir);
+            try {
+                await startBackgroundJob(tempDir);
+            } catch (pe) {
+                addLog('> [ERRO] ' + pe.message, 'alert');
+                sessionStorage.removeItem('saj_import_bg_active');
+                sessionStorage.removeItem('saj_import_bg_job_id');
+                resetButton();
+            }
 
         } catch (err) {
             addLog('> [ERRO] Falha no envio: ' + err.message, 'alert');
+            sessionStorage.removeItem('saj_import_bg_active');
+            sessionStorage.removeItem('saj_import_bg_job_id');
             resetButton();
         }
     });
 
-    function startSSE(tempDir) {
-        const evtSource = new EventSource('/api/processar?dir=' + encodeURIComponent(tempDir));
+    async function startBackgroundJob(tempDir) {
+        const resp = await fetch('/api/importacao/background/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ temp_dir: tempDir }),
+        });
+        let data = {};
+        try {
+            data = await resp.json();
+        } catch {
+            data = {};
+        }
+        if (!resp.ok) {
+            if (resp.status === 409 && data.job_id) {
+                sessionStorage.setItem('saj_import_bg_job_id', data.job_id);
+                sessionStorage.setItem('saj_import_bg_active', '1');
+                window.dispatchEvent(new CustomEvent('saj-import-bg-started', { detail: { jobId: data.job_id } }));
+                startSSE(data.job_id, 0);
+                return;
+            }
+            throw new Error(data.error || ('HTTP ' + resp.status));
+        }
+        sessionStorage.setItem('saj_import_bg_job_id', data.job_id);
+        sessionStorage.setItem('saj_import_bg_active', '1');
+        window.dispatchEvent(new CustomEvent('saj-import-bg-started', { detail: { jobId: data.job_id } }));
+        startSSE(data.job_id, 0);
+    }
+
+    function clearImportSessionFlags() {
+        sessionStorage.removeItem('saj_import_bg_active');
+        sessionStorage.removeItem('saj_import_bg_job_id');
+        window.dispatchEvent(new CustomEvent('saj-import-bg-ended'));
+    }
+
+    function startSSE(jobId, fromIndex) {
+        if (activeImportEventSource) {
+            try {
+                activeImportEventSource.close();
+            } catch {
+                /* ignore */
+            }
+            activeImportEventSource = null;
+        }
+        const from = Math.max(0, parseInt(String(fromIndex), 10) || 0);
+        const evtSource = new EventSource(
+            '/api/importacao/background/'
+            + encodeURIComponent(jobId)
+            + '/stream?from='
+            + from,
+        );
+        activeImportEventSource = evtSource;
 
         evtSource.onmessage = (event) => {
             let data;
@@ -340,19 +402,30 @@ document.addEventListener('DOMContentLoaded', () => {
                     progressStatusText.textContent = data.text;
                     break;
                 case 'done':
-                    setProgress(100);
-                    progressStatusText.textContent = 'Processamento Concluído com Sucesso!';
-                    progressStatusText.style.color = '#10b981';
-                    addLog('> [SUCCESS] ' + (data.summary || 'Concluido.'), 'success');
+                    if (data.cancelled) {
+                        setProgress(Math.min(highestProgress, 99));
+                        progressStatusText.textContent = 'Importacao cancelada.';
+                        progressStatusText.style.color = '#b45309';
+                        addLog('> [INFO] ' + (data.summary || 'Cancelada.'), 'alert');
+                    } else {
+                        setProgress(100);
+                        progressStatusText.textContent = 'Processamento Concluído com Sucesso!';
+                        progressStatusText.style.color = '#10b981';
+                        addLog('> [SUCCESS] ' + (data.summary || 'Concluido.'), 'success');
+                    }
                     btnProcessar.innerHTML = '<i class="fa-solid fa-check-double"></i> Tarefa Finalizada';
                     evtSource.close();
-                    if (data.distribuicao_ready !== false) {
+                    activeImportEventSource = null;
+                    clearImportSessionFlags();
+                    if (!data.cancelled && data.distribuicao_ready !== false) {
                         loadDistribuicao(true);
                     }
                     break;
                 case 'error':
                     addLog('> [ERRO] ' + data.text, 'alert');
                     evtSource.close();
+                    activeImportEventSource = null;
+                    clearImportSessionFlags();
                     resetButton();
                     break;
             }
@@ -360,6 +433,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         evtSource.onerror = () => {
             evtSource.close();
+            activeImportEventSource = null;
         };
     }
 
@@ -1016,6 +1090,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btnTodos) {
             btnTodos.addEventListener('click', function () {
                 fecharNegPosModal();
+                if (window.__sajMarkInternalNavigationForImport) {
+                    window.__sajMarkInternalNavigationForImport();
+                }
                 window.location.href = '/negativacao?carteira=1&pesquisar=1';
             });
         }
@@ -1251,8 +1328,54 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    async function resumeImportJobIfAny() {
+        const jid = sessionStorage.getItem('saj_import_bg_job_id');
+        if (!jid) return;
+        try {
+            const r = await fetch(
+                '/api/importacao/background/' + encodeURIComponent(jid) + '/snapshot',
+                { credentials: 'same-origin' },
+            );
+            const snap = await r.json();
+            if (!r.ok || snap.error) {
+                sessionStorage.removeItem('saj_import_bg_job_id');
+                sessionStorage.removeItem('saj_import_bg_active');
+                return;
+            }
+            processingPanel.classList.remove('d-none');
+            terminalBody.innerHTML = '';
+            highestProgress = 0;
+            (snap.events || []).forEach((ev) => {
+                if (ev.type === 'log') addLog('> ' + ev.text, ev.level || 'info');
+                if (ev.type === 'progress') setProgress(ev.value);
+                if (ev.type === 'status') { progressStatusText.textContent = ev.text || ''; }
+            });
+            if (typeof snap.progress === 'number') setProgress(snap.progress);
+            if (snap.status_text) progressStatusText.textContent = snap.status_text;
+            if (snap.running) {
+                sessionStorage.setItem('saj_import_bg_active', '1');
+                btnProcessar.classList.add('disabled');
+                btnProcessar.setAttribute('disabled', 'true');
+                btnProcessar.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Processando Lote...';
+                startSSE(jid, (snap.events || []).length);
+            } else {
+                const last = (snap.events || []).slice(-1)[0];
+                sessionStorage.removeItem('saj_import_bg_job_id');
+                sessionStorage.removeItem('saj_import_bg_active');
+                window.dispatchEvent(new CustomEvent('saj-import-bg-ended'));
+                if (last && last.type === 'done' && last.distribuicao_ready !== false && !last.cancelled) {
+                    await loadDistribuicao(true);
+                }
+            }
+        } catch {
+            sessionStorage.removeItem('saj_import_bg_job_id');
+            sessionStorage.removeItem('saj_import_bg_active');
+        }
+    }
+
     // Carrega a distribuicao atual assim que a pagina abre, mostrando o
     // estado vigente da tabela funcionario_cobranca (ou o empty-state).
+    resumeImportJobIfAny();
     loadDistribuicao(false);
 
 });
