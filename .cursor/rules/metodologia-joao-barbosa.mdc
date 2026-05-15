@@ -1,13 +1,140 @@
 ---
-description: Metodologia João Barbosa (segurança, simplicidade, docs, Python/Flask/MySQL)
+description: Metodologia completa Joao Barbosa / Prottus - Prototipo-SAJ (obrigatorio)
 alwaysApply: true
 ---
 
-# Prototipo-SAJ — metodologia do projeto
+# Metodologia de desenvolvimento â€” Joao Barbosa / Prottus (Prototipo-SAJ)
 
-- **Segurança:** não commitar segredos; usar `DB_*`, `MYSQL_*`, `FLASK_SECRET_KEY` via ambiente (ver `.env.example`). Não sugerir senhas em código.
-- **Simplicidade:** mudanças mínimas e legíveis; evitar refactors amplos sem pedido explícito.
-- **Python:** PEP 8; rotas e helpers novos com docstring quando não forem óbvios.
-- **Compatibilidade:** `app.py` e scripts em `Python/` compartilham nomes `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` (e opcionalmente `MYSQL_*` no Flask).
-- **Erros:** não silenciar falhas; mensagens ao usuário claras; logs sem dados sensíveis.
-- **Documentação:** atualizar `README.md` / `docs/` quando mudar setup ou convenções.
+**Estas regras sao obrigatorias.** Nenhuma alteracao no projeto pode descumpri-las.
+
+- **Produto e regras de negocio adicionais:** `AGENTS.md` (atualizar quando a regra de produto ficar estavel).
+- **Inventario tecnico (funcoes, fluxos, APIs):** `docs/DOCUMENTACAO_PYTHON_PROJETO_SAJ.md`, `docs/DOCUMENTACAO_JS_PROJETO_SAJ.md`.
+- **Setup e visao geral:** `README.md`, `.env.example`.
+
+**Objetivo:** evitar regressoes de seguranca, inconsistencia de negocio e documentacao desalinhada do codigo.
+
+Conteudo alinhado a metodologia corporativa Prottus/Joao Barbosa, **adaptado** ao stack deste repositorio (Python 3, Flask, PyMySQL, JavaScript vanilla, MariaDB). O documento corporativo original em ODT foi descontinuado em favor deste ficheiro unico.
+
+---
+
+## Onde isto se aplica no repositorio
+
+| O que | Onde |
+|--------|------|
+| Metodologia obrigatoria (este texto) | `.cursor/rules/metodologia-joao-barbosa.mdc` |
+| Contexto de produto e negocio | `AGENTS.md` |
+| Documentacao de modulos / APIs | `docs/DOCUMENTACAO_*` |
+| Setup | `README.md` |
+
+Alteracoes que mudem **comportamento**, **variaveis de ambiente** ou **convencoes** devem atualizar **este ficheiro** (se for regra de engenharia), `AGENTS.md` (se for negocio) e/ou `README.md` / `docs/DOCUMENTACAO_*` (se for fluxo tecnico), conforme o impacto.
+
+---
+
+## 1. Seguranca (prioridade maxima)
+
+- **Nunca** commitar credenciais, senhas, tokens, `.env` ou exports com dados sensiveis.
+- Usar **variaveis de ambiente** (`DB_*`, `MYSQL_*`, `FLASK_SECRET_KEY`, chaves de integracao, etc.). Referencia: `.env.example`.
+- **Validar e sanitizar** entradas nas APIs (tipos, limites); SQL sempre com **parametros** (PyMySQL), sem concatenar input do utilizador em SQL bruto.
+- **Autenticacao e autorizacao:** novas rotas sensiveis devem seguir o mesmo rigor que o resto do `app.py` (sessao, niveis de acesso).
+- **Cliente (JS):** sem tokens ou chaves em codigo frontend; integracoes via **proxy no Flask** (`/api/...`).
+- **Producao:** HTTPS; revisao periodica de dependencias (`requirements.txt`).
+- **Logs** sem dados pessoais completos, senhas ou tokens.
+- **Rate limiting** em APIs expostas a Internet: recomendacao forte em producao (o prototipo pode nao implementar tudo; documentar quando aplicavel).
+
+---
+
+## 2. Simplicidade (prioridade alta)
+
+- Codigo **legivel e direto**; evitar *over-engineering*.
+- Mudancas **pequenas e focadas**; refatoracoes amplas so com pedido explicito da equipa.
+- Quando simplicidade e performance entram em conflito, **registar a decisao** (comentario curto, PR ou `AGENTS.md` se for regra de negocio).
+
+---
+
+## 3. Padroes de linguagem
+
+- **Python:** [PEP 8](https://peps.python.org/pep-0008/), `snake_case` para funcoes e variaveis.
+- **JavaScript:** manter consistencia com os ficheiros existentes em `static/` (IIFE, `fetch`, DOM).
+
+---
+
+## 4. Documentacao de codigo
+
+- **Python:** **docstring** (bloco de aspas triplas apos `def`, PEP 257) em **rotas novas**, helpers **nao obvios** e funcoes `_` partilhadas; parametros e retorno quando nao forem evidentes pelo nome. **Nao** exigir docstring em getters triviais ou numa linha que so delega.
+- **JavaScript:** comentario so quando a logica for nao obvia (filtros de export, estados de UI, integracoes).
+- Priorizar **codigo autoexplicativo**; evitar comentarios que repetem o codigo.
+- Novos endpoints Flask: nome da funcao + docstring breve facilitam auditoria e uso por IA.
+
+---
+
+## 5. Boas praticas em equipa
+
+- Estrutura de pastas clara (`templates/`, `static/`, `Python/`, `Banco/`, `docs/`).
+- **README.md** e `docs/` atualizados quando mudar setup, fluxo GM, exportacoes ou convencoes.
+- **Documentar APIs** e fluxos complexos em `DOCUMENTACAO_PYTHON_PROJETO_SAJ.md` ou `AGENTS.md` (regras de negocio consolidadas).
+
+---
+
+## 6. Versionamento
+
+- Commits **descritivos**; branches por funcionalidade ou correcao.
+- Nao commitar temporarios nem ficheiros sensiveis; manter `.gitignore` atualizado.
+
+---
+
+## 7. Tratamento de erros
+
+- Tratar erros de forma **explicita**; mensagens **claras** ao utilizador **sem** expor stack trace ou dados sensiveis.
+- **Nao silenciar** falhas (evitar `except: pass` sem registo ou resposta).
+- Usar `app.logger` onde fizer sentido no Flask.
+
+---
+
+## 8. Testes
+
+- Testar **fluxos criticos** afetados pela alteracao (importacao GM, cobranca, export Performance, SMS/e-mail automaticos, etc.).
+- Manter testes **simples e focados** quando existirem automatizados; casos de erro e *edge cases* nas areas tocadas.
+
+---
+
+## 9. Performance
+
+- **Medir antes de otimizar**; priorizar clareza ate existir gargalo real.
+- Evitar N+1 em novas queries quando o padrao do projeto ja use agregacoes ou JOINs explicitos.
+
+---
+
+## 10. Comunicacao com IA (Cursor / outros)
+
+- Pedidos **especificos** (modulo, ficheiro, comportamento esperado).
+- **Revisar** codigo gerado antes de commitar.
+- Questionar decisoes **complexas** ou que toquem em **regras de negocio**; atualizar `AGENTS.md` ou **este ficheiro** quando a convencao ficar estavel.
+
+---
+
+## 11. Stack do Prototipo-SAJ
+
+| Camada | Tecnologia |
+|--------|------------|
+| Servidor | Python 3, Flask (`app.py` monolito intencional) |
+| Cliente | HTML, CSS, JS vanilla por modulo |
+| Base de dados | MariaDB / MySQL (`consorcio_gm`, variaveis `DB_*`) |
+| Pipelines GM | Scripts em `Python/` via subprocesso + SSE em `/api/processar` |
+| Documentacao tecnica | `docs/DOCUMENTACAO_*`, `AGENTS.md`, `README.md` |
+
+---
+
+## 12. Dados locais GM (`ARQUIVO GM/`)
+
+- Pasta **local** de arquivo de TXT GM; **nao** e o destino do upload web (`/api/upload` usa diretorio temporario).
+- **Nao versionar** nem fazer `git push` desta pasta (`.gitignore`); cada ambiente mantem a sua copia.
+
+---
+
+## 13. Checklist rapido antes de merge
+
+1. Segredos so em ambiente â€” nada no Git.
+2. Erros visiveis ao utilizador e/ou log adequado.
+3. Regras de negocio alteradas â†’ `AGENTS.md` e/ou README.
+4. Novo fluxo ou API â†’ `DOCUMENTACAO_PYTHON` / `DOCUMENTACAO_JS` se outra pessoa precisar reproduzir.
+5. Diff minimo e legivel (simplicidade).

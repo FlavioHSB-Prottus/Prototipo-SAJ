@@ -30,7 +30,7 @@ Ambiente (opcional):
     DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, SENHA_PADRAO
 
 Documentação do projeto (metodologia, segurança, convenções):
-    docs/METODOLOGIA-JOAO-BARBOSA.md na raiz do repositório.
+    .cursor/rules/metodologia-joao-barbosa.mdc.
 """
 import os
 import sys

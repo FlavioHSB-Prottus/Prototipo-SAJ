@@ -4,6 +4,8 @@ Este documento descreve **todos os ficheiros `.py`** do repositorio, o **fluxo d
 
 **Ambiente:** `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` (e opcional `DB_PORT` / `MYSQL_*`). Ver `.env.example` e `AGENTS.md`.
 
+**Metodologia e governanca:** regras obrigatorias em `.cursor/rules/metodologia-joao-barbosa.mdc` (raiz do repo); produto e negocio consolidados em `AGENTS.md`.
+
 ---
 
 ## 1. Visao geral da arquitetura Python
@@ -11,7 +13,7 @@ Este documento descreve **todos os ficheiros `.py`** do repositorio, o **fluxo d
 | Camada | Ficheiros | Papel |
 |--------|-----------|--------|
 | **Aplicacao web** | `app.py` | Monolito Flask: rotas HTML + API JSON, SQL com PyMySQL, subprocessos na importacao GM. |
-| **SMTP opcional** | `smtp.py` | Modulo na raiz; envio via Google Workspace (Gmail SMTP) quando configurado. |
+| **SMTP opcional** | `Python/google_workspace_smtp.py` | Carregado por `app.py` via `importlib` no arranque; Gmail/Workspace quando `GOOGLE_SMTP_*` definido. |
 | **Pipelines GM** | `Python/*.py` | CLI ou **chamados por `app.py`** em `/api/processar` (SSE). |
 | **Base de dados (CLI)** | `Banco/*.py` | Schema, seeds, Excel legado; nao importados pelo Flask no arranque normal. |
 
@@ -33,7 +35,7 @@ Este documento descreve **todos os ficheiros `.py`** do repositorio, o **fluxo d
 | Caminho |
 |---------|
 | `app.py` |
-| `smtp.py` |
+| `Python/google_workspace_smtp.py` |
 | `Python/import_only_arquivos_gm.py` |
 | `Python/tracker_gm_range_date_contratos.py` |
 | `Python/pessoa_satellite.py` |
@@ -57,6 +59,7 @@ Este documento descreve **todos os ficheiros `.py`** do repositorio, o **fluxo d
 - `load_dotenv` opcional para `.env`.
 - `DB_CONFIG` (PyMySQL), alinhado a `Python/` e `Banco/`.
 - `PYTHON_DIR`, `PYTHON_EXE` para `subprocess`.
+- `_load_google_workspace_smtp()` carrega `Python/google_workspace_smtp.py` no arranque (SMTP Google na Importacao).
 - `_get_serasa_conv_txt()` carrega `Python/serasa_conv_txt.py` via `importlib` sob demanda.
 
 ### 3.2 Seguranca e perfis
@@ -100,20 +103,20 @@ Formatos aceites: **`xlsx`**, **`pdf`**, **`powerbi`** (CSV com `;`, BOM UTF-8, 
 
 ### 3.5 Helpers transversais (amostra)
 
-`_get_db()`, `_clean_rows`, integracao **MessageCenter** (`_messagecenter_post_email_html`, URLs e headers), integracao **Google SMTP** (`import smtp as _smtp_google_workspace`, ramo `usar_smtp_google` em envio automatico na importacao), negativacao SERASA, relatorios (`_relatorio_email_lote_disparar`, etc.).
+`_get_db()`, `_clean_rows`, integracao **MessageCenter** (`_messagecenter_post_email_html`, URLs e headers), integracao **Google SMTP** (`Python/google_workspace_smtp.py` carregado no arranque do `app.py`, ramo `usar_smtp_google` em envio automatico na importacao), negativacao SERASA, relatorios (`_relatorio_email_lote_disparar`, etc.).
 
 **Como navegar:** `grep "^@app.route"` no `app.py` ou outline do IDE; seguir chamadas a funcoes `_` a partir da rota.
 
 ---
 
-## 4. `smtp.py` (raiz)
+## 4. `Python/google_workspace_smtp.py`
 
 | Funcao | Descricao |
 |--------|-----------|
 | `google_smtp_config_from_env()` | Le `GOOGLE_SMTP_USER`, `GOOGLE_SMTP_PASSWORD`, opcionais host/port/from. |
 | `send_google_workspace_email(...)` | Envia HTML (multipart); retorna `(ok, erro)`. |
 
-**Ligacao:** `app.py` importa como `_smtp_google_workspace`. Nao usado pelos scripts em `Python/` da importacao GM.
+**Ligacao:** `app.py` chama `_load_google_workspace_smtp()` no arranque e guarda o modulo em `_smtp_google_workspace`. Nao e subprocesso da importacao GM; so o Flask usa.
 
 ---
 
@@ -152,6 +155,10 @@ Distribui contratos abertos a funcionarios **Cobranca** em `funcionario_cobranca
 ## 9. `Python/serasa_conv_txt.py`
 
 TXT 600 caracteres SERASA-CONVEM; inclusao (detalhe) vs exclusao (header+trailer). `montar_arquivo_txt`, helpers `_fit`, `patch_header_*`.
+
+**Modelos por defeito:** `Python/serasa_templates/` (`SERASA_GM_*4912*.TXT`, `SERASA_GM_*4910*.TXT`). Sobrescrever com `SERASA_CONV_TEMPLATE_DIR` se necessario.
+
+**Legado de referencia:** `docs/referencias/legacy-php/sistema.geracao.arquivo.negativacao.serasa.php` (nao executado pelo Flask).
 
 **Ligacao:** `app.py` via `_get_serasa_conv_txt()`; sem rede.
 
@@ -204,7 +211,7 @@ Excel -> `relacao_contrato_operador` (grupo/cota normalizados).
   -> app.py (Flask)
        -> PyMySQL -> MariaDB
        -> requests -> MessageCenter, discador, etc.
-       -> smtp.py (opcional Google SMTP)
+       -> Python/google_workspace_smtp.py (opcional Google SMTP)
        -> subprocess:
             import_only_arquivos_gm.py -> arquivos_gm
             tracker_gm_range_date_contratos.py + pessoa_satellite.py -> nucleo de dados

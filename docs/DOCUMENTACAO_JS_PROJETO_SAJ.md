@@ -4,6 +4,8 @@ Este documento lista **todos os ficheiros `.js` em `static/`** (28 no estado atu
 
 **Convencao:** quase tudo e **vanilla JS** (sem bundler). Ordem de `<script>` em `templates/layout.html` importa: bibliotecas globais (`tramitacoes_detail`, `contrato_detalhes_modal`, ...) antes das paginas que as invocam.
 
+**Metodologia e governanca:** regras obrigatorias em `.cursor/rules/metodologia-joao-barbosa.mdc` (raiz do repo); produto e negocio em `AGENTS.md`. No cliente: sem tokens ou chaves em JS; usar sempre o padrao **proxy no Flask** (`/api/...`).
+
 ---
 
 ## 1. Onde os scripts entram (mapa rapido)
@@ -204,7 +206,7 @@ O `README.md` assinala **duplicacao** da funcao `renderContratoModal` (e HTML as
 
 ## 7. Seguranca no cliente (lembrete)
 
-Tokens de integracao **nao** devem ser introduzidos em JS para novas features; o padrao do projeto e **proxy no Flask** (`/api/enviar-sms`, `/api/discar`, ...). O conteudo legado em `sms_messagecenter.js` que espelha URL/apikey e apenas coerente com o backend ja existente ? novos fluxos devem evitar expor segredos.
+Tokens de integracao **nao** devem ser introduzidos em JS para novas features; o padrao do projeto e **proxy no Flask** (`/api/enviar-sms`, `/api/discar`, ...). O conteudo legado em `sms_messagecenter.js` que espelha URL/apikey e apenas coerente com o backend ja existente — novos fluxos devem evitar expor segredos.
 
 ---
 

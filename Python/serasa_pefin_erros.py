@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Codigos de erro PEFIN (3 digitos) extraidos de ARQUIVO SERASA/PEFIN - TABELA DE ERROS.pdf.
+"""Codigos de erro PEFIN (3 digitos) extraidos de docs/referencias/serasa/pdf/PEFIN - TABELA DE ERROS.pdf.
 
 Usado ao interpretar TXT de retorno SERASA: codigos de 3 digitos na zona apos o codigo do credor
-(posicoes 531-593 inclusive, base 1), conforme amostras em ``ARQUIVO SERASA/Retorno/*.TXT``.
+(posicoes 531-593 inclusive, base 1), conforme amostras em ``docs/referencias/serasa/amostras-retorno/*.TXT``.
 """
 from __future__ import annotations
 

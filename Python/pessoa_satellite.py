@@ -3,7 +3,7 @@ Upserts nas tabelas satelite endereco, telefone, email (FK pessoa.id).
 Usado pelos trackers apos INSERT/UPDATE em pessoa a partir de registro_1 e registro5.
 
 Documentação do projeto (metodologia, segurança, convenções):
-    docs/METODOLOGIA-JOAO-BARBOSA.md na raiz do repositório.
+    .cursor/rules/metodologia-joao-barbosa.mdc.
 """
 
 from __future__ import annotations

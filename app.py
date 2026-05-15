@@ -17,7 +17,6 @@ import importlib.util
 
 import pymysql
 import requests
-import smtp as _smtp_google_workspace
 from pymysql.err import IntegrityError, OperationalError
 from flask import Flask, Response, render_template, request, redirect, url_for, jsonify, send_file, session, flash, abort
 from werkzeug.utils import secure_filename
@@ -35,6 +34,20 @@ except ImportError:
     pass
 PYTHON_DIR = os.path.join(PROJECT_DIR, 'Python')
 PYTHON_EXE = sys.executable
+
+
+def _load_google_workspace_smtp():
+    """Carrega ``Python/google_workspace_smtp.py`` (SMTP Google na Importacao)."""
+    path = os.path.join(PYTHON_DIR, 'google_workspace_smtp.py')
+    spec = importlib.util.spec_from_file_location('google_workspace_smtp', path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f'Nao foi possivel carregar {path}')
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_smtp_google_workspace = _load_google_workspace_smtp()
 
 _serasa_conv_txt_module = None
 _serasa_pefin_erros_module = None
@@ -12949,7 +12962,7 @@ def api_negativacao_serasa_arquivo_txt():
     Negativar: inclusao com linhas de detalhe **1I** (motivo ``00``), layout alinhado ao legado PHP
     (endereco 45 + bairro 20, valor em centavos, bloco ``J10`` + CNPJ/nome credor). Positivar:
     exclusao com linhas **1E** (motivo ``02``), mesma estrutura de ficheiro que
-    ``sistema.geracao.arquivo.negativacao.serasa.php`` (cabecalho + detalhes + rodape), cabecalho
+    ``docs/referencias/legacy-php/sistema.geracao.arquivo.negativacao.serasa.php`` (cabecalho + detalhes + rodape), cabecalho
     a partir do modelo ``SERASA_GM_*4910*.TXT``. Os ``ids`` servem para validacao de elegibilidade
     alinhada a UI e ao mock ``positivar-lote-serasa``.
     """
@@ -13007,7 +13020,7 @@ def api_negativacao_serasa_arquivo_txt():
         return jsonify({
             'error': (
                 'Modelos TXT SERASA nao encontrados. Coloque SERASA_GM_*4912*.TXT e *4910*.TXT '
-                'na pasta TXT Negativacao e Positivacao ou defina SERASA_CONV_TEMPLATE_DIR.'
+                'em Python/serasa_templates ou defina SERASA_CONV_TEMPLATE_DIR.'
             ),
         }), 404
     except Exception as exc:
@@ -13043,7 +13056,7 @@ def api_negativacao_serasa_retorno_txt():
     """Importa TXT de retorno PEFIN (detalhe ``1I`` / ``1E``) e grava ``negativacao_historico``.
 
     Campo multipart ``arquivo``: ficheiro de 600 caracteres por linha (latin-1), como os exemplos
-    em ``ARQUIVO SERASA/Retorno/``. Cabeçalho (``0``) e trailer (``9``) são ignorados.
+    em ``docs/referencias/serasa/amostras-retorno/``. Cabeçalho (``0``) e trailer (``9``) são ignorados.
     """
     if not session.get('funcionario_id'):
         return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
