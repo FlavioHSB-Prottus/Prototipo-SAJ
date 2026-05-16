@@ -24,8 +24,8 @@ Este documento descreve **todos os ficheiros `.py`** do repositorio, o **fluxo d
 
 **Modo SSE directo (legado / compativel):** `GET /api/processar?dir=...` devolve **SSE** e executa as **tres fases** no pedido (sem `job_id`):
 
-1. `Python/import_only_arquivos_gm.py` com argumento `temp_dir` -> grava em `arquivos_gm`.
-2. `Python/tracker_gm_range_date_contratos.py` -> **stdin**: duas linhas `YYYY-MM-DD` (min e max das datas extraidas dos TXT da sessao); parse GM, atualiza `pessoa`, `contrato`, `parcela`, `ocorrencia`, etc.; usa `pessoa_satellite.py`.
+1. `Python/import_only_arquivos_gm.py` com argumento `temp_dir` (pasta ou ficheiro `.txt`) -> grava em `arquivos_gm` (`data_processamento = NULL` na ingestao/reimportacao).
+2. `Python/tracker_gm_range_date_contratos.py` com o mesmo `temp_dir` -> varre TXT via `gm_txt_io`, processa apenas `arquivos_gm` com `data_arquivo IN (...)` das datas da sessao e `data_processamento IS NULL`; parse GM, `pessoa_satellite.py`, etc.
 3. `Python/distribuir_funcionarios_cobranca.py` (sem args na chamada web) -> `funcionario_cobranca`.
 
 As duas vias usam o mesmo gerador **`iter_importacao_events`** em `Python/importacao_pipeline_events.py` (carregado por `app.py` via `importlib`).
@@ -43,6 +43,7 @@ As duas vias usam o mesmo gerador **`iter_importacao_events`** em `Python/import
 | `app.py` | Monolito Flask (ver secao 3). |
 | `Python/google_workspace_smtp.py` | SMTP Google na importacao (lote e-mail). |
 | `Python/importacao_pipeline_events.py` | Gerador `iter_importacao_events` (fases 1-3, eventos SSE, cancelamento). |
+| `Python/gm_txt_io.py` | Varredura TXT GM (ficheiro ou pasta) e data do header H (pos. 65-73). |
 | `Python/import_only_arquivos_gm.py` | Fase 1 GM -> `arquivos_gm`. |
 | `Python/tracker_gm_range_date_contratos.py` | Fase 2 tracker / ocorrencias. |
 | `Python/pessoa_satellite.py` | Contatos satellite usados pelo tracker. |
@@ -143,15 +144,21 @@ Formatos aceites: **`xlsx`**, **`pdf`**, **`powerbi`** (CSV com `;`, BOM UTF-8, 
 
 ---
 
-## 5. `Python/import_only_arquivos_gm.py`
+## 5. `Python/gm_txt_io.py`
 
-Ingestao bruta de `.txt` (walk recursivo) em `arquivos_gm`. `select_folder()` (tkinter) se sem argv; `main()` valida header `H` e data fixa, `INSERT ... ON DUPLICATE KEY UPDATE`.
+`iter_txt_paths(root)` (ficheiro `.txt` unico ou `os.walk` em pasta), `data_arquivo_from_header_line`, `collect_dates_from_txt_root`. Partilhado por `import_only`, pipeline e tracker.
+
+---
+
+## 6. `Python/import_only_arquivos_gm.py`
+
+Ingestao bruta de `.txt` via `gm_txt_io.iter_txt_paths`. `select_folder()` (tkinter) se sem argv; aceita pasta ou ficheiro `.txt` em argv. `INSERT ... ON DUPLICATE KEY UPDATE` com `data_processamento = NULL` ao actualizar conteudo.
 
 **Ligacao:** fase 1 do pipeline GM com `[PYTHON_EXE, '-u', script1, temp_dir]`.
 
 ---
 
-## 6. `Python/pessoa_satellite.py`
+## 7. `Python/pessoa_satellite.py`
 
 Upserts em `endereco`, `telefone`, `email` por `id_pessoa`. `telefone_e_valido_para_tracker` (>= 8 digitos significativos). `upsert_devedor_contatos` / `upsert_avalista_contatos` mapeiam campos GM (registro_1 / registro5).
 
@@ -159,15 +166,15 @@ Upserts em `endereco`, `telefone`, `email` por `id_pessoa`. `telefone_e_valido_p
 
 ---
 
-## 7. `Python/tracker_gm_range_date_contratos.py`
+## 8. `Python/tracker_gm_range_date_contratos.py`
 
-Motor pos-GM: `arquivos_gm`, `layout.json`, SQL massivo, `operador` (legado GM), ocorrencias, deltas. `distribuir_operadores` no contexto do arquivo GM.
+Motor pos-GM: `arquivos_gm`, `layout.json`, SQL massivo, ocorrencias, deltas. Seleccao de ficheiros da sessao: `argv[1]` = pasta/`temp_dir` (mesma varredura que importacao por pasta ou por TXT); SQL `data_arquivo IN (...)` e `data_processamento IS NULL` (nao usa `BETWEEN` com dias intermédios ausentes no upload). Stdin com duas datas mantido como legado CLI.
 
-**Ligacao:** fase 2 do pipeline GM (`iter_importacao_events` / `/api/processar` / background); stdin = `start_date\n` + `end_date\n` (datas calculadas no `app.py` a partir dos TXT da sessao).
+**Ligacao:** fase 2 do pipeline GM com `[PYTHON_EXE, '-u', script2, temp_dir]`.
 
 ---
 
-## 8. `Python/distribuir_funcionarios_cobranca.py`
+## 9. `Python/distribuir_funcionarios_cobranca.py`
 
 Distribui contratos abertos a funcionarios **Cobranca** em `funcionario_cobranca` (valor, quantidade, estabilidade, `relacao_contrato_operador`).
 
@@ -175,7 +182,7 @@ Distribui contratos abertos a funcionarios **Cobranca** em `funcionario_cobranca
 
 ---
 
-## 9. `Python/serasa_conv_txt.py`
+## 10. `Python/serasa_conv_txt.py`
 
 TXT 600 caracteres SERASA-CONVEM; inclusao (detalhe) vs exclusao (header+trailer). `montar_arquivo_txt`, helpers `_fit`, `patch_header_*`.
 
@@ -189,7 +196,7 @@ TXT 600 caracteres SERASA-CONVEM; inclusao (detalhe) vs exclusao (header+trailer
 
 ---
 
-## 10. `Python/performance_sincronizar.py`
+## 11. `Python/performance_sincronizar.py`
 
 Reconstroi `performance` a partir de ocorrencias (contrato novo / voltou), alinhado ao app.
 
@@ -197,7 +204,7 @@ Reconstroi `performance` a partir de ocorrencias (contrato novo / voltou), alinh
 
 ---
 
-## 11. `Python/migrar_remover_avalista_contatos.py`
+## 12. `Python/migrar_remover_avalista_contatos.py`
 
 Migracao one-off de tipos `telefone`/`email` com prefixo avalista; `--dry-run`.
 
@@ -205,7 +212,7 @@ Migracao one-off de tipos `telefone`/`email` com prefixo avalista; `--dry-run`.
 
 ---
 
-## 12. `Banco/criar_banco.py`
+## 13. `Banco/criar_banco.py`
 
 `RAW_SQL` embutido + `argparse` para criar/atualizar schema.
 
@@ -213,7 +220,7 @@ Migracao one-off de tipos `telefone`/`email` com prefixo avalista; `--dry-run`.
 
 ---
 
-## 13. `Banco/seed_funcionarios.py`
+## 14. `Banco/seed_funcionarios.py`
 
 Upsert idempotente em `funcionario` a partir de `DADOS`; `SENHA_PADRAO` via env.
 
@@ -221,7 +228,7 @@ Upsert idempotente em `funcionario` a partir de `DADOS`; `SENHA_PADRAO` via env.
 
 ---
 
-## 14. `Banco/popular_relacao_operadores_saj.py`
+## 15. `Banco/popular_relacao_operadores_saj.py`
 
 Excel -> `relacao_contrato_operador` (grupo/cota normalizados).
 
@@ -229,7 +236,7 @@ Excel -> `relacao_contrato_operador` (grupo/cota normalizados).
 
 ---
 
-## 15. Diagrama de dependencias
+## 16. Diagrama de dependencias
 
 ```
 [Browser]
@@ -253,7 +260,7 @@ Excel -> `relacao_contrato_operador` (grupo/cota normalizados).
 
 ---
 
-## 16. Documentacao JS (frontend)
+## 17. Documentacao JS (frontend)
 
 Comportamento de `static/*.js`, ordem de scripts em `layout.html` e mapa template -> API: **`docs/DOCUMENTACAO_JS_PROJETO_SAJ.md`**.
 

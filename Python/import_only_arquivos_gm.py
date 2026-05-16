@@ -3,7 +3,7 @@
 Importacao bruta de arquivos TXT GM para a tabela `arquivos_gm`.
 
 Uso (a partir da raiz do projeto ou de qualquer pasta):
-    python Python/import_only_arquivos_gm.py [caminho_da_pasta]
+    python Python/import_only_arquivos_gm.py [caminho_da_pasta_ou_arquivo.txt]
 
 Sem argumento, abre seletor de pasta (tkinter).
 
@@ -18,6 +18,8 @@ import tkinter as tk
 from tkinter import filedialog
 
 import pymysql
+
+from gm_txt_io import data_arquivo_from_header_line, iter_txt_paths
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -43,14 +45,7 @@ def main():
         print("Nenhuma pasta selecionada. Encerrando.")
         sys.exit(0)
 
-    print(f"Buscando arquivos .txt na pasta e em todas as subpastas de:\n-> {folder_path}\n")
-
-    txt_files = []
-    for root, dirs, files in os.walk(folder_path):
-        for file in files:
-            if file.lower().endswith('.txt'):
-                txt_files.append(os.path.join(root, file))
-
+    txt_files = list(iter_txt_paths(folder_path))
     if not txt_files:
         print("Nenhum arquivo .txt encontrado.")
         sys.exit(0)
@@ -81,22 +76,14 @@ def main():
                 content = f.read()
 
             primeira_linha = content.split('\n')[0].replace('\r', '')
-            if not primeira_linha.startswith('H') or len(primeira_linha) < 73:
-                print(f"[{idx}/{len(txt_files)}] ERRO: Arquivo não possui cabeçalho (HEADER) válido em {filename}")
+            data_arquivo = data_arquivo_from_header_line(primeira_linha)
+            if not data_arquivo:
+                print(
+                    f"[{idx}/{len(txt_files)}] ERRO: Arquivo não possui cabeçalho (HEADER) "
+                    f"válido em {filename}"
+                )
                 n_err += 1
                 continue
-
-            timestamp_str = primeira_linha[65:73]
-
-            if not timestamp_str.isdigit() or len(timestamp_str) != 8:
-                print(f"[{idx}/{len(txt_files)}] ERRO: Data do cabeçalho inválida em {filename} -> '{timestamp_str}'")
-                n_err += 1
-                continue
-
-            year = timestamp_str[0:4]
-            month = timestamp_str[4:6]
-            day = timestamp_str[6:8]
-            data_arquivo = f"{year}-{month}-{day}"
 
             stat = os.stat(file_path)
             tamanho = stat.st_size
@@ -105,11 +92,15 @@ def main():
                 INSERT INTO arquivos_gm (data_arquivo, conteudo, data_processamento)
                 VALUES (%s, %s, NULL)
                 ON DUPLICATE KEY UPDATE
-                    conteudo = VALUES(conteudo);
+                    conteudo = VALUES(conteudo),
+                    data_processamento = NULL;
             """
             cursor.execute(query, (data_arquivo, content))
 
-            print(f"[{idx}/{len(txt_files)}] {filename} ({tamanho} bytes) importado com sucesso [Data_Arq: {data_arquivo}]!")
+            print(
+                f"[{idx}/{len(txt_files)}] {filename} ({tamanho} bytes) importado com sucesso "
+                f"[Data_Arq: {data_arquivo}]!"
+            )
             n_ok += 1
 
         except Exception as e:

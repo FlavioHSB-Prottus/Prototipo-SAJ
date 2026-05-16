@@ -5,7 +5,10 @@ delta vs arquivo anterior e ocorrencias. Baseado em tracker_gm_range_date_corrig
 Requer layout.json e pessoa_satellite.py no mesmo diretorio (pasta Python/).
 
 Uso (na raiz do projeto):
-    python Python/tracker_gm_range_date_contratos.py
+    python Python/tracker_gm_range_date_contratos.py [pasta_ou_arquivo.txt]
+
+Sem argumento: pede caminho (pasta ou .txt) ou intervalo manual de datas.
+Pipeline web: passa temp_dir como argv[1] apos import_only.
 
 Documentação do projeto (metodologia, segurança, convenções):
     .cursor/rules/metodologia-joao-barbosa.mdc.
@@ -21,6 +24,7 @@ from decimal import Decimal, InvalidOperation
 import pymysql
 
 # Telefones gravados via upsert_* só entram com >= 8 dígitos (zeros à esquerda não contam).
+from gm_txt_io import collect_dates_from_txt_root
 from pessoa_satellite import upsert_avalista_contatos, upsert_devedor_contatos
 
 OCORRENCIA_COBRANCA = "cobranca"
@@ -1386,12 +1390,63 @@ def apply_delta(cursor, conn, arquivo_gm_id,
     return len(missing_contracts), len(added_parcels), len(paid_parcels)
 
 
-def main():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    layout_path = os.path.join(base_dir, "layout.json")
-    with open(layout_path, "r", encoding="utf-8") as f:
-        layout = json.load(f)
-    table_mappings = build_table_mappings(layout)
+def _resolve_session_dates():
+    """
+    Datas da sessao: argv[1] (pasta ou .txt), stdin legado (2 linhas) ou prompt CLI.
+    Retorna lista ordenada de YYYY-MM-DD ou None se invalido/ausente.
+    """
+    if len(sys.argv) > 1:
+        root = sys.argv[1].strip()
+        if not root or not os.path.exists(root):
+            print(f"Caminho invalido: {root!r}")
+            return None
+        dates = collect_dates_from_txt_root(root)
+        if not dates:
+            print("Nenhuma data valida encontrada nos arquivos TXT informados.")
+            return None
+        print(
+            f"Datas detectadas nos TXT ({len(dates)}): "
+            f"{dates[0]} ate {dates[-1]}"
+        )
+        return dates
+
+    if not sys.stdin.isatty():
+        lines = [ln.strip() for ln in sys.stdin.read().splitlines() if ln.strip()]
+        if len(lines) >= 2:
+            try:
+                datetime.datetime.strptime(lines[0], "%Y-%m-%d")
+                datetime.datetime.strptime(lines[1], "%Y-%m-%d")
+            except ValueError:
+                print("Datas invalidas no stdin. Use yyyy-mm-dd.")
+                return None
+            start_s, end_s = lines[0], lines[1]
+            if start_s > end_s:
+                start_s, end_s = end_s, start_s
+            print(f"Range legado (stdin): {start_s} ate {end_s}")
+            d = datetime.datetime.strptime(start_s, "%Y-%m-%d").date()
+            end_d = datetime.datetime.strptime(end_s, "%Y-%m-%d").date()
+            out = []
+            while d <= end_d:
+                out.append(d.isoformat())
+                d += datetime.timedelta(days=1)
+            return out
+
+    root = input(
+        "Caminho da pasta ou arquivo .txt (Enter para informar datas manualmente): "
+    ).strip()
+    if root:
+        if not os.path.exists(root):
+            print(f"Caminho invalido: {root!r}")
+            return None
+        dates = collect_dates_from_txt_root(root)
+        if not dates:
+            print("Nenhuma data valida encontrada nos arquivos TXT informados.")
+            return None
+        print(
+            f"Datas detectadas nos TXT ({len(dates)}): "
+            f"{dates[0]} ate {dates[-1]}"
+        )
+        return dates
 
     try:
         start_date_str = input("Digite a Data Inicial (yyyy-mm-dd): ").strip()
@@ -1400,6 +1455,27 @@ def main():
         datetime.datetime.strptime(end_date_str, "%Y-%m-%d")
     except ValueError:
         print("Datas invalidas. Por favor, utilize o formato yyyy-mm-dd.")
+        return None
+    if start_date_str > end_date_str:
+        start_date_str, end_date_str = end_date_str, start_date_str
+    d = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
+    end_d = datetime.datetime.strptime(end_date_str, "%Y-%m-%d").date()
+    out = []
+    while d <= end_d:
+        out.append(d.isoformat())
+        d += datetime.timedelta(days=1)
+    return out
+
+
+def main():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    layout_path = os.path.join(base_dir, "layout.json")
+    with open(layout_path, "r", encoding="utf-8") as f:
+        layout = json.load(f)
+    table_mappings = build_table_mappings(layout)
+
+    session_dates = _resolve_session_dates()
+    if not session_dates:
         sys.exit(1)
 
     conn = connect_db()
@@ -1413,19 +1489,42 @@ def main():
         f"id_seguradora={id_seguradora}"
     )
 
-    print(f"Tracking cronologico do range de Datas {start_date_str} ate {end_date_str}...")
+    print(
+        f"Tracking cronologico — {len(session_dates)} data(s) da sessao "
+        f"({session_dates[0]} .. {session_dates[-1]})..."
+    )
 
+    placeholders = ",".join(["%s"] * len(session_dates))
     cursor.execute(
-        "SELECT id_arquivo_gm FROM arquivos_gm WHERE data_arquivo BETWEEN %s AND %s ORDER BY data_arquivo ASC, id_arquivo_gm ASC",
-        (start_date_str, end_date_str),
+        f"""
+        SELECT id_arquivo_gm, data_arquivo
+        FROM arquivos_gm
+        WHERE data_arquivo IN ({placeholders})
+          AND data_processamento IS NULL
+        ORDER BY data_arquivo ASC, id_arquivo_gm ASC
+        """,
+        tuple(session_dates),
     )
     arquivos = cursor.fetchall()
 
     if not arquivos:
-        print("Nenhum arquivo encontrado neste range.")
+        print(
+            "Nenhum arquivo pendente (data_processamento IS NULL) "
+            "para as datas da sessao. Execute import_only antes ou verifique a fase 1."
+        )
         cursor.close()
         conn.close()
         sys.exit(0)
+
+    found_dates = {str(a["data_arquivo"])[:10] for a in arquivos if a.get("data_arquivo")}
+    missing = [d for d in session_dates if d not in found_dates]
+    if missing:
+        print(
+            f"Aviso: {len(missing)} data(s) nos TXT sem registo pendente no banco: "
+            + ", ".join(missing[:8])
+            + ("..." if len(missing) > 8 else "")
+        )
+    print(f"Arquivos GM a processar nesta sessao: {len(arquivos)}")
 
     prev_r1_set = None
     prev_r2_set = None

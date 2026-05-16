@@ -8,7 +8,12 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from typing import Any, Callable, Dict, Iterator, Optional
+
+# Mesmo diretorio que import_only / tracker (subprocess com script em Python/).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from gm_txt_io import collect_dates_from_txt_root
 
 
 def _job_set_active(job: Optional[Dict[str, Any]], proc: Optional[subprocess.Popen]) -> None:
@@ -142,25 +147,8 @@ def iter_importacao_events(
     yield {'type': 'status', 'text': 'Fase 2/3 - Processando Contratos e Rastreando Deltas...'}
     yield {'type': 'progress', 'value': 50}
 
-    all_dates = []
-    for root, _dirs, files in os.walk(temp_dir):
-        for fname in files:
-            if not fname.lower().endswith('.txt'):
-                continue
-            fpath = os.path.join(root, fname)
-            try:
-                with open(fpath, 'r', encoding='latin1') as fh:
-                    header = fh.readline().replace('\r', '').replace('\n', '')
-                if not header.startswith('H') or len(header) < 73:
-                    continue
-                ts = header[65:73]
-                if not ts.isdigit() or len(ts) != 8:
-                    continue
-                all_dates.append(f'{ts[0:4]}-{ts[4:6]}-{ts[6:8]}')
-            except Exception:
-                continue
-
-    if not all_dates:
+    session_dates = collect_dates_from_txt_root(temp_dir)
+    if not session_dates:
         yield {'type': 'log', 'level': 'alert', 'text': 'Nenhuma data valida encontrada nos arquivos importados.'}
         yield {'type': 'progress', 'value': 100}
         yield {
@@ -171,19 +159,18 @@ def iter_importacao_events(
         shutil.rmtree(temp_dir, ignore_errors=True)
         return
 
-    start_date = min(all_dates)
-    end_date = max(all_dates)
-
     yield {
         'type': 'log',
         'level': 'info',
-        'text': f'Range de datas detectado: {start_date} ate {end_date}',
+        'text': (
+            f'Datas da sessao ({len(session_dates)}): '
+            f'{session_dates[0]} ate {session_dates[-1]}'
+        ),
     }
 
     script2 = os.path.join(python_dir, 'tracker_gm_range_date_contratos.py')
     proc2 = subprocess.Popen(
-        [python_exe, '-u', script2],
-        stdin=subprocess.PIPE,
+        [python_exe, '-u', script2, temp_dir],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -193,11 +180,6 @@ def iter_importacao_events(
         **popen_extra,
     )
     _job_set_active(job, proc2)
-
-    proc2.stdin.write(start_date + '\n')
-    proc2.stdin.write(end_date + '\n')
-    proc2.stdin.flush()
-    proc2.stdin.close()
 
     line_count = 0
     try:
