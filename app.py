@@ -11605,6 +11605,84 @@ def _ensure_negativacao_historico_id_arquivo_gm_column(cursor):
         pass
 
 
+def _ensure_registro_txt_conteudo_mediumtext(cursor, table_name):
+    """Garante coluna `conteudo` MEDIUMTEXT (lotes SERASA podem exceder limite TEXT)."""
+    if table_name not in ('registro_txt_negativacao', 'registro_txt_positivacao'):
+        return
+    try:
+        cursor.execute(
+            "SELECT DATA_TYPE AS dt FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'conteudo'",
+            (table_name,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return
+        dt = (row.get('dt') if isinstance(row, dict) else row[0]) or ''
+        if str(dt).lower() != 'mediumtext':
+            cursor.execute(
+                f"ALTER TABLE `{table_name}` MODIFY COLUMN conteudo MEDIUMTEXT NOT NULL"
+            )
+    except Exception:
+        pass
+
+
+def _ensure_registro_txt_negativacao_table(cursor):
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS registro_txt_negativacao (
+            id BIGINT PRIMARY KEY AUTO_INCREMENT,
+            nome_arquivo VARCHAR(255) NULL,
+            conteudo MEDIUMTEXT NOT NULL,
+            id_funcionario INT NOT NULL,
+            created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP
+                ON UPDATE CURRENT_TIMESTAMP,
+            KEY id_funcionario (id_funcionario),
+            CONSTRAINT registro_txt_negativacao_ibfk_1 FOREIGN KEY (id_funcionario)
+                REFERENCES funcionario(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+    )
+    _ensure_registro_txt_conteudo_mediumtext(cursor, 'registro_txt_negativacao')
+
+
+def _ensure_registro_txt_positivacao_table(cursor):
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS registro_txt_positivacao (
+            id BIGINT PRIMARY KEY AUTO_INCREMENT,
+            nome_arquivo VARCHAR(255) NULL,
+            conteudo MEDIUMTEXT NOT NULL,
+            id_funcionario INT NOT NULL,
+            created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP
+                ON UPDATE CURRENT_TIMESTAMP,
+            KEY id_funcionario (id_funcionario),
+            CONSTRAINT registro_txt_positivacao_ibfk_1 FOREIGN KEY (id_funcionario)
+                REFERENCES funcionario(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+    )
+    _ensure_registro_txt_conteudo_mediumtext(cursor, 'registro_txt_positivacao')
+
+
+def _registro_txt_serasa_insert(cursor, conn, *, tipo, nome_arquivo, conteudo_bytes, id_funcionario):
+    """Grava copia do TXT SERASA gerado em registro_txt_negativacao ou registro_txt_positivacao."""
+    if tipo == 'negativar':
+        _ensure_registro_txt_negativacao_table(cursor)
+        table = 'registro_txt_negativacao'
+    else:
+        _ensure_registro_txt_positivacao_table(cursor)
+        table = 'registro_txt_positivacao'
+    conteudo = conteudo_bytes.decode('latin-1', errors='replace')
+    cursor.execute(
+        f"INSERT INTO {table} (nome_arquivo, conteudo, id_funcionario) VALUES (%s, %s, %s)",
+        (nome_arquivo, conteudo, int(id_funcionario)),
+    )
+    conn.commit()
+
+
 def _insert_negativacao_historico(
     cursor,
     id_contrato,
@@ -13102,7 +13180,8 @@ def api_negativacao_serasa_arquivo_txt():
     exclusao com linhas **1E** (motivo ``02``), mesma estrutura de ficheiro que
     ``docs/referencias/legacy-php/sistema.geracao.arquivo.negativacao.serasa.php`` (cabecalho + detalhes + rodape), cabecalho
     a partir do modelo ``SERASA_GM_*4910*.TXT``. Os ``ids`` servem para validacao de elegibilidade
-    alinhada a UI e ao mock ``positivar-lote-serasa``.
+    alinhada a UI e ao mock ``positivar-lote-serasa``. Grava copia em
+    ``registro_txt_negativacao`` ou ``registro_txt_positivacao`` antes do download.
     """
     if not session.get('funcionario_id'):
         return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
@@ -13126,6 +13205,9 @@ def api_negativacao_serasa_arquivo_txt():
 
     conn = _get_db()
     cursor = conn.cursor()
+    body = None
+    fname = None
+    modo = None
     try:
         _ensure_negativacao_table(cursor)
         if tipo != 'negativar':
@@ -13151,6 +13233,15 @@ def api_negativacao_serasa_arquivo_txt():
         modo = 'inclusao' if tipo == 'negativar' else 'exclusao'
 
         body, fname_sug = mod.montar_arquivo_txt(modo, linhas)
+        fname = secure_filename(fname_sug) or 'serasa_conv.txt'
+        _registro_txt_serasa_insert(
+            cursor,
+            conn,
+            tipo=tipo,
+            nome_arquivo=fname,
+            conteudo_bytes=body,
+            id_funcionario=session['funcionario_id'],
+        )
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400
     except FileNotFoundError as exc:
@@ -13174,7 +13265,6 @@ def api_negativacao_serasa_arquivo_txt():
         except Exception:
             pass
 
-    fname = secure_filename(fname_sug) or 'serasa_conv.txt'
     app.logger.info(
         'negativacao serasa-arquivo-txt: tipo_operacao=%s qtd_ids=%s modo=%s',
         tipo,
