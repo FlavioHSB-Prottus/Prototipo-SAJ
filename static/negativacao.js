@@ -923,7 +923,7 @@ document.addEventListener('DOMContentLoaded', function () {
         return m ? m[1].trim().replace(/^"+|"+$/g, '') : null;
     }
 
-    /** Descarrega TXT SERASA-CONVEM (POST; negativar: linhas 1I). Nao altera estado no servidor. */
+    /** Descarrega TXT SERASA-CONVEM (POST; negativar: linhas 1I). Regista copia em registro_txt_* no servidor. */
     function downloadSerasaConvTxt(tipoOperacao, ids, faixa) {
         return fetch('/api/negativacao/serasa-arquivo-txt', {
             method: 'POST',

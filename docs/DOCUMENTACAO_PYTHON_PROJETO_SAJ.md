@@ -99,7 +99,7 @@ Exemplos: `/`, `/home`, `/busca`, `/cobranca`, `/importacao`, `/relatorios`, `/n
 | Dashboard / Performance | `/api/dashboard`, `/api/performance`, `/api/performance/panel_contratos`, **`/api/performance/export/<formato>`** (POST) | SQL; alinhado a `performance_sincronizar.py`; export xlsx/pdf/csv — ver secao 3.4.1 |
 | Cobranca | `/api/cobranca`, consorciados, avalistas, operadores | carteira, `funcionario_cobranca` |
 | Automacao carteira | `/api/cobranca/sms-email/*`, `/api/automacao/<tipo>` | filtros por `contrato_ids` |
-| Negativacao | `/api/negativacao/*`, SERASA TXT | `negativacao`, modulo `serasa_conv_txt` |
+| Negativacao | `/api/negativacao/*`, SERASA TXT | `negativacao`, `registro_txt_negativacao`, `registro_txt_positivacao`, modulo `serasa_conv_txt` |
 | Admin | `/api/admin/funcionario`, `/api/funcionarios`, perfil | gestores |
 | Agenda / avisos / notificacoes | rotas correspondentes | modulos operacionais |
 | Mensagem / protocolo / solicitacao | rotas correspondentes | moderacao interna |
@@ -184,7 +184,7 @@ Distribui contratos abertos a funcionarios **Cobranca** em `funcionario_cobranca
 
 ## 10. `Python/serasa_conv_txt.py`
 
-TXT 600 caracteres SERASA-CONVEM; inclusao (detalhe) vs exclusao (header+trailer). `montar_arquivo_txt`, helpers `_fit`, `patch_header_*`.
+TXT 600 caracteres SERASA-CONVEM; inclusao (detalhe) vs exclusao (header+trailer). `montar_arquivo_txt`, helpers `_fit`, `patch_header_*`. `POST /api/negativacao/serasa-arquivo-txt` grava copia do ficheiro em `registro_txt_negativacao` ou `registro_txt_positivacao` (`conteudo` MEDIUMTEXT, `id_funcionario` da sessao) antes do download.
 
 **Modelos por defeito:** `Python/serasa_templates/` (`SERASA_GM_*4912*.TXT`, `SERASA_GM_*4910*.TXT`). Sobrescrever com `SERASA_CONV_TEMPLATE_DIR` se necessario.
 

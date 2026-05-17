@@ -881,6 +881,30 @@ CREATE TABLE `negativacao_historico` (
   CONSTRAINT `fk_neg_hist_contrato` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_neg_hist_arquivo_gm` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE
 );
+
+CREATE TABLE `registro_txt_negativacao` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `nome_arquivo` varchar(255) DEFAULT NULL,
+  `conteudo` mediumtext NOT NULL,
+  `id_funcionario` int(11) NOT NULL,
+  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `id_funcionario` (`id_funcionario`),
+  CONSTRAINT `registro_txt_negativacao_ibfk_1` FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE
+);
+
+CREATE TABLE `registro_txt_positivacao` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `nome_arquivo` varchar(255) DEFAULT NULL,
+  `conteudo` mediumtext NOT NULL,
+  `id_funcionario` int(11) NOT NULL,
+  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `id_funcionario` (`id_funcionario`),
+  CONSTRAINT `registro_txt_positivacao_ibfk_1` FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE
+);
 """
 
 def connect_server():
