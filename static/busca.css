@@ -810,6 +810,84 @@ select.form-control {
     margin-top: 0;
 }
 
+.timeline-month-hint {
+    margin: 0 0 12px;
+    font-size: 0.82rem;
+    color: var(--text-muted, #64748b);
+}
+
+.timeline-month-groups {
+    margin-top: 4px;
+}
+
+.timeline-month-group {
+    margin-bottom: 10px;
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 10px;
+    overflow: hidden;
+    background: #fff;
+}
+
+.timeline-month-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 12px 14px;
+    border: none;
+    background: #f8fafc;
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+    color: var(--text-main, #1e293b);
+    transition: background-color 0.15s ease;
+}
+
+.timeline-month-toggle:hover {
+    background: #f1f5f9;
+}
+
+.timeline-month-chevron {
+    flex-shrink: 0;
+    width: 14px;
+    color: #64748b;
+    transition: transform 0.2s ease;
+}
+
+.timeline-month-group.is-expanded .timeline-month-chevron {
+    transform: rotate(90deg);
+}
+
+.timeline-month-label {
+    flex: 1;
+    font-size: 0.88rem;
+    font-weight: 700;
+}
+
+.timeline-month-count {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #64748b;
+}
+
+.timeline-month-body {
+    padding: 12px 14px 14px 28px;
+    border-top: 1px solid var(--border-color, #e2e8f0);
+    background: #fafbfc;
+}
+
+.timeline-month-body[hidden] {
+    display: none;
+}
+
+.timeline-month-body .timeline-item {
+    margin-bottom: 10px;
+}
+
+.timeline-month-body .timeline-item:last-child {
+    margin-bottom: 0;
+}
+
 /* Utilitarios */
 .d-none { display: none !important; }
 
