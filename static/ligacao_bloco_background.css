@@ -1,0 +1,200 @@
+/* Ligação em bloco (Cobrança) — bolha + painel global */
+
+#sajLigBgRoot {
+    position: fixed;
+    right: 22px;
+    bottom: 96px;
+    z-index: 10048;
+    font-family: Inter, system-ui, sans-serif;
+}
+
+#sajLigBgBubble {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #10b981, #047857);
+    color: #fff;
+    box-shadow: 0 8px 24px rgba(16, 185, 129, 0.45);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    border: none;
+    padding: 0;
+    line-height: 1.1;
+}
+
+#sajLigBgBubble:hover {
+    filter: brightness(1.06);
+}
+
+#sajLigBgBubble.saj-lig-dialing {
+    animation: saj-lig-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes saj-lig-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+}
+
+#sajLigBgCount {
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+#sajLigBgLbl {
+    font-size: 0.5rem;
+    opacity: 0.92;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+#sajLigBgOverlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    z-index: 10049;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+
+#sajLigBgOverlay.saj-lig-open {
+    display: flex;
+}
+
+#sajLigBgCard {
+    background: #fff;
+    border-radius: 12px;
+    max-width: 560px;
+    width: 100%;
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+}
+
+#sajLigBgCardHead {
+    padding: 14px 18px;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+#sajLigBgCardHead h3 {
+    margin: 0;
+    font-size: 1.05rem;
+    color: #0f172a;
+}
+
+#sajLigBgCloseX {
+    border: none;
+    background: transparent;
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+    color: #64748b;
+}
+
+#sajLigBgBody {
+    padding: 16px 18px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.saj-lig-summary {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+    font-size: 0.9rem;
+}
+
+.saj-lig-summary h4 {
+    margin: 0 0 8px;
+    font-size: 1rem;
+    color: #0f172a;
+}
+
+.saj-lig-summary .saj-lig-row {
+    margin: 4px 0;
+    color: #475569;
+}
+
+.saj-lig-summary .saj-lig-row strong {
+    color: #0f172a;
+}
+
+.saj-lig-status {
+    font-size: 0.85rem;
+    color: #047857;
+    margin-bottom: 12px;
+}
+
+.saj-lig-status.saj-lig-err {
+    color: #b91c1c;
+}
+
+.saj-lig-continue-box {
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin: 12px 0;
+}
+
+.saj-lig-continue-box p {
+    margin: 0 0 10px;
+    font-weight: 600;
+    color: #065f46;
+}
+
+#sajLigBgTramitMount {
+    margin-top: 12px;
+    max-height: 42vh;
+    overflow-y: auto;
+}
+
+#sajLigBgTramitMount .tramitacao-section {
+    margin: 0;
+}
+
+#sajLigBgActions {
+    padding: 12px 18px 16px;
+    border-top: 1px solid #e5e7eb;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+#sajLigBgActions button {
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 0.88rem;
+    cursor: pointer;
+    border: 1px solid #d1d5db;
+    background: #fff;
+    color: #334155;
+}
+
+#sajLigBgActions .saj-lig-btn-primary {
+    background: #047857;
+    border-color: #047857;
+    color: #fff;
+}
+
+#sajLigBgActions .saj-lig-btn-primary:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+#sajLigBgActions .saj-lig-btn-danger {
+    color: #b91c1c;
+    border-color: #fecaca;
+}
