@@ -117,6 +117,8 @@ def _request_skips_idle_touch():
     p = request.path or ''
     if p.startswith('/api/importacao/background/'):
         return True
+    if p.startswith('/api/cobranca/ligacao-bloco/'):
+        return True
     if p == '/api/notificacoes':
         return True
     return False
@@ -3902,40 +3904,39 @@ def api_pessoa_add_email(pessoa_id):
             pass
 
 
-@app.route('/api/discar', methods=['POST'])
-def api_discar():
-    """Proxy seguro: chama a API de discador com ramal do funcionario (credenciais no .env)."""
-    fid = session.get('funcionario_id')
-    if not fid:
-        return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
-    payload = request.get_json(silent=True) or {}
-    raw = (payload.get('numero') or '').strip()
+def _discar_numero_funcionario(funcionario_id, raw_numero):
+    """Discagem via API B2 (credenciais DISCADOR_* no .env). Retorna dict com ok/error."""
+    raw = (raw_numero or '').strip()
     digits = ''.join(ch for ch in raw if ch.isdigit())
     if not digits:
-        return jsonify({'error': 'Numero invalido.'}), 400
-    digits = '55' + digits
+        return {'ok': False, 'error': 'Numero invalido.'}
+    if not digits.startswith('55'):
+        digits = '55' + digits
 
-    url = 'https://jbescritorio.b2tecnologia.com.br/suite/api/discar_numero'
-    usuario = 'ROBSON'
-    token = '03dc54e7-cb43-47b0-8d93-2c9ec9b0496b'
+    url = (os.environ.get('DISCADOR_URL') or '').strip()
+    usuario = (os.environ.get('DISCADOR_USUARIO') or '').strip()
+    token = (os.environ.get('DISCADOR_TOKEN') or '').strip()
     if not (url and usuario and token):
-        return jsonify({'error': 'Discador nao configurado (env DISCADOR_URL, DISCADOR_USUARIO, DISCADOR_TOKEN).'}), 500
+        return {
+            'ok': False,
+            'error': 'Discador nao configurado (env DISCADOR_URL, DISCADOR_USUARIO, DISCADOR_TOKEN).',
+        }
 
     conn = _get_db()
     try:
         with conn.cursor() as cur:
-            cur.execute('SELECT ramal FROM funcionario WHERE id = %s', (int(fid),))
+            cur.execute('SELECT ramal FROM funcionario WHERE id = %s', (int(funcionario_id),))
             row = cur.fetchone()
     finally:
         conn.close()
 
     ramal = (row or {}).get('ramal') if row else None
     if ramal is None or ramal == '':
-        return jsonify({'error': 'Seu usuario nao tem ramal cadastrado.'}), 400
+        return {'ok': False, 'error': 'Seu usuario nao tem ramal cadastrado.'}
     try:
         ramal_int = int(ramal)
     except (TypeError, ValueError):
-        return jsonify({'error': 'Ramal invalido no cadastro do funcionario.'}), 400
+        return {'ok': False, 'error': 'Ramal invalido no cadastro do funcionario.'}
 
     body = {
         'dados': {
@@ -3952,18 +3953,41 @@ def api_discar():
             timeout=15,
         )
     except requests.RequestException as exc:
-        return jsonify({'error': f'Erro de rede ao chamar discador: {exc}'}), 502
+        return {'ok': False, 'error': f'Erro de rede ao chamar discador: {exc}'}
     try:
         data = resp.json()
     except Exception:
         data = {'raw': (resp.text or '')[:500]}
     if not resp.ok:
-        return jsonify({
+        return {
+            'ok': False,
             'error': 'Falha no discador.',
             'status': resp.status_code,
             'detalhe': data,
-        }), 502
-    return jsonify({'ok': True, 'discador': data})
+        }
+    return {'ok': True, 'discador': data, 'numero_destino': digits}
+
+
+@app.route('/api/discar', methods=['POST'])
+def api_discar():
+    """Proxy seguro: chama a API de discador com ramal do funcionario (credenciais no .env)."""
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
+    payload = request.get_json(silent=True) or {}
+    result = _discar_numero_funcionario(fid, payload.get('numero'))
+    if not result.get('ok'):
+        err = result.get('error') or 'Falha na discagem.'
+        code = 400 if 'invalido' in err.lower() or 'ramal' in err.lower() else 502
+        if 'nao configurado' in err.lower():
+            code = 500
+        body = {'error': err}
+        if result.get('detalhe'):
+            body['detalhe'] = result['detalhe']
+        if result.get('status'):
+            body['status'] = result['status']
+        return jsonify(body), code
+    return jsonify({'ok': True, 'discador': result.get('discador')})
 
 
 WHATSAPP_AB_URL = 'https://joaobarbosa.atenderbem.com/int/enqueueMessageToSend'
@@ -12048,6 +12072,7 @@ def _cobranca_bloco_excel_linhas(cursor, contrato_ids):
             cred_f = None
 
         out.append({
+            'id': cid,
             'ordem': ordem,
             'grupo': r.get('grupo') or '',
             'cota': r.get('cota') or '',
@@ -12259,6 +12284,309 @@ def api_cobranca_bloco_excel():
     )
 
 
+_ligacao_bloco_jobs = {}
+_ligacao_bloco_lock = threading.Lock()
+
+_LIGACAO_BLOCO_NIVEL_LABEL = {
+    'critico': 'Crítico',
+    'atencao': 'Atenção',
+    'recente': 'Recente',
+    'todos': 'Todos os blocos',
+}
+
+
+def _ligacao_bloco_queue_from_linhas(linhas):
+    """Fila plana: um item por número de telefone, na ordem dos contratos da lista."""
+    queue = []
+    for row in linhas or []:
+        tels = row.get('telefones') or []
+        if isinstance(tels, str):
+            tels = [p.strip() for p in tels.split(';') if p.strip()]
+        if not tels:
+            continue
+        try:
+            cid = int(row.get('id'))
+        except (TypeError, ValueError):
+            continue
+        for tel_i, numero in enumerate(tels, start=1):
+            queue.append({
+                'contrato_id': cid,
+                'grupo': row.get('grupo') or '',
+                'cota': row.get('cota') or '',
+                'numero_contrato': row.get('numero_contrato') or '',
+                'nome_devedor': row.get('nome_devedor') or '',
+                'cpf_cnpj': row.get('cpf_cnpj') or '',
+                'dias_atraso': row.get('dias_atraso') or 0,
+                'vencimento_mais_antigo': row.get('vencimento_mais_antigo') or '',
+                'parcelas_abertas': row.get('parcelas_abertas') or 0,
+                'numero_parcela_alvo': row.get('numero_parcela_alvo') or '',
+                'nome_funcionario': row.get('nome_funcionario') or '',
+                'status_negativacao': row.get('status_negativacao') or '',
+                'numero': numero,
+                'telefone_indice': tel_i,
+                'telefones_no_contrato': len(tels),
+            })
+    return queue
+
+
+def _ligacao_bloco_job_public(job):
+    """Estado serializável do job para polling / painel."""
+    queue = job.get('queue') or []
+    total = len(queue)
+    idx = int(job.get('index') or 0)
+    if idx < 0:
+        idx = 0
+    if idx > total:
+        idx = total
+    current = job.get('current')
+    if not current and 0 <= idx < total:
+        current = queue[idx]
+    done = idx if job.get('phase') in ('awaiting_continue', 'completed', 'cancelled') else idx
+    if job.get('phase') == 'dialing' or job.get('phase') == 'awaiting_tramitacao':
+        pos = idx + 1
+    elif job.get('phase') == 'awaiting_continue':
+        pos = idx + 1
+    elif job.get('phase') == 'completed':
+        pos = total
+    else:
+        pos = min(idx + 1, total) if total else 0
+    return {
+        'job_id': job.get('job_id'),
+        'nivel': job.get('nivel'),
+        'nivel_label': job.get('nivel_label'),
+        'phase': job.get('phase'),
+        'running': bool(job.get('running')),
+        'cancelled': bool(job.get('cancelled')),
+        'index': idx,
+        'total': total,
+        'posicao': pos,
+        'current': current,
+        'last_dial': job.get('last_dial'),
+        'tramitacao_ok': bool(job.get('tramitacao_ok')),
+        'successes': int(job.get('successes') or 0),
+        'failures': int(job.get('failures') or 0),
+        'skipped_sem_telefone': int(job.get('skipped_sem_telefone') or 0),
+        'status_text': job.get('status_text') or '',
+    }
+
+
+def _ligacao_bloco_dial_worker(job_id):
+    """Disca o item atual da fila (thread daemon)."""
+    with _ligacao_bloco_lock:
+        job = _ligacao_bloco_jobs.get(job_id)
+        if not job or job.get('cancelled'):
+            return
+        queue = job.get('queue') or []
+        idx = int(job.get('index') or 0)
+        if idx >= len(queue):
+            job['phase'] = 'completed'
+            job['running'] = False
+            job['status_text'] = 'Sequencia concluida.'
+            return
+        item = queue[idx]
+        job['current'] = item
+        job['phase'] = 'dialing'
+        job['running'] = True
+        job['tramitacao_ok'] = False
+        job['status_text'] = f"Discando {item.get('numero', '')}..."
+        fid = job.get('funcionario_id')
+
+    result = _discar_numero_funcionario(fid, item.get('numero'))
+
+    with _ligacao_bloco_lock:
+        job = _ligacao_bloco_jobs.get(job_id)
+        if not job or job.get('cancelled'):
+            return
+        job['running'] = False
+        job['last_dial'] = result
+        if result.get('ok'):
+            job['successes'] = int(job.get('successes') or 0) + 1
+        else:
+            job['failures'] = int(job.get('failures') or 0) + 1
+        job['phase'] = 'awaiting_tramitacao'
+        job['tramitacao_ok'] = False
+        job['status_text'] = (
+            'Ligacao concluida. Registre a tramitacao para continuar.'
+            if result.get('ok')
+            else (result.get('error') or 'Falha na discagem. Registre a tramitacao para continuar.')
+        )
+
+
+def _ligacao_bloco_start_dial(job_id):
+    th = threading.Thread(target=_ligacao_bloco_dial_worker, args=(job_id,), daemon=True)
+    th.start()
+
+
+def _ligacao_bloco_get_job(job_id, funcionario_id):
+    with _ligacao_bloco_lock:
+        job = _ligacao_bloco_jobs.get(job_id)
+    if not job or str(job.get('funcionario_id')) != str(funcionario_id):
+        return None
+    return job
+
+
+@app.route('/api/cobranca/ligacao-bloco/start', methods=['POST'])
+def api_cobranca_ligacao_bloco_start():
+    """Inicia sequencia de ligacoes do bloco em background (fila por telefone)."""
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Nao autenticado.'}), 401
+    payload = request.get_json(silent=True) or {}
+    ids, err = _validar_ids_contratos(payload.get('contrato_ids'))
+    if err:
+        return jsonify({'error': err}), 400
+    nivel = (payload.get('nivel') or 'bloco').strip().lower()
+    nivel_label = _LIGACAO_BLOCO_NIVEL_LABEL.get(nivel, nivel)
+
+    with _ligacao_bloco_lock:
+        for jid, j in list(_ligacao_bloco_jobs.items()):
+            if str(j.get('funcionario_id')) == str(fid) and j.get('phase') not in ('completed', 'cancelled'):
+                payload = {
+                    'error': 'Ja existe uma sequencia de ligacoes em andamento.',
+                    'job_id': jid,
+                }
+                payload.update(_ligacao_bloco_job_public(j))
+                return jsonify(payload), 409
+        stale = [
+            k for k, v in list(_ligacao_bloco_jobs.items())
+            if str(v.get('funcionario_id')) == str(fid)
+            and v.get('phase') in ('completed', 'cancelled')
+        ]
+        for k in stale[:6]:
+            _ligacao_bloco_jobs.pop(k, None)
+
+    conn = _get_db()
+    try:
+        with conn.cursor() as cursor:
+            linhas = _cobranca_bloco_excel_linhas(cursor, ids)
+    finally:
+        conn.close()
+
+    queue = _ligacao_bloco_queue_from_linhas(linhas)
+    with_phone = {q['contrato_id'] for q in queue}
+    skipped = 0
+    for row in linhas:
+        try:
+            rid = int(row.get('id'))
+        except (TypeError, ValueError):
+            continue
+        if rid not in with_phone:
+            skipped += 1
+    if not queue:
+        return jsonify({
+            'error': 'Nenhum telefone cadastrado nos contratos selecionados.',
+            'skipped_sem_telefone': skipped,
+        }), 400
+
+    job_id = uuid.uuid4().hex
+    job = {
+        'job_id': job_id,
+        'funcionario_id': fid,
+        'nivel': nivel,
+        'nivel_label': nivel_label,
+        'queue': queue,
+        'index': 0,
+        'phase': 'starting',
+        'running': False,
+        'cancelled': False,
+        'tramitacao_ok': False,
+        'successes': 0,
+        'failures': 0,
+        'skipped_sem_telefone': skipped,
+        'current': None,
+        'last_dial': None,
+        'status_text': 'Iniciando sequencia...',
+    }
+    with _ligacao_bloco_lock:
+        _ligacao_bloco_jobs[job_id] = job
+
+    _ligacao_bloco_start_dial(job_id)
+    return jsonify({'ok': True, 'job_id': job_id, **_ligacao_bloco_job_public(job)})
+
+
+@app.route('/api/cobranca/ligacao-bloco/<job_id>/state')
+def api_cobranca_ligacao_bloco_state(job_id):
+    """Estado leve para bolha e painel (polling)."""
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Nao autenticado.'}), 401
+    job = _ligacao_bloco_get_job(job_id, fid)
+    if not job:
+        return jsonify({'error': 'Sequencia nao encontrada.'}), 404
+    return jsonify(_ligacao_bloco_job_public(job))
+
+
+@app.route('/api/cobranca/ligacao-bloco/<job_id>/tramitacao-ok', methods=['POST'])
+def api_cobranca_ligacao_bloco_tramitacao_ok(job_id):
+    """Marca tramitacao registrada; libera pergunta de continuar ou proxima ligacao."""
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Nao autenticado.'}), 401
+    with _ligacao_bloco_lock:
+        job = _ligacao_bloco_jobs.get(job_id)
+        if not job or str(job.get('funcionario_id')) != str(fid):
+            return jsonify({'error': 'Sequencia nao encontrada.'}), 404
+        if job.get('cancelled'):
+            return jsonify({'error': 'Sequencia cancelada.'}), 400
+        if job.get('phase') not in ('awaiting_tramitacao', 'awaiting_continue'):
+            return jsonify({'error': 'Nao ha ligacao aguardando tramitacao.'}), 400
+        job['tramitacao_ok'] = True
+        job['phase'] = 'awaiting_continue'
+        job['status_text'] = 'Tramitacao registrada. Deseja seguir para a proxima ligacao?'
+    return jsonify({'ok': True, **_ligacao_bloco_job_public(job)})
+
+
+@app.route('/api/cobranca/ligacao-bloco/<job_id>/proximo', methods=['POST'])
+def api_cobranca_ligacao_bloco_proximo(job_id):
+    """Avanca para o proximo numero apos tramitacao obrigatoria."""
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Nao autenticado.'}), 401
+    with _ligacao_bloco_lock:
+        job = _ligacao_bloco_jobs.get(job_id)
+        if not job or str(job.get('funcionario_id')) != str(fid):
+            return jsonify({'error': 'Sequencia nao encontrada.'}), 404
+        if job.get('cancelled'):
+            return jsonify({'error': 'Sequencia cancelada.'}), 400
+        if not job.get('tramitacao_ok'):
+            return jsonify({'error': 'Registre a tramitacao antes de prosseguir.'}), 400
+        if job.get('phase') != 'awaiting_continue':
+            return jsonify({'error': 'Aguarde o fim da ligacao atual.'}), 400
+        if job.get('running'):
+            return jsonify({'error': 'Discagem em andamento.'}), 409
+        queue = job.get('queue') or []
+        job['index'] = int(job.get('index') or 0) + 1
+        if job['index'] >= len(queue):
+            job['phase'] = 'completed'
+            job['tramitacao_ok'] = False
+            job['status_text'] = 'Sequencia concluida.'
+            return jsonify({'ok': True, 'completed': True, **_ligacao_bloco_job_public(job)})
+        job['tramitacao_ok'] = False
+        job['phase'] = 'starting'
+        job['status_text'] = 'Preparando proxima ligacao...'
+
+    _ligacao_bloco_start_dial(job_id)
+    job = _ligacao_bloco_get_job(job_id, fid)
+    return jsonify({'ok': True, 'completed': False, **_ligacao_bloco_job_public(job)})
+
+
+@app.route('/api/cobranca/ligacao-bloco/<job_id>/cancel', methods=['POST'])
+def api_cobranca_ligacao_bloco_cancel(job_id):
+    """Cancela a sequencia de ligacoes."""
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Nao autenticado.'}), 401
+    with _ligacao_bloco_lock:
+        job = _ligacao_bloco_jobs.get(job_id)
+        if not job or str(job.get('funcionario_id')) != str(fid):
+            return jsonify({'error': 'Sequencia nao encontrada.'}), 404
+        job['cancelled'] = True
+        job['running'] = False
+        job['phase'] = 'cancelled'
+        job['status_text'] = 'Sequencia cancelada.'
+    return jsonify({'ok': True})
+
+
 @app.route('/api/automacao/<tipo>', methods=['POST'])
 def api_automacao(tipo):
     """Disparo em lote de SMS / e-mail OU disparo unitario de ligacao."""
@@ -12269,7 +12597,6 @@ def api_automacao(tipo):
     nivel = (payload.get('nivel') or 'na').strip().lower()
 
     if tipo == 'ligacao':
-        # Disparo unitario - o frontend faz o sequenciamento.
         try:
             contrato_id = int(payload.get('contrato_id'))
         except (TypeError, ValueError):
@@ -12282,23 +12609,19 @@ def api_automacao(tipo):
             'telefone': payload.get('telefone'),
         })
 
-        # TODO: integrar com a API real do discador.
-        # Exemplo (descomente e adapte quando a API estiver pronta):
-        #   import requests
-        #   r = requests.post('http://api-flavio/discador/chamada',
-        #                     json={'contrato_id': contrato_id,
-        #                           'telefone': payload.get('telefone')},
-        #                     timeout=15)
-        #   data = r.json()
-        #   return jsonify(data), r.status_code
-
+        result = _discar_numero_funcionario(session.get('funcionario_id'), payload.get('telefone'))
+        if not result.get('ok'):
+            return jsonify({
+                'error': result.get('error') or 'Falha na discagem.',
+                'detalhe': result.get('detalhe'),
+            }), 502
         return jsonify({
             'success': True,
             'tipo': 'ligacao',
             'contrato_id': contrato_id,
             'status_chamada': 'iniciada',
-            'mensagem': 'Discagem disparada (mock).',
-            'mock': True,
+            'mensagem': 'Discagem disparada.',
+            'discador': result.get('discador'),
         })
 
     # SMS / email - lote (MessageCenter, mesma regra do roteiro da distribuição;

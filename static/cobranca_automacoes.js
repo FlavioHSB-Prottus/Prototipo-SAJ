@@ -6,11 +6,9 @@
  *
  * Fluxos:
  *   - SMS / E-mail: confirmação -> POST único com todos os IDs do bloco.
- *   - Ligação:     confirmação -> sequência contrato a contrato. Após cada
- *                  ligação o usuário decide "Próxima", "Pular" ou "Encerrar".
- *
- * O backend (/api/automacao/<tipo>) é por enquanto um mock - quando o Flávio
- * publicar a API real, basta substituir o TODO em app.py.
+ *   - Ligação:     confirmação -> job em background (/api/cobranca/ligacao-bloco/*)
+ *                  com bolha global (ligacao_bloco_background.js). Discador real via
+ *                  /api/discar; tramitação obrigatória entre cada número.
  * =========================================================================== */
 (function () {
     'use strict';
@@ -134,9 +132,6 @@
             document.body.style.overflow = '';
         }
     }
-
-    // ---- Estado da ligação sequencial ---------------------------------------------
-    var seqState = null;
 
     // ---- Classificação para negativação (por parcela) -------------------------------
     //
@@ -1041,8 +1036,9 @@
 
         var detalhe;
         if (tipo === 'ligacao') {
-            detalhe = 'As ligações serão feitas <strong>uma a uma</strong>, na ordem da lista. ' +
-                'Após cada chamada o sistema perguntará se deseja seguir para a próxima.';
+            detalhe = 'As ligações rodam <strong>em segundo plano</strong> (um número por vez, na ordem da lista). ' +
+                'Após cada discagem é <strong>obrigatório</strong> registrar a tramitação antes da próxima. ' +
+                'Acompanhe pela bolha verde no canto da tela.';
         } else if (tipo === 'sms' || tipo === 'email') {
             detalhe = 'O servidor envia apenas para contratos no <strong>roteiro automático</strong> ' +
                 '(dias 0, 16, 31, 61 ou 85 desde o vencimento mais antigo em parcelas abertas) e que ' +
@@ -1294,227 +1290,54 @@
             });
             d.statusCloseX.addEventListener('click', function () {
                 if (d.statusCloseX.disabled) return;
-                if (seqState) seqState.encerrado = true;
                 fechar(d.statusOverlay);
             });
             document.addEventListener('keydown', function (e) {
                 if (e.key === 'Escape' && d.statusOverlay.classList.contains('active') && !d.statusCloseX.disabled) {
-                    if (seqState) seqState.encerrado = true;
                     fechar(d.statusOverlay);
                 }
             });
         }
     }
 
-    // ---- Ligação sequencial -------------------------------------------------------
+    // ---- Ligação sequencial (background + bolha global) ---------------------------
     function iniciarLigacaoSequencial(nivel, contratos) {
-        seqState = {
-            nivel: nivel,
-            lista: contratos.slice(),   // ordem ja vem da view (mesmo sort)
-            indice: 0,
-            sucessos: 0,
-            falhas: 0,
-            puladas: 0,
-            encerrado: false
-        };
-        var d = dom();
-        var meta = TIPO_META.ligacao;
-        setIcon(d.statusIcon, meta.icone, meta.cor, meta.bgIcone);
-        d.statusTitle.textContent = 'Ligações em andamento - ' + (NIVEL_LABEL[nivel] || nivel);
-        d.statusCloseX.disabled = false;
-        bindFechamentoStatus();
-        abrir(d.statusOverlay);
-        renderEtapaPreLigacao();
-    }
-
-    function contratoAtual() {
-        if (!seqState) return null;
-        return seqState.lista[seqState.indice] || null;
-    }
-
-    function renderProgressoBar() {
-        var total = seqState.lista.length;
-        var feitas = seqState.indice;
-        var pct = total === 0 ? 0 : Math.round((feitas / total) * 100);
-        return '<div class="auto-seq-progress">' +
-               '  <div class="auto-seq-progress-bar"><div class="auto-seq-progress-fill" style="width:' + pct + '%"></div></div>' +
-               '  <div class="auto-seq-progress-info">' +
-               '    <span><strong>' + feitas + '</strong> / ' + total + ' tratados</span>' +
-               '    <span class="auto-seq-stats">' +
-               '      <span title="Sucessos"><i class="fa-solid fa-circle-check" style="color:#10b981"></i> ' + seqState.sucessos + '</span>' +
-               '      <span title="Pulados"><i class="fa-solid fa-forward" style="color:#f59e0b"></i> ' + seqState.puladas + '</span>' +
-               '      <span title="Falhas"><i class="fa-solid fa-circle-xmark" style="color:#ef4444"></i> ' + seqState.falhas + '</span>' +
-               '    </span>' +
-               '  </div>' +
-               '</div>';
-    }
-
-    function renderCardContrato(c) {
-        var tel = c.telefone || c.telefone_principal || '';
-        return '<div class="auto-seq-contract-card">' +
-               '  <div class="auto-seq-contract-head">' +
-               '    <span class="auto-seq-pos">#' + (seqState.indice + 1) + ' de ' + seqState.lista.length + '</span>' +
-               '    <span class="auto-seq-grupo">Grupo/Cota <strong>' + esc(c.grupo || '') + '/' + esc(c.cota || '') + '</strong></span>' +
-               '  </div>' +
-               '  <h4 class="auto-seq-nome">' + esc(c.nome_devedor || '') + '</h4>' +
-               '  <div class="auto-seq-row"><i class="fa-solid fa-id-card"></i> ' + esc(fmtCpf(c.cpf_cnpj)) + '</div>' +
-               (tel ? '<div class="auto-seq-row auto-seq-tel"><i class="fa-solid fa-phone"></i> ' + esc(fmtTelefone(tel)) + '</div>' : '') +
-               (c.bem_descricao ? '<div class="auto-seq-row"><i class="fa-solid fa-car-side"></i> ' + esc(c.bem_descricao) + '</div>' : '') +
-               '  <div class="auto-seq-row"><i class="fa-solid fa-clock"></i> ' + (c.dias_atraso || 0) + ' dias de atraso</div>' +
-               '</div>';
-    }
-
-    function renderEtapaPreLigacao() {
-        if (!seqState || seqState.encerrado) return;
-        if (seqState.indice >= seqState.lista.length) {
-            return renderEtapaConcluido();
+        var ids = (contratos || []).map(function (c) { return c.id; }).filter(Boolean);
+        if (!ids.length) {
+            alert('Não há contratos neste bloco para ligar.');
+            return;
         }
-        var d = dom();
-        var c = contratoAtual();
-        d.statusBody.innerHTML =
-            renderProgressoBar() +
-            '<div class="auto-seq-stage-label"><i class="fa-solid fa-circle-play"></i> Próxima ligação:</div>' +
-            renderCardContrato(c);
-
-        d.statusFooter.innerHTML =
-            '<button type="button" class="auto-btn-secondary" id="seqEncerrar">' +
-            '  <i class="fa-solid fa-stop"></i> Encerrar' +
-            '</button>' +
-            '<button type="button" class="auto-btn-secondary" id="seqPular">' +
-            '  <i class="fa-solid fa-forward"></i> Pular' +
-            '</button>' +
-            '<button type="button" class="auto-btn-primary" id="seqDiscar" style="background:#10b981;border-color:#10b981">' +
-            '  <i class="fa-solid fa-phone-volume"></i> Discar agora' +
-            '</button>';
-
-        document.getElementById('seqEncerrar').onclick = encerrarSequencia;
-        document.getElementById('seqPular').onclick = function () {
-            seqState.puladas++;
-            seqState.indice++;
-            renderEtapaPreLigacao();
-        };
-        document.getElementById('seqDiscar').onclick = function () { dispararLigacaoAtual(); };
-    }
-
-    function dispararLigacaoAtual() {
-        if (!seqState || seqState.encerrado) return;
-        var d = dom();
-        var c = contratoAtual();
-        if (!c) return renderEtapaConcluido();
-
-        d.statusCloseX.disabled = true;
-        d.statusBody.innerHTML =
-            renderProgressoBar() +
-            '<div class="auto-seq-stage-label"><i class="fa-solid fa-tower-broadcast fa-beat-fade"></i> Discando...</div>' +
-            renderCardContrato(c) +
-            '<div class="auto-seq-loading">' +
-            '  <i class="fa-solid fa-spinner fa-spin"></i> Aguardando resposta da API...' +
-            '</div>';
-        d.statusFooter.innerHTML = '';
-
-        fetch('/api/automacao/ligacao', {
+        fetch('/api/cobranca/ligacao-bloco/start', {
             method: 'POST',
+            credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contrato_id: c.id,
-                nivel: seqState.nivel,
-                nome: c.nome_devedor,
-                telefone: c.telefone || c.telefone_principal || ''
+            body: JSON.stringify({ contrato_ids: ids, nivel: nivel }),
+        })
+            .then(function (r) {
+                return r.json().then(function (j) {
+                    return { ok: r.ok, status: r.status, j: j };
+                });
             })
-        })
-        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
-        .then(function (res) {
-            d.statusCloseX.disabled = false;
-            if (!res.ok || res.body.error) {
-                seqState.falhas++;
-                renderEtapaPosLigacao(c, false, res.body.error || 'Falha na chamada.');
-            } else {
-                seqState.sucessos++;
-                renderEtapaPosLigacao(c, true, res.body.mensagem || 'Chamada concluída.', !!res.body.mock);
-            }
-        })
-        .catch(function (err) {
-            d.statusCloseX.disabled = false;
-            seqState.falhas++;
-            renderEtapaPosLigacao(c, false, err.message || String(err));
-        });
-    }
-
-    function renderEtapaPosLigacao(contrato, ok, mensagem, mock) {
-        if (!seqState) return;
-        var d = dom();
-        var ehUltimo = (seqState.indice + 1) >= seqState.lista.length;
-
-        d.statusBody.innerHTML =
-            renderProgressoBar() +
-            '<div class="auto-seq-stage-label ' + (ok ? 'auto-stage-ok' : 'auto-stage-err') + '">' +
-            (ok
-                ? '<i class="fa-solid fa-circle-check"></i> Ligação concluída'
-                : '<i class="fa-solid fa-circle-exclamation"></i> Ligação não realizada') +
-            '</div>' +
-            renderCardContrato(contrato) +
-            '<p class="auto-seq-msg">' + esc(mensagem || '') + '</p>' +
-            (mock ? '<p class="auto-mock-note"><i class="fa-solid fa-flask"></i> Resposta simulada (API ainda será integrada).</p>' : '') +
-            (ehUltimo
-                ? '<p class="auto-seq-finish">Esta era a última ligação do bloco.</p>'
-                : '<p class="auto-seq-question"><strong>Deseja prosseguir para a próxima ligação?</strong></p>');
-
-        if (ehUltimo) {
-            d.statusFooter.innerHTML =
-                '<button type="button" class="auto-btn-primary" id="seqFinalizar">' +
-                '  <i class="fa-solid fa-flag-checkered"></i> Finalizar' +
-                '</button>';
-            document.getElementById('seqFinalizar').onclick = function () {
-                seqState.indice++;
-                renderEtapaConcluido();
-            };
-        } else {
-            d.statusFooter.innerHTML =
-                '<button type="button" class="auto-btn-secondary" id="seqEncerrar2">' +
-                '  <i class="fa-solid fa-stop"></i> Encerrar agora' +
-                '</button>' +
-                '<button type="button" class="auto-btn-primary" id="seqProximo" style="background:#10b981;border-color:#10b981">' +
-                '  <i class="fa-solid fa-phone"></i> Próxima ligação' +
-                '</button>';
-            document.getElementById('seqEncerrar2').onclick = encerrarSequencia;
-            document.getElementById('seqProximo').onclick = function () {
-                seqState.indice++;
-                renderEtapaPreLigacao();
-            };
-        }
-    }
-
-    function renderEtapaConcluido() {
-        if (!seqState) return;
-        var d = dom();
-        var st = seqState;
-        d.statusTitle.textContent = 'Ligações concluídas';
-        d.statusBody.innerHTML =
-            '<div class="auto-status-result auto-status-success">' +
-            '  <div class="auto-result-icon"><i class="fa-solid fa-flag-checkered"></i></div>' +
-            '  <h4>Sequência finalizada</h4>' +
-            '  <div class="auto-result-stats">' +
-            '    <div class="auto-stat"><span class="auto-stat-num">' + st.sucessos + '</span><span class="auto-stat-lbl">Sucessos</span></div>' +
-            '    <div class="auto-stat"><span class="auto-stat-num" style="color:#f59e0b">' + st.puladas + '</span><span class="auto-stat-lbl">Pulados</span></div>' +
-            '    <div class="auto-stat"><span class="auto-stat-num auto-stat-fail">' + st.falhas + '</span><span class="auto-stat-lbl">Falhas</span></div>' +
-            '  </div>' +
-            '  <p class="auto-result-msg">Total processado: <strong>' + st.indice + '</strong> de <strong>' + st.lista.length + '</strong> contratos.</p>' +
-            '</div>';
-        d.statusFooter.innerHTML =
-            '<button type="button" class="auto-btn-primary" id="seqFechar">' +
-            '  <i class="fa-solid fa-check"></i> Fechar' +
-            '</button>';
-        document.getElementById('seqFechar').onclick = function () {
-            fechar(d.statusOverlay);
-            seqState = null;
-        };
-    }
-
-    function encerrarSequencia() {
-        if (!seqState) return;
-        if (!confirm('Encerrar as ligações agora? Os contratos restantes não serão chamados.')) return;
-        seqState.encerrado = true;
-        renderEtapaConcluido();
+            .then(function (res) {
+                if (res.status === 409 && res.j && res.j.job_id) {
+                    if (window.SajLigacaoBloco && window.SajLigacaoBloco.onJobStarted) {
+                        window.SajLigacaoBloco.onJobStarted(res.j);
+                    }
+                    return;
+                }
+                if (!res.ok || res.j.error) {
+                    alert(res.j.error || 'Não foi possível iniciar as ligações.');
+                    return;
+                }
+                if (window.SajLigacaoBloco && window.SajLigacaoBloco.onJobStarted) {
+                    window.SajLigacaoBloco.onJobStarted(res.j);
+                } else {
+                    alert('Sequência iniciada, mas o painel flutuante não carregou. Recarregue a página.');
+                }
+            })
+            .catch(function (err) {
+                alert('Falha ao iniciar ligações: ' + (err.message || err));
+            });
     }
 
     // ---- Expor --------------------------------------------------------------------
