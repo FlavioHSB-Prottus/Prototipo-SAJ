@@ -9,6 +9,7 @@
 
     var pollTimer = null;
     var lastState = null;
+    var resumoJaExibido = false;
 
     function esc(s) {
         if (s === null || s === undefined) return '';
@@ -127,6 +128,63 @@
         );
     }
 
+    function fecharResumoModal() {
+        var ov = document.getElementById('autoStatusOverlay');
+        if (ov) ov.classList.remove('active');
+        document.body.style.overflow = '';
+    }
+
+    function showResumoModal(resumo) {
+        if (!resumo || resumoJaExibido) return;
+        var ov = document.getElementById('autoStatusOverlay');
+        var titleEl = document.getElementById('autoStatusTitle');
+        var iconEl = document.getElementById('autoStatusIcon');
+        var bodyEl = document.getElementById('autoStatusBody');
+        var footEl = document.getElementById('autoStatusFooter');
+        if (!ov || !bodyEl) return;
+        resumoJaExibido = true;
+        if (titleEl) {
+            titleEl.textContent = resumo.cancelado ? 'Liga\u00e7\u00f5es encerradas' : 'Liga\u00e7\u00f5es conclu\u00eddas';
+        }
+        if (iconEl) {
+            iconEl.innerHTML = '<i class="fa-solid fa-phone" style="color:#10b981"></i>';
+        }
+        var pend = (resumo.sucesso_sem_tramitacao || []).length;
+        var proc = resumo.ligacoes_processadas || 0;
+        var totalLig = resumo.ligacoes_total || 0;
+        var totalContr = resumo.contratos_total_bloco || 0;
+        bodyEl.innerHTML =
+            '<div class="auto-status-result auto-status-success">' +
+            '  <div class="auto-result-icon"><i class="fa-solid fa-flag-checkered"></i></div>' +
+            '  <h4>Sequ\u00eancia finalizada</h4>' +
+            '  <div class="auto-result-stats">' +
+            '    <div class="auto-stat"><span class="auto-stat-num">' + (resumo.sucessos || 0) +
+            '</span><span class="auto-stat-lbl">Sucessos</span></div>' +
+            '    <div class="auto-stat"><span class="auto-stat-num" style="color:#f59e0b">' + (resumo.pulados || 0) +
+            '</span><span class="auto-stat-lbl">Pulados</span></div>' +
+            '    <div class="auto-stat"><span class="auto-stat-num auto-stat-fail">' + (resumo.falhas || 0) +
+            '</span><span class="auto-stat-lbl">Falhas</span></div>' +
+            '  </div>' +
+            '  <p class="auto-result-msg">Total processado: <strong>' + proc +
+            '</strong> de <strong>' + totalLig + '</strong> liga\u00e7\u00f5es (' +
+            totalContr + ' contratos no bloco).</p>' +
+            (pend ? '<p class="auto-helper-text" style="color:#b91c1c;margin-top:10px"><strong>' + pend +
+            '</strong> liga\u00e7\u00e3o(\u00f5es) com discagem OK ainda sem tramita\u00e7\u00e3o hoje.</p>' : '') +
+            '</div>';
+        if (footEl) {
+            footEl.innerHTML =
+                '<button type="button" class="auto-btn-primary" id="sajLigResumoFechar">' +
+                '<i class="fa-solid fa-check"></i> Fechar</button>';
+            var btn = document.getElementById('sajLigResumoFechar');
+            if (btn) btn.onclick = fecharResumoModal;
+        }
+        var closeX = document.getElementById('autoStatusCloseX');
+        if (closeX) closeX.onclick = fecharResumoModal;
+        ov.classList.add('active');
+        document.body.style.overflow = 'hidden';
+        closePanel();
+    }
+
     function renderPanel(st) {
         ensureDom();
         if (!st) return;
@@ -187,6 +245,21 @@
         btnProx.disabled = !st.tramitacao_ok || st.phase !== 'awaiting_continue' || st.running;
         btnProx.addEventListener('click', postProximo);
         actions.appendChild(btnProx);
+
+        var btnPular = document.createElement('button');
+        btnPular.type = 'button';
+        btnPular.className = 'saj-lig-btn-secondary';
+        btnPular.innerHTML = '<i class="fa-solid fa-forward"></i> Pular';
+        btnPular.disabled = st.running || (st.phase !== 'awaiting_tramitacao' && st.phase !== 'awaiting_continue');
+        btnPular.addEventListener('click', postPular);
+        actions.insertBefore(btnPular, btnTramit);
+
+        var btnEncerrar = document.createElement('button');
+        btnEncerrar.type = 'button';
+        btnEncerrar.className = 'saj-lig-btn-danger';
+        btnEncerrar.innerHTML = '<i class="fa-solid fa-stop"></i> Encerrar';
+        btnEncerrar.addEventListener('click', postEncerrar);
+        actions.insertBefore(btnEncerrar, btnFechar.nextSibling);
 
         if (st.phase === 'awaiting_continue' && st.tramitacao_ok) {
             var box = document.createElement('div');
@@ -260,6 +333,10 @@
                 if (lastState.phase === 'completed' || lastState.phase === 'cancelled') {
                     stopPolling();
                     sessionStorage.setItem(SS_ACTIVE, '0');
+                    if (lastState.resumo) {
+                        showResumoModal(lastState.resumo);
+                        endJob();
+                    }
                 }
             })
             .catch(function () { /* ignore */ });
@@ -317,24 +394,68 @@
                 lastState = res.j;
                 updateBubble(lastState);
                 renderPanel(lastState);
-                if (lastState.completed) {
+                if (lastState.completed || lastState.resumo) {
                     stopPolling();
                     sessionStorage.setItem(SS_ACTIVE, '0');
+                    if (lastState.resumo) showResumoModal(lastState.resumo);
+                    endJob();
                 }
             });
     }
 
+    function postPular() {
+        var jid = jobId();
+        if (!jid) return;
+        fetch('/api/cobranca/ligacao-bloco/' + encodeURIComponent(jid) + '/pular', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+        })
+            .then(function (r) {
+                return r.json().then(function (j) {
+                    return { ok: r.ok, j: j };
+                });
+            })
+            .then(function (res) {
+                if (!res.ok) {
+                    alert((res.j && res.j.error) || 'Nao foi possivel pular.');
+                    return;
+                }
+                lastState = res.j;
+                updateBubble(lastState);
+                renderPanel(lastState);
+                if (lastState.completed && lastState.resumo) {
+                    stopPolling();
+                    sessionStorage.setItem(SS_ACTIVE, '0');
+                    showResumoModal(lastState.resumo);
+                    endJob();
+                }
+            });
+    }
+
+    function postEncerrar() {
+        if (!confirm('Encerrar a sequ\u00eancia de liga\u00e7\u00f5es agora?')) return;
+        postCancel();
+    }
+
     function postCancel() {
-        if (!confirm('Cancelar a sequencia de ligacoes?')) return;
         var jid = jobId();
         if (!jid) return;
         fetch('/api/cobranca/ligacao-bloco/' + encodeURIComponent(jid) + '/cancel', {
             method: 'POST',
             credentials: 'same-origin',
-        }).then(function () {
-            endJob();
-            closePanel();
-        });
+        })
+            .then(function (r) {
+                return r.json().then(function (j) {
+                    return { ok: r.ok, j: j };
+                });
+            })
+            .then(function (res) {
+                stopPolling();
+                sessionStorage.setItem(SS_ACTIVE, '0');
+                if (res.j && res.j.resumo) showResumoModal(res.j.resumo);
+                endJob();
+            });
     }
 
     function endJob() {
@@ -346,6 +467,7 @@
     }
 
     function onJobStarted(data) {
+        resumoJaExibido = false;
         ensureDom();
         if (!data || !data.job_id) return;
         sessionStorage.setItem(SS_JOB, data.job_id);

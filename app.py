@@ -12295,6 +12295,320 @@ _LIGACAO_BLOCO_NIVEL_LABEL = {
 }
 
 
+def _ensure_ligacao_bloco_controle_table(cursor):
+    """Controle diario: contrato com sucesso+tramitacao nao volta ao bloco no mesmo dia."""
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ligacao_bloco_controle (
+            id BIGINT(20) NOT NULL AUTO_INCREMENT,
+            id_funcionario INT(11) NOT NULL,
+            id_contrato BIGINT(20) NOT NULL,
+            data_ref DATE NOT NULL,
+            resultado ENUM('sucesso_tramitado', 'pulado', 'falha') NOT NULL,
+            nivel VARCHAR(32) DEFAULT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY uk_ligacao_bloco_dia (id_funcionario, id_contrato, data_ref),
+            KEY idx_ligacao_bloco_contrato (id_contrato),
+            CONSTRAINT fk_ligacao_bloco_func FOREIGN KEY (id_funcionario)
+                REFERENCES funcionario (id) ON DELETE CASCADE,
+            CONSTRAINT fk_ligacao_bloco_contrato FOREIGN KEY (id_contrato)
+                REFERENCES contrato (id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+    )
+
+
+def _ligacao_bloco_data_ref():
+    return datetime.date.today()
+
+
+def _ligacao_bloco_contratos_sucesso_tramitado_hoje(cursor, funcionario_id, contrato_ids):
+    """Contratos que ja tiveram ligacao com tramitacao registrada hoje (nao rediscar)."""
+    if not contrato_ids:
+        return set()
+    _ensure_ligacao_bloco_controle_table(cursor)
+    ph = ','.join(['%s'] * len(contrato_ids))
+    cursor.execute(
+        f"""
+        SELECT id_contrato FROM ligacao_bloco_controle
+        WHERE id_funcionario = %s AND data_ref = %s AND resultado = 'sucesso_tramitado'
+          AND id_contrato IN ({ph})
+        """,
+        [int(funcionario_id), _ligacao_bloco_data_ref()] + list(contrato_ids),
+    )
+    out = set()
+    for row in cursor.fetchall() or []:
+        try:
+            out.add(int(row['id_contrato']))
+        except (TypeError, ValueError, KeyError):
+            pass
+    return out
+
+
+def _ligacao_bloco_contratos_com_agenda(cursor, contrato_ids):
+    """Contratos com compromisso pendente na agenda (bloqueio de ligacao em cobranca)."""
+    if not contrato_ids:
+        return {}
+    ph = ','.join(['%s'] * len(contrato_ids))
+    cursor.execute(
+        f"""
+        SELECT a.id_contrato, MIN(a.data) AS proxima_data, COUNT(*) AS qtd
+        FROM agenda a
+        WHERE a.id_contrato IN ({ph}) AND a.status = 'pendente'
+        GROUP BY a.id_contrato
+        """,
+        list(contrato_ids),
+    )
+    bloqueados = {}
+    for row in _clean_rows(cursor.fetchall()):
+        try:
+            cid = int(row['id_contrato'])
+        except (TypeError, ValueError, KeyError):
+            continue
+        prox = row.get('proxima_data')
+        if hasattr(prox, 'strftime'):
+            prox_txt = prox.strftime('%d/%m/%Y %H:%M')
+        else:
+            prox_txt = str(prox or '')
+        bloqueados[cid] = {
+            'motivo': 'agendamento',
+            'motivo_label': 'Agendamento pendente na agenda',
+            'proxima_agenda': prox_txt,
+            'qtd_agenda': int(row.get('qtd') or 0),
+        }
+    return bloqueados
+
+
+def _ligacao_bloco_linha_resumo(row):
+    return {
+        'contrato_id': row.get('id'),
+        'grupo': row.get('grupo') or '',
+        'cota': row.get('cota') or '',
+        'numero_contrato': row.get('numero_contrato') or '',
+        'nome_devedor': row.get('nome_devedor') or '',
+    }
+
+
+def _ligacao_bloco_analisar_preview(cursor, funcionario_id, contrato_ids):
+    """Preview antes do disparo: exclusoes e contagem da fila."""
+    ids = []
+    seen = set()
+    for cid in contrato_ids or []:
+        try:
+            i = int(cid)
+        except (TypeError, ValueError):
+            continue
+        if i not in seen:
+            seen.add(i)
+            ids.append(i)
+    if not ids:
+        return {
+            'total_solicitados': 0,
+            'elegiveis_contratos': 0,
+            'ligacoes_previstas': 0,
+            'excluidos_ja_tramitados_hoje': [],
+            'excluidos_agendamento': [],
+            'excluidos_sem_telefone': [],
+            'contrato_ids_elegiveis': [],
+        }
+
+    linhas = _cobranca_bloco_excel_linhas(cursor, ids)
+    por_id = {}
+    for row in linhas:
+        try:
+            por_id[int(row.get('id'))] = row
+        except (TypeError, ValueError):
+            pass
+
+    ja_tramit = _ligacao_bloco_contratos_sucesso_tramitado_hoje(cursor, funcionario_id, ids)
+    com_agenda = _ligacao_bloco_contratos_com_agenda(cursor, ids)
+
+    ex_tramit = []
+    ex_agenda = []
+    ex_sem_tel = []
+    elegiveis_ids = []
+
+    for cid in ids:
+        row = por_id.get(cid)
+        if cid in ja_tramit:
+            base = _ligacao_bloco_linha_resumo(row) if row else {'contrato_id': cid}
+            base['motivo'] = 'ja_tramitado_hoje'
+            base['motivo_label'] = 'Ligacao com tramitacao ja registrada hoje'
+            ex_tramit.append(base)
+            continue
+        if cid in com_agenda:
+            base = _ligacao_bloco_linha_resumo(row) if row else {'contrato_id': cid}
+            base.update(com_agenda[cid])
+            ex_agenda.append(base)
+            continue
+        if not row:
+            continue
+        tels = row.get('telefones') or []
+        if isinstance(tels, str):
+            tels = [p.strip() for p in tels.split(';') if p.strip()]
+        if not tels:
+            base = _ligacao_bloco_linha_resumo(row)
+            base['motivo'] = 'sem_telefone'
+            base['motivo_label'] = 'Sem telefone cadastrado'
+            ex_sem_tel.append(base)
+            continue
+        elegiveis_ids.append(cid)
+
+    queue = _ligacao_bloco_queue_from_linhas([por_id[c] for c in elegiveis_ids if c in por_id])
+
+    return {
+        'total_solicitados': len(ids),
+        'elegiveis_contratos': len(elegiveis_ids),
+        'ligacoes_previstas': len(queue),
+        'excluidos_ja_tramitados_hoje': ex_tramit,
+        'excluidos_agendamento': ex_agenda,
+        'excluidos_sem_telefone': ex_sem_tel,
+        'contrato_ids_elegiveis': elegiveis_ids,
+    }
+
+
+def _ligacao_bloco_tem_tramitacao_hoje(cursor, funcionario_id, contrato_id):
+    cursor.execute(
+        """
+        SELECT 1 FROM tramitacao
+        WHERE id_contrato = %s AND id_funcionario = %s
+          AND DATE(created_at) = CURDATE()
+        LIMIT 1
+        """,
+        (int(contrato_id), int(funcionario_id)),
+    )
+    return cursor.fetchone() is not None
+
+
+def _ligacao_bloco_persist_resultado(cursor, funcionario_id, contrato_id, resultado, nivel=None):
+    _ensure_ligacao_bloco_controle_table(cursor)
+    if resultado == 'sucesso_tramitado':
+        cursor.execute(
+            """
+            INSERT INTO ligacao_bloco_controle
+                (id_funcionario, id_contrato, data_ref, resultado, nivel)
+            VALUES (%s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                resultado = VALUES(resultado),
+                nivel = VALUES(nivel),
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (int(funcionario_id), int(contrato_id), _ligacao_bloco_data_ref(), resultado, nivel),
+        )
+    elif resultado == 'pulado':
+        cursor.execute(
+            """
+            INSERT INTO ligacao_bloco_controle
+                (id_funcionario, id_contrato, data_ref, resultado, nivel)
+            VALUES (%s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                resultado = IF(resultado = 'sucesso_tramitado', resultado, VALUES(resultado)),
+                nivel = VALUES(nivel),
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (int(funcionario_id), int(contrato_id), _ligacao_bloco_data_ref(), resultado, nivel),
+        )
+
+
+def _ligacao_bloco_contratos_bloqueados_hoje(cursor, funcionario_id):
+    _ensure_ligacao_bloco_controle_table(cursor)
+    cursor.execute(
+        """
+        SELECT id_contrato FROM ligacao_bloco_controle
+        WHERE id_funcionario = %s AND data_ref = %s AND resultado = 'sucesso_tramitado'
+        """,
+        (int(funcionario_id), _ligacao_bloco_data_ref()),
+    )
+    return {int(r['id_contrato']) for r in (cursor.fetchall() or []) if r.get('id_contrato') is not None}
+
+
+def _ligacao_bloco_skip_indice_ate_elegivel(job, bloqueados):
+    queue = job.get('queue') or []
+    idx = int(job.get('index') or 0)
+    while idx < len(queue):
+        try:
+            cid = int(queue[idx].get('contrato_id'))
+        except (TypeError, ValueError):
+            idx += 1
+            continue
+        if cid not in bloqueados:
+            break
+        idx += 1
+    job['index'] = idx
+    if idx >= len(queue):
+        job['phase'] = 'completed'
+        job['status_text'] = 'Sequencia concluida.'
+
+
+def _ligacao_bloco_registrar_historico(job, item, resultado_ligacao, tramitacao_registrada=False):
+    if not item:
+        return
+    try:
+        cid = int(item.get('contrato_id'))
+    except (TypeError, ValueError):
+        return
+    hist = job.setdefault('historico', [])
+    hist.append({
+        'contrato_id': cid,
+        'grupo': item.get('grupo'),
+        'cota': item.get('cota'),
+        'numero': item.get('numero'),
+        'resultado': resultado_ligacao,
+        'tramitacao_registrada': bool(tramitacao_registrada),
+    })
+    proc = job.setdefault('contratos_processados', set())
+    if isinstance(proc, list):
+        proc = set(proc)
+        job['contratos_processados'] = proc
+    proc.add(cid)
+
+
+def _ligacao_bloco_build_resumo(job):
+    """Resumo para modal ao encerrar ou concluir (estilo print do usuario)."""
+    queue = job.get('queue') or []
+    hist = job.get('historico') or []
+    sucessos = int(job.get('successes') or 0)
+    pulados = int(job.get('pulados') or 0)
+    falhas = int(job.get('failures') or 0)
+    idx = int(job.get('index') or 0)
+
+    contratos_total = int(job.get('contratos_total_bloco') or 0)
+    if not contratos_total:
+        contratos_total = len({h.get('contrato_id') for h in hist if h.get('contrato_id')})
+
+    sucesso_sem_tramit = []
+    phase = job.get('phase')
+    if phase == 'awaiting_tramitacao':
+        cur = job.get('current')
+        last = job.get('last_dial') or {}
+        if cur and last.get('ok') and not job.get('tramitacao_ok'):
+            sucesso_sem_tramit.append({
+                'contrato_id': cur.get('contrato_id'),
+                'grupo': cur.get('grupo'),
+                'cota': cur.get('cota'),
+                'nome_devedor': cur.get('nome_devedor'),
+                'numero': cur.get('numero'),
+            })
+
+    ligacoes_total = len(queue)
+    ligacoes_processadas = min(idx, ligacoes_total)
+
+    return {
+        'sucessos': sucessos,
+        'pulados': pulados,
+        'falhas': falhas,
+        'ligacoes_processadas': ligacoes_processadas,
+        'ligacoes_total': ligacoes_total,
+        'contratos_total_bloco': contratos_total,
+        'sucesso_sem_tramitacao': sucesso_sem_tramit,
+        'cancelado': bool(job.get('cancelled')),
+        'nivel': job.get('nivel'),
+        'nivel_label': job.get('nivel_label'),
+    }
+
+
 def _ligacao_bloco_queue_from_linhas(linhas):
     """Fila plana: um item por número de telefone, na ordem dos contratos da lista."""
     queue = []
@@ -12365,8 +12679,13 @@ def _ligacao_bloco_job_public(job):
         'tramitacao_ok': bool(job.get('tramitacao_ok')),
         'successes': int(job.get('successes') or 0),
         'failures': int(job.get('failures') or 0),
+        'pulados': int(job.get('pulados') or 0),
         'skipped_sem_telefone': int(job.get('skipped_sem_telefone') or 0),
+        'contratos_total_bloco': int(job.get('contratos_total_bloco') or 0),
         'status_text': job.get('status_text') or '',
+        'resumo': _ligacao_bloco_build_resumo(job) if job.get('phase') in (
+            'completed', 'cancelled'
+        ) else None,
     }
 
 
@@ -12401,8 +12720,10 @@ def _ligacao_bloco_dial_worker(job_id):
         job['last_dial'] = result
         if result.get('ok'):
             job['successes'] = int(job.get('successes') or 0) + 1
+            _ligacao_bloco_registrar_historico(job, item, 'sucesso', False)
         else:
             job['failures'] = int(job.get('failures') or 0) + 1
+            _ligacao_bloco_registrar_historico(job, item, 'falha', False)
         job['phase'] = 'awaiting_tramitacao'
         job['tramitacao_ok'] = False
         job['status_text'] = (
@@ -12425,6 +12746,25 @@ def _ligacao_bloco_get_job(job_id, funcionario_id):
     return job
 
 
+@app.route('/api/cobranca/ligacao-bloco/preview', methods=['POST'])
+def api_cobranca_ligacao_bloco_preview():
+    """Preview do bloco: exclusoes (agenda, ja tramitado hoje, sem telefone)."""
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Nao autenticado.'}), 401
+    payload = request.get_json(silent=True) or {}
+    ids, err = _validar_ids_contratos(payload.get('contrato_ids'))
+    if err:
+        return jsonify({'error': err}), 400
+    conn = _get_db()
+    try:
+        with conn.cursor() as cursor:
+            data = _ligacao_bloco_analisar_preview(cursor, fid, ids)
+    finally:
+        conn.close()
+    return jsonify({'ok': True, **data})
+
+
 @app.route('/api/cobranca/ligacao-bloco/start', methods=['POST'])
 def api_cobranca_ligacao_bloco_start():
     """Inicia sequencia de ligacoes do bloco em background (fila por telefone)."""
@@ -12441,12 +12781,12 @@ def api_cobranca_ligacao_bloco_start():
     with _ligacao_bloco_lock:
         for jid, j in list(_ligacao_bloco_jobs.items()):
             if str(j.get('funcionario_id')) == str(fid) and j.get('phase') not in ('completed', 'cancelled'):
-                payload = {
+                payload_out = {
                     'error': 'Ja existe uma sequencia de ligacoes em andamento.',
                     'job_id': jid,
                 }
-                payload.update(_ligacao_bloco_job_public(j))
-                return jsonify(payload), 409
+                payload_out.update(_ligacao_bloco_job_public(j))
+                return jsonify(payload_out), 409
         stale = [
             k for k, v in list(_ligacao_bloco_jobs.items())
             if str(v.get('funcionario_id')) == str(fid)
@@ -12458,24 +12798,24 @@ def api_cobranca_ligacao_bloco_start():
     conn = _get_db()
     try:
         with conn.cursor() as cursor:
-            linhas = _cobranca_bloco_excel_linhas(cursor, ids)
+            preview = _ligacao_bloco_analisar_preview(cursor, fid, ids)
+            elegiveis = preview.get('contrato_ids_elegiveis') or []
+            if not elegiveis:
+                return jsonify({
+                    'error': 'Nenhum contrato elegivel para ligacao neste bloco.',
+                    'preview': preview,
+                }), 400
+            linhas = _cobranca_bloco_excel_linhas(cursor, elegiveis)
+            bloqueados = _ligacao_bloco_contratos_bloqueados_hoje(cursor, fid)
     finally:
         conn.close()
 
     queue = _ligacao_bloco_queue_from_linhas(linhas)
-    with_phone = {q['contrato_id'] for q in queue}
-    skipped = 0
-    for row in linhas:
-        try:
-            rid = int(row.get('id'))
-        except (TypeError, ValueError):
-            continue
-        if rid not in with_phone:
-            skipped += 1
+    queue = [q for q in queue if int(q.get('contrato_id') or 0) not in bloqueados]
     if not queue:
         return jsonify({
-            'error': 'Nenhum telefone cadastrado nos contratos selecionados.',
-            'skipped_sem_telefone': skipped,
+            'error': 'Nenhuma ligacao pendente (todos os contratos elegiveis ja foram concluidos hoje).',
+            'preview': preview,
         }), 400
 
     job_id = uuid.uuid4().hex
@@ -12492,13 +12832,27 @@ def api_cobranca_ligacao_bloco_start():
         'tramitacao_ok': False,
         'successes': 0,
         'failures': 0,
-        'skipped_sem_telefone': skipped,
+        'pulados': 0,
+        'contratos_total_bloco': preview.get('total_solicitados') or len(ids),
+        'skipped_sem_telefone': len(preview.get('excluidos_sem_telefone') or []),
+        'preview_start': preview,
+        'historico': [],
+        'contratos_processados': set(),
         'current': None,
         'last_dial': None,
         'status_text': 'Iniciando sequencia...',
     }
     with _ligacao_bloco_lock:
         _ligacao_bloco_jobs[job_id] = job
+        _ligacao_bloco_skip_indice_ate_elegivel(job, bloqueados)
+
+    if job['phase'] == 'completed':
+        return jsonify({
+            'ok': True,
+            'job_id': job_id,
+            'completed': True,
+            **_ligacao_bloco_job_public(job),
+        })
 
     _ligacao_bloco_start_dial(job_id)
     return jsonify({'ok': True, 'job_id': job_id, **_ligacao_bloco_job_public(job)})
@@ -12518,7 +12872,7 @@ def api_cobranca_ligacao_bloco_state(job_id):
 
 @app.route('/api/cobranca/ligacao-bloco/<job_id>/tramitacao-ok', methods=['POST'])
 def api_cobranca_ligacao_bloco_tramitacao_ok(job_id):
-    """Marca tramitacao registrada; libera pergunta de continuar ou proxima ligacao."""
+    """Valida tramitacao no dia e libera proxima ligacao."""
     fid = session.get('funcionario_id')
     if not fid:
         return jsonify({'error': 'Nao autenticado.'}), 401
@@ -12530,6 +12884,35 @@ def api_cobranca_ligacao_bloco_tramitacao_ok(job_id):
             return jsonify({'error': 'Sequencia cancelada.'}), 400
         if job.get('phase') not in ('awaiting_tramitacao', 'awaiting_continue'):
             return jsonify({'error': 'Nao ha ligacao aguardando tramitacao.'}), 400
+        cur = job.get('current')
+        if not cur:
+            return jsonify({'error': 'Nenhuma ligacao ativa.'}), 400
+        try:
+            cid = int(cur.get('contrato_id'))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Contrato invalido.'}), 400
+
+    conn = _get_db()
+    try:
+        with conn.cursor() as cursor:
+            if not _ligacao_bloco_tem_tramitacao_hoje(cursor, fid, cid):
+                return jsonify({
+                    'error': 'Registre a tramitacao deste contrato (hoje) antes de continuar.',
+                }), 400
+            _ligacao_bloco_persist_resultado(
+                cursor, fid, cid, 'sucesso_tramitado', job.get('nivel'),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    with _ligacao_bloco_lock:
+        job = _ligacao_bloco_jobs.get(job_id)
+        if not job:
+            return jsonify({'error': 'Sequencia nao encontrada.'}), 404
+        last = job.get('last_dial') or {}
+        res_lig = 'sucesso' if last.get('ok') else 'falha'
+        _ligacao_bloco_registrar_historico(job, cur, res_lig, True)
         job['tramitacao_ok'] = True
         job['phase'] = 'awaiting_continue'
         job['status_text'] = 'Tramitacao registrada. Deseja seguir para a proxima ligacao?'
@@ -12556,12 +12939,84 @@ def api_cobranca_ligacao_bloco_proximo(job_id):
             return jsonify({'error': 'Discagem em andamento.'}), 409
         queue = job.get('queue') or []
         job['index'] = int(job.get('index') or 0) + 1
+        job['tramitacao_ok'] = False
+        job['current'] = None
+        bloqueados = set()
+        conn = _get_db()
+        try:
+            with conn.cursor() as cursor:
+                bloqueados = _ligacao_bloco_contratos_bloqueados_hoje(cursor, fid)
+        finally:
+            conn.close()
+        _ligacao_bloco_skip_indice_ate_elegivel(job, bloqueados)
         if job['index'] >= len(queue):
             job['phase'] = 'completed'
-            job['tramitacao_ok'] = False
             job['status_text'] = 'Sequencia concluida.'
-            return jsonify({'ok': True, 'completed': True, **_ligacao_bloco_job_public(job)})
+            return jsonify({
+                'ok': True,
+                'completed': True,
+                'resumo': _ligacao_bloco_build_resumo(job),
+                **_ligacao_bloco_job_public(job),
+            })
+        job['phase'] = 'starting'
+        job['status_text'] = 'Preparando proxima ligacao...'
+
+    _ligacao_bloco_start_dial(job_id)
+    job = _ligacao_bloco_get_job(job_id, fid)
+    return jsonify({'ok': True, 'completed': False, **_ligacao_bloco_job_public(job)})
+
+
+@app.route('/api/cobranca/ligacao-bloco/<job_id>/pular', methods=['POST'])
+def api_cobranca_ligacao_bloco_pular(job_id):
+    """Pula a ligacao atual (contrato volta a ser elegivel no bloco no mesmo dia)."""
+    fid = session.get('funcionario_id')
+    if not fid:
+        return jsonify({'error': 'Nao autenticado.'}), 401
+    with _ligacao_bloco_lock:
+        job = _ligacao_bloco_jobs.get(job_id)
+        if not job or str(job.get('funcionario_id')) != str(fid):
+            return jsonify({'error': 'Sequencia nao encontrada.'}), 404
+        if job.get('cancelled'):
+            return jsonify({'error': 'Sequencia cancelada.'}), 400
+        if job.get('running'):
+            return jsonify({'error': 'Discagem em andamento.'}), 409
+        if job.get('phase') not in ('awaiting_tramitacao', 'awaiting_continue'):
+            return jsonify({'error': 'Nao ha ligacao para pular.'}), 400
+        cur = job.get('current')
+        if not cur:
+            return jsonify({'error': 'Nenhuma ligacao ativa.'}), 400
+        try:
+            cid = int(cur.get('contrato_id'))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Contrato invalido.'}), 400
+        job['pulados'] = int(job.get('pulados') or 0) + 1
+        _ligacao_bloco_registrar_historico(job, cur, 'pulado', False)
+        job['index'] = int(job.get('index') or 0) + 1
         job['tramitacao_ok'] = False
+        job['current'] = None
+        queue = job.get('queue') or []
+
+    conn = _get_db()
+    try:
+        with conn.cursor() as cursor:
+            _ligacao_bloco_persist_resultado(cursor, fid, cid, 'pulado', job.get('nivel'))
+            bloqueados = _ligacao_bloco_contratos_bloqueados_hoje(cursor, fid)
+        conn.commit()
+    finally:
+        conn.close()
+
+    with _ligacao_bloco_lock:
+        job = _ligacao_bloco_jobs.get(job_id)
+        _ligacao_bloco_skip_indice_ate_elegivel(job, bloqueados)
+        if job['index'] >= len(job.get('queue') or []):
+            job['phase'] = 'completed'
+            job['status_text'] = 'Sequencia concluida.'
+            return jsonify({
+                'ok': True,
+                'completed': True,
+                'resumo': _ligacao_bloco_build_resumo(job),
+                **_ligacao_bloco_job_public(job),
+            })
         job['phase'] = 'starting'
         job['status_text'] = 'Preparando proxima ligacao...'
 
@@ -12572,7 +13027,7 @@ def api_cobranca_ligacao_bloco_proximo(job_id):
 
 @app.route('/api/cobranca/ligacao-bloco/<job_id>/cancel', methods=['POST'])
 def api_cobranca_ligacao_bloco_cancel(job_id):
-    """Cancela a sequencia de ligacoes."""
+    """Encerra a sequencia e devolve resumo (sucesso / pulado / falha)."""
     fid = session.get('funcionario_id')
     if not fid:
         return jsonify({'error': 'Nao autenticado.'}), 401
@@ -12583,8 +13038,9 @@ def api_cobranca_ligacao_bloco_cancel(job_id):
         job['cancelled'] = True
         job['running'] = False
         job['phase'] = 'cancelled'
-        job['status_text'] = 'Sequencia cancelada.'
-    return jsonify({'ok': True})
+        job['status_text'] = 'Sequencia encerrada.'
+        resumo = _ligacao_bloco_build_resumo(job)
+    return jsonify({'ok': True, 'resumo': resumo, **_ligacao_bloco_job_public(job)})
 
 
 @app.route('/api/automacao/<tipo>', methods=['POST'])
