@@ -6,6 +6,8 @@ Este documento lista **todos os ficheiros `.js` em `static/`** (30 no estado atu
 
 **Metodologia e governanca:** regras obrigatorias em `.cursor/rules/metodologia-joao-barbosa.mdc` (raiz do repo); produto e negocio em `AGENTS.md`. No cliente: sem tokens ou chaves em JS; usar sempre o padrao **proxy no Flask** (`/api/...`).
 
+**Deploy:** nao ha build de frontend (sem npm/webpack). Os ficheiros em `static/` sao servidos pelo Flask tal como estao; ver [`docs/DEPLOY.md`](DEPLOY.md).
+
 ---
 
 ## 1. Onde os scripts entram (mapa rapido)

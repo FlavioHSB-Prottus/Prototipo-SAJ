@@ -7,6 +7,7 @@ Sistema centralizado para gestão e cobrança de consórcios: importação de ar
 - **Metodologia obrigatoria (texto completo):** [`.cursor/rules/metodologia-joao-barbosa.mdc`](.cursor/rules/metodologia-joao-barbosa.mdc) — regras de engenharia e processo; **nao** podem ser descumpridas em alteracoes ao projeto.
 - **Produto e negocio:** [`AGENTS.md`](AGENTS.md).
 - **Documentacao tecnica (modulos, APIs, fluxos):** [`docs/DOCUMENTACAO_PYTHON_PROJETO_SAJ.md`](docs/DOCUMENTACAO_PYTHON_PROJETO_SAJ.md), [`docs/DOCUMENTACAO_JS_PROJETO_SAJ.md`](docs/DOCUMENTACAO_JS_PROJETO_SAJ.md).
+- **Deploy e ambientes (local, VM/VPN, servidor):** [`docs/DEPLOY.md`](docs/DEPLOY.md).
 - **Referencias (PDFs, SERASA, PHP legado):** [`docs/referencias/README.md`](docs/referencias/README.md).
 
 ## Configuração e segredos
@@ -43,3 +44,33 @@ Renomear ou mover `templates/` ou `static/` exige ajustar `url_for`, `render_tem
 Requisitos: Python 3 com dependências de `requirements.txt`, MySQL acessível com as credenciais configuradas (env ou padrão local).
 
 Com `python-dotenv` instalado (está em `requirements.txt`), o `app.py` carrega o arquivo `.env` da raiz, se existir, antes de montar `DB_CONFIG`. Sem o pacote ou sem `.env`, o comportamento segue os padrões locais documentados em `.env.example`.
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env   # editar DB_* e FLASK_SECRET_KEY
+python Banco/criar_banco.py
+python Banco/seed_funcionarios.py
+python app.py
+```
+
+Acesso local: **http://127.0.0.1:5000** (servidor em `0.0.0.0:5000`, `debug=True` — só para desenvolvimento).
+
+## Deploy e ambientes
+
+O repositório **não inclui** Docker, CI/CD nem scripts de deploy automatizados. A implantação é **manual**: código no servidor (git), `.env`, MariaDB e processo Python.
+
+| Ambiente | Como sobe | Documentação |
+|----------|-----------|--------------|
+| **Local** | `python app.py` após `criar_banco` + `.env` | Secção [Execução](#execução) acima |
+| **Testes (VM + VPN)** | Gunicorn (1 worker) + opcional nginx/HTTPS; BD dedicada | [`docs/DEPLOY.md`](docs/DEPLOY.md) §3.2 e §4 |
+| **Produção** | Mesmo padrão WSGI; `FLASK_SECRET_KEY` forte, sem `debug` | [`docs/DEPLOY.md`](docs/DEPLOY.md) §3.3 |
+
+Pontos críticos no servidor:
+
+- Variáveis **`DB_*`** e **`FLASK_SECRET_KEY`** no `.env` (nunca no Git).
+- Importação GM em segundo plano guarda estado **em memória** — usar **um** worker Gunicorn ou um único processo Flask.
+- Integrações (discador, SMS/e-mail) configuradas no `.env`; ver [`.env.example`](.env.example).
+- Migrações SQL em `Banco/*.sql` aplicar em bases já existentes após `git pull`.
+
+Procedimento completo, nginx, systemd, checklist e troubleshooting: **[`docs/DEPLOY.md`](docs/DEPLOY.md)**.
