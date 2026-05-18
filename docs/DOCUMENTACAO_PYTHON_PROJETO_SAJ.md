@@ -186,7 +186,7 @@ Distribui contratos abertos a funcionarios **Cobranca** em `funcionario_cobranca
 
 ## 10. `Python/serasa_conv_txt.py`
 
-TXT 600 caracteres SERASA-CONVEM; inclusao (detalhe) vs exclusao (header+trailer). `montar_arquivo_txt`, helpers `_fit`, `patch_header_*`. `POST /api/negativacao/serasa-arquivo-txt` grava copia do ficheiro em `registro_txt_negativacao` ou `registro_txt_positivacao` (`conteudo` MEDIUMTEXT, `id_funcionario` da sessao) antes do download.
+TXT 600 caracteres SERASA-CONVEM; inclusao (detalhe) vs exclusao (header+trailer). `montar_arquivo_txt`, helpers `_fit`, `patch_header_*`. Nome do ficheiro: `SERASA_GM_<DDMMAAAA><seq4>.TXT` (ex. `SERASA_GM_170520264912`), sequencia global (+1 sobre o ultimo `nome_arquivo` em `registro_txt_negativacao` ou `registro_txt_positivacao`, defeito `4912`). `GET /api/negativacao/serasa-arquivo-txt/sequencia` sugere sequencia; `POST /api/negativacao/serasa-arquivo-txt` exige `sequencia` no JSON, grava copia em `registro_txt_*` antes do download.
 
 **Modelos por defeito:** `Python/serasa_templates/` (`SERASA_GM_*4912*.TXT`, `SERASA_GM_*4910*.TXT`). Sobrescrever com `SERASA_CONV_TEMPLATE_DIR` se necessario.
 

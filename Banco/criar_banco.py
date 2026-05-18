@@ -18,7 +18,10 @@ DB_PASSWORD = os.environ.get("DB_PASSWORD", "root")
 DB_NAME = os.environ.get("DB_NAME", "consorcio_gm")
 # 2. SQL PURO E COM PONTO-E-VÍRGULA
 RAW_SQL = """
-CREATE TABLE `arquivos_gm` (
+CREATE DATABASE IF NOT EXISTS consorcio_gm;
+USE consorcio_gm;
+
+CREATE TABLE IF NOT EXISTS `arquivos_gm` (
   `id_arquivo_gm` bigint(20) NOT NULL AUTO_INCREMENT,
   `data_arquivo` date DEFAULT NULL,
   `conteudo` longtext DEFAULT NULL,
@@ -30,7 +33,7 @@ CREATE TABLE `arquivos_gm` (
   KEY `idx_dt_arq` (`data_arquivo`)
 );
 
-CREATE TABLE `aviso` (
+CREATE TABLE IF NOT EXISTS `aviso` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `titulo` varchar(255) NOT NULL,
   `descricao` text DEFAULT NULL,
@@ -43,7 +46,7 @@ CREATE TABLE `aviso` (
 
 -- consorcio_gm.funcionario definition
 
-CREATE TABLE `funcionario` (
+CREATE TABLE IF NOT EXISTS `funcionario` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `nome` varchar(255) NOT NULL,
   `data_nascimento` date DEFAULT NULL,
@@ -80,14 +83,14 @@ CREATE TABLE `funcionario` (
   UNIQUE KEY `apikey` (`apikey`)
 );
 
-CREATE TABLE `grupo` (
+CREATE TABLE IF NOT EXISTS `grupo` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `nome` varchar(255) NOT NULL,
   `descricao` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`id`)
 );
 
-CREATE TABLE `pessoa` (
+CREATE TABLE IF NOT EXISTS `pessoa` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `cpf_cnpj` varchar(20) DEFAULT NULL,
   `nome_completo` varchar(255) DEFAULT NULL,
@@ -100,7 +103,7 @@ CREATE TABLE `pessoa` (
   UNIQUE KEY `cpf_cnpj` (`cpf_cnpj`)
 );
 
-CREATE TABLE `email` (
+CREATE TABLE IF NOT EXISTS `email` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_pessoa` bigint(20) NOT NULL,
   `tipo` varchar(40) NOT NULL DEFAULT 'principal',
@@ -114,7 +117,7 @@ CREATE TABLE `email` (
   CONSTRAINT `fk_email_pessoa` FOREIGN KEY (`id_pessoa`) REFERENCES `pessoa` (`id`) ON DELETE CASCADE
 );
 
-CREATE TABLE `empresa` (
+CREATE TABLE IF NOT EXISTS `empresa` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `apelido` varchar(15) NOT NULL,
   `ativo` bit(1) DEFAULT NULL,
@@ -125,7 +128,7 @@ CREATE TABLE `empresa` (
   CONSTRAINT `empresa_ibfk_1` FOREIGN KEY (`id_pessoa`) REFERENCES `pessoa` (`id`) ON DELETE CASCADE
 );
 
-CREATE TABLE `endereco` (
+CREATE TABLE IF NOT EXISTS `endereco` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_pessoa` bigint(20) NOT NULL,
   `tipo` varchar(40) NOT NULL COMMENT 'principal, secundario, avalista_principal, ...',
@@ -143,7 +146,7 @@ CREATE TABLE `endereco` (
   CONSTRAINT `fk_endereco_pessoa` FOREIGN KEY (`id_pessoa`) REFERENCES `pessoa` (`id`) ON DELETE CASCADE
 );
 
-CREATE TABLE `funcionario_grupo` (
+CREATE TABLE IF NOT EXISTS `funcionario_grupo` (
   `id_funcionario` int(11) NOT NULL,
   `id_grupo` bigint(20) NOT NULL,
   PRIMARY KEY (`id_funcionario`,`id_grupo`),
@@ -152,7 +155,7 @@ CREATE TABLE `funcionario_grupo` (
   CONSTRAINT `fk_grupo` FOREIGN KEY (`id_grupo`) REFERENCES `grupo` (`id`) ON DELETE CASCADE
 );
 
-CREATE TABLE `header` (
+CREATE TABLE IF NOT EXISTS `header` (
   `id_registro` int(11) NOT NULL AUTO_INCREMENT,
   `tipo_reg` varchar(1) DEFAULT NULL,
   `cnpj` varchar(14) DEFAULT NULL,
@@ -167,7 +170,7 @@ CREATE TABLE `header` (
   CONSTRAINT `fk_header_arquivos` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE
 );
 
-CREATE TABLE `mensagem` (
+CREATE TABLE IF NOT EXISTS `mensagem` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_remetente` int(11) NOT NULL,
   `id_destinatario` int(11) NOT NULL,
@@ -185,7 +188,7 @@ CREATE TABLE `mensagem` (
   CONSTRAINT `assunto_constraint` CHECK (trim(`assunto`) <> '')
 );
 
-CREATE TABLE `registro2` (
+CREATE TABLE IF NOT EXISTS `registro2` (
   `id_registro` int(11) NOT NULL AUTO_INCREMENT,
   `tipo` varchar(1) DEFAULT NULL,
   `grupo` varchar(6) DEFAULT NULL,
@@ -222,7 +225,7 @@ CREATE TABLE `registro2` (
   CONSTRAINT `fk_registro2_arquivos` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE
 );
 
-CREATE TABLE `registro3` (
+CREATE TABLE IF NOT EXISTS `registro3` (
   `id_registro` bigint(20) NOT NULL AUTO_INCREMENT,
   `tipo` varchar(1) DEFAULT NULL,
   `grupo` varchar(6) DEFAULT NULL,
@@ -253,7 +256,7 @@ CREATE TABLE `registro3` (
   CONSTRAINT `fk_registro3_arquivos` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE
 );
 
-CREATE TABLE `registro4` (
+CREATE TABLE IF NOT EXISTS `registro4` (
   `id_registro` bigint(20) NOT NULL AUTO_INCREMENT,
   `tipo` varchar(1) DEFAULT NULL,
   `grupo` varchar(6) DEFAULT NULL,
@@ -275,7 +278,7 @@ CREATE TABLE `registro4` (
   CONSTRAINT `fk_registro4_arquivos` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE
 );
 
-CREATE TABLE `registro5` (
+CREATE TABLE IF NOT EXISTS `registro5` (
   `id_registro` bigint(20) NOT NULL AUTO_INCREMENT,
   `tipo` varchar(1) DEFAULT NULL,
   `grupo` varchar(6) DEFAULT NULL,
@@ -340,7 +343,7 @@ CREATE TABLE `registro5` (
   CONSTRAINT `fk_registro5_arquivos` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE
 );
 
-CREATE TABLE `registro_1` (
+CREATE TABLE IF NOT EXISTS `registro_1` (
   `id_registro` bigint(20) NOT NULL AUTO_INCREMENT,
   `tipo` varchar(1) DEFAULT NULL,
   `grupo` varchar(6) DEFAULT NULL,
@@ -419,7 +422,7 @@ CREATE TABLE `registro_1` (
   CONSTRAINT `fk_registro_1_arquivos` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE
 );
 
-CREATE TABLE `registro_6` (
+CREATE TABLE IF NOT EXISTS `registro_6` (
   `id_registro` bigint(20) NOT NULL AUTO_INCREMENT,
   `tipo` varchar(1) DEFAULT NULL,
   `grupo` varchar(6) DEFAULT NULL,
@@ -448,7 +451,7 @@ CREATE TABLE `registro_6` (
   CONSTRAINT `fk_registro_6_arquivos` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE
 );
 
-CREATE TABLE `telefone` (
+CREATE TABLE IF NOT EXISTS `telefone` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_pessoa` bigint(20) NOT NULL,
   `tipo` varchar(40) NOT NULL COMMENT 'fixo, celular, comercial, comercial_devedor, comercial_conjuge, recados, outro, ...',
@@ -465,7 +468,7 @@ CREATE TABLE `telefone` (
   CONSTRAINT `fk_telefone_pessoa` FOREIGN KEY (`id_pessoa`) REFERENCES `pessoa` (`id`) ON DELETE CASCADE
 );
 
-CREATE TABLE `trailer` (
+CREATE TABLE IF NOT EXISTS `trailer` (
   `id_registro` bigint(20) NOT NULL AUTO_INCREMENT,
   `tipo_reg` varchar(1) DEFAULT NULL,
   `data` varchar(15) DEFAULT NULL,
@@ -483,7 +486,7 @@ CREATE TABLE `trailer` (
   CONSTRAINT `fk_trailer_arquivos` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE
 );
 
-CREATE TABLE `contrato` (
+CREATE TABLE IF NOT EXISTS `contrato` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_pessoa` bigint(20) NOT NULL,
   `id_avalista` bigint(20) DEFAULT NULL,
@@ -516,7 +519,7 @@ CREATE TABLE `contrato` (
   CONSTRAINT `contrato_ibfk_4` FOREIGN KEY (`id_seguradora`) REFERENCES `empresa` (`id`) ON DELETE SET NULL
 );
 
-CREATE TABLE `relacao_contrato_operador` (
+CREATE TABLE IF NOT EXISTS `relacao_contrato_operador` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `numero_contrato_saj` varchar(80) DEFAULT NULL COMMENT 'Texto contrato no sistema SAJ antigo',
   `grupo` varchar(6) NOT NULL COMMENT 'Grupo com 6 digitos',
@@ -530,7 +533,7 @@ CREATE TABLE `relacao_contrato_operador` (
   KEY `idx_relacao_operador` (`nome_operador`(64))
 ) COMMENT='Mapeamento SAJ antigo grupo cota operador import Excel';
 
-CREATE TABLE `funcionario_cobranca` (
+CREATE TABLE IF NOT EXISTS `funcionario_cobranca` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_funcionario` int(11) NOT NULL,
   `id_contrato` bigint(20) NOT NULL,
@@ -545,7 +548,7 @@ CREATE TABLE `funcionario_cobranca` (
   CONSTRAINT `funcionario_cobranca_ibfk_2` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`)
 );
 
-CREATE TABLE `ocorrencia` (
+CREATE TABLE IF NOT EXISTS `ocorrencia` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_contrato` bigint(20) NOT NULL,
   `id_arquivo_gm` bigint(20) NOT NULL,
@@ -563,7 +566,7 @@ CREATE TABLE `ocorrencia` (
   CONSTRAINT `ocorrencia_ibfk_2` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE
 );
 
-CREATE TABLE `parcela` (
+CREATE TABLE IF NOT EXISTS `parcela` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_contrato` bigint(20) NOT NULL,
   `numero_parcela` int(11) DEFAULT NULL,
@@ -582,7 +585,7 @@ CREATE TABLE `parcela` (
   CONSTRAINT `parcela_ibfk_1` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE
 );
 
-CREATE TABLE `pasta_virtual` (
+CREATE TABLE IF NOT EXISTS `pasta_virtual` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `nome_arquivo` varchar(255) NOT NULL,
   `descricao` varchar(255) DEFAULT NULL,
@@ -598,7 +601,7 @@ CREATE TABLE `pasta_virtual` (
   CONSTRAINT `pasta_virtual_ibfk_2` FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE
 );
 
-CREATE TABLE `performance` (
+CREATE TABLE IF NOT EXISTS `performance` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_ocorrencia` bigint(20) NOT NULL,
   `id_contrato` bigint(20) NOT NULL,
@@ -630,7 +633,7 @@ CREATE TABLE `performance` (
   CONSTRAINT `perf_parcela_anc_fk` FOREIGN KEY (`id_parcela_ancora`) REFERENCES `parcela` (`id`) ON DELETE SET NULL
 );
 
-CREATE TABLE `protocolo` (
+CREATE TABLE IF NOT EXISTS `protocolo` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_remetente` int(11) NOT NULL,
   `id_destinatario` int(11) NOT NULL,
@@ -651,7 +654,7 @@ CREATE TABLE `protocolo` (
   CONSTRAINT `protocolo_ibfk_2` FOREIGN KEY (`id_destinatario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE
 );
 
-CREATE TABLE `solicitacao` (
+CREATE TABLE IF NOT EXISTS `solicitacao` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_remetente` int(11) NOT NULL,
   `id_destinatario` int(11) NOT NULL,
@@ -673,7 +676,7 @@ CREATE TABLE `solicitacao` (
   CONSTRAINT `assunto_constraint` CHECK (trim(`assunto`) <> '')
 );
 
-CREATE TABLE `solicitacao_moderacao` (
+CREATE TABLE IF NOT EXISTS `solicitacao_moderacao` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_solicitante` int(11) NOT NULL,
   `tipo` varchar(32) NOT NULL COMMENT 'tramitacao_edit|tramitacao_delete|agenda_edit|agenda_delete',
@@ -694,7 +697,7 @@ CREATE TABLE `solicitacao_moderacao` (
   CONSTRAINT `fk_sol_mod_contrato` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`)
 );
 
-CREATE TABLE `tramitacao` (
+CREATE TABLE IF NOT EXISTS `tramitacao` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `carteira` double NOT NULL,
   `discado` varchar(20) NOT NULL,
@@ -718,7 +721,7 @@ CREATE TABLE `tramitacao` (
   CONSTRAINT `check_status_atendimento` CHECK (`atendido` = 0 and `cpc` = 0 and `contato` = 'indefinido' and `status` in ('caixa postal / secretária eletrônica','ocupado','chama e não atende','chamada não completada','ligação caiu','numero não existe') or `atendido` = 1 and `cpc` = 1 and `contato` = 'consorciado' and `status` in ('alega pagamento','agendamento','acordo firmado','sem condições financeiras','sem interesse no pagamento','não confirma dados','atende e desliga','ligação ficou muda') or `atendido` = 1 and `cpc` = 0 and `contato` in ('consorciado','terceiro','avalista') and `status` in ('não é consorciado, conhece, mas não é responsável','não é o consorciado e não conhece'))
 );
 
-CREATE TABLE `agenda` (
+CREATE TABLE IF NOT EXISTS `agenda` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `atividade` varchar(255) NOT NULL,
   `descricao` text DEFAULT NULL,
@@ -734,7 +737,7 @@ CREATE TABLE `agenda` (
   CONSTRAINT `fk_agenda_funcionario` FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`)
 );
 
-CREATE TABLE `notificacao_usuario` (
+CREATE TABLE IF NOT EXISTS `notificacao_usuario` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_funcionario` int(11) NOT NULL,
   `tipo` enum('aviso','agenda','mensagem','solicitacao','protocolo') NOT NULL,
@@ -746,7 +749,7 @@ CREATE TABLE `notificacao_usuario` (
   CONSTRAINT `fk_notificacao_usuario_funcionario` FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE
 );
 
-CREATE TABLE `bens` (
+CREATE TABLE IF NOT EXISTS `bens` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `id_contrato` bigint(20) DEFAULT NULL,
   `chassi` varchar(30) DEFAULT NULL,
@@ -767,7 +770,7 @@ CREATE TABLE `bens` (
   CONSTRAINT `fk_bens_contrato` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE
 );
 
-CREATE TABLE `cobranca` (
+CREATE TABLE IF NOT EXISTS `cobranca` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_contrato` bigint(20) NOT NULL,
   `data_arquivo` date NOT NULL,
@@ -777,7 +780,7 @@ CREATE TABLE `cobranca` (
   CONSTRAINT `cobranca_contrato_fk` FOREIGN KEY (`id_contrato`) REFERENCES `contrato` (`id`) ON DELETE CASCADE
 );
 
-CREATE TABLE `negativacao` (
+CREATE TABLE IF NOT EXISTS `negativacao` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_contrato` bigint(20) NOT NULL,
   `id_parcela` bigint(20) NOT NULL,
@@ -798,7 +801,7 @@ CREATE TABLE `negativacao` (
   CONSTRAINT `negativacao_parcela_FK` FOREIGN KEY (`id_parcela`) REFERENCES `parcela` (`id`)
 );
 
-CREATE TABLE `acordo` (
+CREATE TABLE IF NOT EXISTS `acordo` (
 	`id` BIGINT PRIMARY KEY AUTO_INCREMENT,
 	`id_contrato` BIGINT NOT NULL,
 	`id_funcionario` INT NOT NULL,
@@ -818,7 +821,7 @@ CREATE TABLE `acordo` (
 );
 
 
-CREATE TABLE `registro_sms` (
+CREATE TABLE IF NOT EXISTS `registro_sms` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_contrato` bigint(20) NOT NULL,
   `id_pessoa` bigint(20) NOT NULL,
@@ -839,7 +842,7 @@ CREATE TABLE `registro_sms` (
 );
 
 
-CREATE TABLE `registro_email` (
+CREATE TABLE IF NOT EXISTS `registro_email` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_contrato` bigint(20) NOT NULL,
   `id_pessoa` bigint(20) NOT NULL,
@@ -859,7 +862,7 @@ CREATE TABLE `registro_email` (
   CONSTRAINT `registro_email_ibfk_4` FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE
 );
 
-CREATE TABLE `negativacao_historico` (
+CREATE TABLE IF NOT EXISTS `negativacao_historico` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `id_arquivo_gm` bigint(20) NOT NULL,
   `id_contrato` bigint(20) NOT NULL,
@@ -882,7 +885,7 @@ CREATE TABLE `negativacao_historico` (
   CONSTRAINT `fk_neg_hist_arquivo_gm` FOREIGN KEY (`id_arquivo_gm`) REFERENCES `arquivos_gm` (`id_arquivo_gm`) ON DELETE CASCADE
 );
 
-CREATE TABLE `registro_txt_negativacao` (
+CREATE TABLE IF NOT EXISTS `registro_txt_negativacao` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `nome_arquivo` varchar(255) DEFAULT NULL,
   `conteudo` mediumtext NOT NULL,
@@ -894,7 +897,7 @@ CREATE TABLE `registro_txt_negativacao` (
   CONSTRAINT `registro_txt_negativacao_ibfk_1` FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id`) ON DELETE CASCADE
 );
 
-CREATE TABLE `registro_txt_positivacao` (
+CREATE TABLE IF NOT EXISTS `registro_txt_positivacao` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `nome_arquivo` varchar(255) DEFAULT NULL,
   `conteudo` mediumtext NOT NULL,
