@@ -1368,6 +1368,22 @@
     border-color: #9ca3af;
 }
 
+.auto-btn-excel {
+    color: #047857;
+    border-color: #6ee7b7;
+    background: #ecfdf5;
+}
+
+.auto-btn-excel:hover {
+    background: #d1fae5;
+    border-color: #34d399;
+}
+
+.auto-btn-excel:disabled {
+    opacity: 0.65;
+    cursor: wait;
+}
+
 /* Confirmacao - linhas info -------------------------------------------------- */
 .auto-info-row {
     display: flex;

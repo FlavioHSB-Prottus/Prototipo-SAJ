@@ -787,6 +787,16 @@ document.addEventListener('DOMContentLoaded', function () {
             html += renderPessoaSection('Avalista', data.avalista, data.avalista_enderecos, data.avalista_telefones, data.avalista_emails, c.id);
         }
 
+        if (window.ContratoDetalhesModal && typeof window.ContratoDetalhesModal.buildTramitacoesSectionHtml === 'function') {
+            html += window.ContratoDetalhesModal.buildTramitacoesSectionHtml(data, c.id, { esc: esc, formatDateTime: formatDateTime });
+        } else if (typeof TramitacoesDetalhe !== 'undefined') {
+            html += TramitacoesDetalhe.buildSection(data.tramitacoes || [], c.id, {
+                esc: esc,
+                formatDateTime: formatDateTime,
+                registrosSmsEmail: data.registros_sms_email || [],
+            });
+        }
+
         // Bem
         html += renderBemSection(data.bens);
 
@@ -804,18 +814,13 @@ document.addEventListener('DOMContentLoaded', function () {
             html += window.ContratoDetalhesModal.buildNegativacaoSectionHtml(data);
         }
 
-        html += (typeof TramitacoesDetalhe !== 'undefined')
-            ? TramitacoesDetalhe.buildSection(data.tramitacoes || [], c.id, {
-                    esc: esc,
-                    formatDateTime: formatDateTime,
-                    registrosSmsEmail: data.registros_sms_email || [],
-                })
-            : '';
-
         modalContent.innerHTML = html;
 
         if (window.ContratoDetalhesModal && typeof window.ContratoDetalhesModal.initParcelasFilter === 'function') {
             window.ContratoDetalhesModal.initParcelasFilter(modalContent);
+        }
+        if (window.ContratoDetalhesModal && typeof window.ContratoDetalhesModal.initTimelineMonthGroups === 'function') {
+            window.ContratoDetalhesModal.initTimelineMonthGroups(modalContent);
         }
 
         if (typeof TramitacoesDetalhe !== 'undefined') {

@@ -11793,6 +11793,232 @@ def _validar_ids_contratos(ids):
     return out, None
 
 
+_COBRANCA_BLOCO_EXCEL_COLUMNS = (
+    ('Ordem', 'ordem'),
+    ('Grupo', 'grupo'),
+    ('Cota', 'cota'),
+    ('Nº contrato', 'numero_contrato'),
+    ('Nome devedor', 'nome_devedor'),
+    ('CPF/CNPJ', 'cpf_cnpj'),
+    ('Dias atraso', 'dias_atraso'),
+    ('Vencimento mais antigo', 'vencimento_mais_antigo'),
+    ('Parcelas abertas', 'parcelas_abertas'),
+    ('Nº parcela alvo', 'numero_parcela_alvo'),
+    ('Operador cobrança', 'nome_funcionario'),
+    ('Telefone(s)', 'telefones'),
+    ('E-mail(s)', 'emails'),
+    ('R$ crédito', 'valor_credito'),
+    ('Status negativação', 'status_negativacao'),
+)
+
+
+def _contatos_lista_por_pessoa(cursor, pessoa_ids):
+    """Telefones e e-mails cadastrados (todos), separados por '; '."""
+    if not pessoa_ids:
+        return {}, {}
+    ids = list(dict.fromkeys(pessoa_ids))
+    tel_map = _telefones_por_pessoas(cursor, ids)
+    email_map = _emails_por_pessoas(cursor, ids)
+    sep = '; '
+    tel_txt = {}
+    em_txt = {}
+    for pid in ids:
+        nums = []
+        for tel in tel_map.get(pid, []):
+            n = (tel.get('numero') or '').strip()
+            if n:
+                nums.append(n)
+        mails = []
+        for em in email_map.get(pid, []):
+            e = (em.get('email') or '').strip()
+            if e:
+                mails.append(e)
+        tel_txt[pid] = sep.join(nums)
+        em_txt[pid] = sep.join(mails)
+    return tel_txt, em_txt
+
+
+def _cobranca_bloco_excel_linhas(cursor, contrato_ids):
+    """Contratos do bloco (ordem da lista enviada), com contatos para lista de ligação."""
+    if not contrato_ids:
+        return []
+    ids = []
+    seen = set()
+    for cid in contrato_ids:
+        try:
+            i = int(cid)
+        except (TypeError, ValueError):
+            continue
+        if i not in seen:
+            seen.add(i)
+            ids.append(i)
+    if not ids:
+        return []
+
+    ph = ','.join(['%s'] * len(ids))
+    order_ph = ','.join(['%s'] * len(ids))
+    sql = (
+        'SELECT c.id, c.grupo, c.cota, c.numero_contrato, c.valor_credito, c.id_pessoa, '
+        '       p.nome_completo AS nome_devedor, p.cpf_cnpj, '
+        '       MIN(par.vencimento) AS vencimento_mais_antigo, '
+        '       DATEDIFF(CURRENT_DATE, MIN(par.vencimento)) AS dias_atraso, '
+        '       COUNT(DISTINCT par.id) AS parcelas_abertas, '
+        '       f.nome AS nome_funcionario, '
+        '       ( '
+        '         SELECT p2.numero_parcela FROM parcela p2 '
+        '         WHERE p2.id_contrato = c.id AND p2.status = %s '
+        '         ORDER BY p2.vencimento ASC, p2.id ASC LIMIT 1 '
+        '       ) AS numero_parcela_alvo, '
+        '       ( '
+        '         SELECT p3.id FROM parcela p3 '
+        '         WHERE p3.id_contrato = c.id AND p3.status = %s '
+        '         ORDER BY p3.vencimento ASC, p3.id ASC LIMIT 1 '
+        '       ) AS id_parcela_alvo '
+        'FROM contrato c '
+        'INNER JOIN parcela par ON par.id_contrato = c.id AND par.status = %s '
+        'LEFT JOIN pessoa p ON c.id_pessoa = p.id '
+        'LEFT JOIN funcionario_cobranca fc ON fc.id_contrato = c.id '
+        'LEFT JOIN funcionario f ON f.id = fc.id_funcionario '
+        f'WHERE c.id IN ({ph}) AND c.status = %s '
+        'GROUP BY c.id, c.grupo, c.cota, c.numero_contrato, c.valor_credito, c.id_pessoa, '
+        '         p.nome_completo, p.cpf_cnpj, f.nome '
+        f'ORDER BY FIELD(c.id, {order_ph})'
+    )
+    params = ['cobranca', 'cobranca', 'cobranca'] + ids + ['cobranca'] + ids
+    cursor.execute(sql, params)
+    rows = _clean_rows(cursor.fetchall())
+
+    pessoa_ids = []
+    cids = []
+    for r in rows:
+        try:
+            cids.append(int(r['id']))
+        except (TypeError, ValueError, KeyError):
+            pass
+        pid = r.get('id_pessoa')
+        if pid is not None:
+            try:
+                pessoa_ids.append(int(pid))
+            except (TypeError, ValueError):
+                pass
+
+    try:
+        neg_por_contrato = _mapa_parcelas_negativadas_por_contrato(cursor, cids)
+    except Exception:
+        app.logger.exception('cobranca_bloco_excel: falha ao consultar negativacao')
+        neg_por_contrato = {}
+
+    tel_txt, em_txt = _contatos_lista_por_pessoa(cursor, pessoa_ids)
+
+    out = []
+    for ordem, r in enumerate(rows, start=1):
+        try:
+            cid = int(r['id'])
+        except (TypeError, ValueError, KeyError):
+            cid = None
+        try:
+            dias_i = int(r.get('dias_atraso') or 0)
+        except (TypeError, ValueError):
+            dias_i = 0
+        id_alvo = r.get('id_parcela_alvo')
+        try:
+            id_alvo = int(id_alvo) if id_alvo is not None else None
+        except (TypeError, ValueError):
+            id_alvo = None
+        neg_set = neg_por_contrato.get(cid, set()) if cid is not None else set()
+        ja_neg = (_NEG_NULL_PARCELA in neg_set) or (
+            id_alvo is not None and id_alvo in neg_set
+        )
+        if ja_neg:
+            st_neg = 'negativado'
+        elif 30 < dias_i < 90:
+            st_neg = 'pendente'
+        else:
+            st_neg = 'nao_elegivel'
+
+        pid = r.get('id_pessoa')
+        try:
+            pid_i = int(pid) if pid is not None else None
+        except (TypeError, ValueError):
+            pid_i = None
+
+        venc = r.get('vencimento_mais_antigo')
+        if hasattr(venc, 'isoformat'):
+            venc = venc.isoformat()
+
+        cred = r.get('valor_credito')
+        try:
+            cred_f = float(cred) if cred is not None else None
+        except (TypeError, ValueError):
+            cred_f = None
+
+        out.append({
+            'ordem': ordem,
+            'grupo': r.get('grupo') or '',
+            'cota': r.get('cota') or '',
+            'numero_contrato': r.get('numero_contrato') or '',
+            'nome_devedor': r.get('nome_devedor') or '',
+            'cpf_cnpj': r.get('cpf_cnpj') or '',
+            'dias_atraso': dias_i,
+            'vencimento_mais_antigo': venc or '',
+            'parcelas_abertas': int(r.get('parcelas_abertas') or 0),
+            'numero_parcela_alvo': r.get('numero_parcela_alvo') or '',
+            'nome_funcionario': r.get('nome_funcionario') or '',
+            'telefones': tel_txt.get(pid_i, '') if pid_i is not None else '',
+            'emails': em_txt.get(pid_i, '') if pid_i is not None else '',
+            'valor_credito': cred_f,
+            'status_negativacao': st_neg,
+        })
+    return out
+
+
+def _write_cobranca_bloco_excel(wb, linhas, titulo):
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    ws = wb.active
+    ws.title = 'Lista ligacao'
+    ncols = len(_COBRANCA_BLOCO_EXCEL_COLUMNS)
+
+    header_font = Font(bold=True, color='FFFFFF', size=11)
+    header_fill = PatternFill(start_color='047857', end_color='047857', fill_type='solid')
+    header_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    thin_border = Border(
+        left=Side(style='thin', color='D1D5DB'),
+        right=Side(style='thin', color='D1D5DB'),
+        top=Side(style='thin', color='D1D5DB'),
+        bottom=Side(style='thin', color='D1D5DB'),
+    )
+    alt_fill = PatternFill(start_color='F8FAFC', end_color='F8FAFC', fill_type='solid')
+    brl_fmt = '#,##0.00'
+
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
+    title_cell = ws.cell(row=1, column=1, value=titulo)
+    title_cell.font = Font(bold=True, size=12)
+    title_cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+    ws.row_dimensions[1].height = 28
+
+    for col_idx, (label, _key) in enumerate(_COBRANCA_BLOCO_EXCEL_COLUMNS, start=1):
+        cell = ws.cell(row=3, column=col_idx, value=label)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        cell.border = thin_border
+
+    for row_idx, row in enumerate(linhas, start=4):
+        for col_idx, (_label, key) in enumerate(_COBRANCA_BLOCO_EXCEL_COLUMNS, start=1):
+            val = row.get(key, '')
+            cell = ws.cell(row=row_idx, column=col_idx, value=val if val is not None else '')
+            cell.border = thin_border
+            if (row_idx - 4) % 2 == 1:
+                cell.fill = alt_fill
+            if key == 'valor_credito' and isinstance(val, (int, float)) and not isinstance(val, bool):
+                cell.number_format = brl_fmt
+
+    widths = [8, 10, 8, 14, 32, 16, 11, 16, 12, 12, 22, 28, 32, 14, 18]
+    for col_idx, w in enumerate(widths[:ncols], start=1):
+        ws.column_dimensions[ws.cell(row=3, column=col_idx).column_letter].width = w
+
+
 @app.route('/api/automacao/preview', methods=['POST'])
 @app.route('/api/cobranca/sms-email/preview', methods=['POST'])
 def api_automacao_preview():
@@ -11860,6 +12086,76 @@ def api_cobranca_sms_email_excel():
 
     fname = (
         'sms_email_carteira_cobranca_'
+        + datetime.datetime.now().strftime('%Y%m%d_%H%M')
+        + '.xlsx'
+    )
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=fname,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+
+
+_COBRANCA_BLOCO_NIVEL_LABEL = {
+    'critico': 'Critico',
+    'atencao': 'Atencao',
+    'recente': 'Recente',
+    'todos': 'Carteira',
+}
+
+
+@app.route('/api/cobranca/bloco/excel', methods=['POST'])
+def api_cobranca_bloco_excel():
+    """Excel da lista de contratos de um bloco (ex.: antes das ligações sequenciais)."""
+    if not session.get('funcionario_id'):
+        return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
+    payload = request.get_json(silent=True) or {}
+    ids, err = _validar_ids_contratos(payload.get('contrato_ids'))
+    if err:
+        return jsonify({'error': err}), 400
+
+    nivel = (payload.get('nivel') or 'bloco').strip().lower()
+    nivel_label = _COBRANCA_BLOCO_NIVEL_LABEL.get(nivel, nivel.replace('_', ' ').title())
+
+    try:
+        from openpyxl import Workbook
+    except ImportError:
+        return jsonify({
+            'error': 'Biblioteca openpyxl nao instalada. Execute: pip install openpyxl',
+        }), 503
+
+    conn = _get_db()
+    try:
+        with conn.cursor() as cursor:
+            linhas = _cobranca_bloco_excel_linhas(cursor, ids)
+        if not linhas:
+            return jsonify({'error': 'Nenhum contrato em cobranca encontrado para os IDs informados.'}), 404
+
+        wb = Workbook()
+        titulo = (
+            f'Lista de ligacao — bloco {nivel_label} — '
+            f'{datetime.datetime.now().strftime("%d/%m/%Y %H:%M")} — '
+            f'{len(linhas)} contrato(s)'
+        )
+        _write_cobranca_bloco_excel(wb, linhas, titulo)
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+    except Exception as exc:
+        app.logger.exception('cobranca/bloco/excel: falha ao gerar ficheiro')
+        return jsonify({'error': f'Falha ao gerar o Excel: {exc}'}), 500
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    slug = re.sub(r'[^a-z0-9]+', '_', nivel.lower()).strip('_') or 'bloco'
+    fname = (
+        'lista_ligacao_cobranca_'
+        + slug
+        + '_'
         + datetime.datetime.now().strftime('%Y%m%d_%H%M')
         + '.xlsx'
     )

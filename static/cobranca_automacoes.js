@@ -78,6 +78,7 @@
             confirmBody:    $('#autoConfirmBody'),
             confirmGo:      $('#autoConfirmGo'),
             confirmGoLabel: $('.auto-confirm-go-label'),
+            confirmExcel:   $('#autoConfirmExcel'),
             statusOverlay:  $('#autoStatusOverlay'),
             statusTitle:    $('#autoStatusTitle'),
             statusIcon:     $('#autoStatusIcon'),
@@ -228,6 +229,10 @@
     /** Preview/disparo: rota estável sob /api/cobranca (mesmo prefixo do painel). */
     var SMS_EMAIL_PREVIEW_URL = '/api/cobranca/sms-email/preview';
     var SMS_EMAIL_EXCEL_URL = '/api/cobranca/sms-email/excel';
+    var BLOCO_LIGACAO_EXCEL_URL = '/api/cobranca/bloco/excel';
+
+    /** Lista do modal de confirmação de ligação (export Excel). */
+    var pendingBlocoExport = null;
 
     /** Estado do modal estilo Importação (rodapé SMS/E-mail, lista «todos»). */
     var lastCobrancaCarteiraPreview = null;
@@ -791,6 +796,7 @@
         d.confirmGoLabel.textContent = 'Confirmar e disparar';
         d.confirmGo.style.background = meta.cor;
         d.confirmGo.style.borderColor = meta.cor;
+        atualizarBotaoExcelConfirmacao(tipo, nivel, []);
 
         var subtipo =
             tipo === 'sms' ? 'SMS' : tipo === 'email' ? 'E-mail' : 'SMS e e-mail';
@@ -947,6 +953,73 @@
         abrir(d.confirmOverlay);
     }
 
+    function atualizarBotaoExcelConfirmacao(tipo, nivel, contratos) {
+        var d = dom();
+        if (!d.confirmExcel) return;
+        if (tipo === 'ligacao' && contratos && contratos.length > 0) {
+            d.confirmExcel.hidden = false;
+            pendingBlocoExport = {
+                nivel: nivel,
+                contrato_ids: contratos.map(function (c) { return c.id; }).filter(Boolean),
+            };
+        } else {
+            d.confirmExcel.hidden = true;
+            pendingBlocoExport = null;
+        }
+    }
+
+    async function downloadBlocoLigacaoExcel() {
+        var d = dom();
+        if (!d.confirmExcel || d.confirmExcel.hidden) return;
+        var st = pendingBlocoExport;
+        if (!st || !st.contrato_ids || !st.contrato_ids.length) {
+            alert('Nenhuma lista de contratos disponível para exportar.');
+            return;
+        }
+        var prevHtml = d.confirmExcel.innerHTML;
+        d.confirmExcel.disabled = true;
+        d.confirmExcel.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Gerando...';
+        try {
+            var resp = await fetch(BLOCO_LIGACAO_EXCEL_URL, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contrato_ids: st.contrato_ids,
+                    nivel: st.nivel,
+                }),
+            });
+            if (!resp.ok) {
+                var msg = 'HTTP ' + resp.status;
+                try {
+                    var errJson = await resp.json();
+                    if (errJson.error) msg = errJson.error;
+                } catch (e2) { /* ignore */ }
+                throw new Error(msg);
+            }
+            var blob = await resp.blob();
+            var cd = resp.headers.get('Content-Disposition');
+            var fname = 'lista_ligacao_cobranca.xlsx';
+            if (cd) {
+                var mfn = /filename\*?=(?:UTF-8'')?([^;\n]+)/i.exec(cd);
+                if (mfn) fname = decodeURIComponent(mfn[1].replace(/['"]/g, '').trim());
+            }
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = fname;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            alert('Não foi possível baixar a lista Excel: ' + (err.message || err));
+        } finally {
+            d.confirmExcel.innerHTML = prevHtml;
+            d.confirmExcel.disabled = false;
+        }
+    }
+
     // ---- Modal de confirmação ------------------------------------------------------
     function mostrarConfirmacao(tipo, nivel, contratos, infoNeg) {
         var d = dom();
@@ -964,6 +1037,7 @@
         }
         d.confirmGo.style.background = meta.cor;
         d.confirmGo.style.borderColor = meta.cor;
+        atualizarBotaoExcelConfirmacao(tipo, nivel, contratos);
 
         var detalhe;
         if (tipo === 'ligacao') {
@@ -1048,6 +1122,12 @@
             d.confirmOverlay.querySelectorAll('[data-close-auto]').forEach(function (b) {
                 b.addEventListener('click', function () { fechar(d.confirmOverlay); });
             });
+            if (d.confirmExcel && !d.confirmExcel._boundExcel) {
+                d.confirmExcel._boundExcel = true;
+                d.confirmExcel.addEventListener('click', function () {
+                    downloadBlocoLigacaoExcel();
+                });
+            }
             document.addEventListener('keydown', function (e) {
                 if (e.key === 'Escape' && d.confirmOverlay.classList.contains('active')) {
                     fechar(d.confirmOverlay);

@@ -154,32 +154,118 @@
         'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
     ];
 
+    function parseYmFromDateRaw(dateRaw) {
+        var datePart = calendarDayKey(dateRaw);
+        var parts = datePart.split('-');
+        if (parts.length < 2) return null;
+        var y = parseInt(parts[0], 10);
+        var mo = parseInt(parts[1], 10);
+        if (isNaN(y) || isNaN(mo) || mo < 1 || mo > 12) return null;
+        return {
+            ym: y + '-' + (mo < 10 ? '0' + mo : String(mo)),
+            label: _MESES_PT[mo - 1] + ' de ' + y
+        };
+    }
+
+    function groupByMonth(items, getDateRaw, monthSort) {
+        var map = {};
+        var order = [];
+        (items || []).forEach(function (item) {
+            var info = parseYmFromDateRaw(getDateRaw(item));
+            var ym = info ? info.ym : '0000-00';
+            var label = info ? info.label : 'Sem data definida';
+            if (!map[ym]) {
+                map[ym] = { ym: ym, label: label, items: [] };
+                order.push(ym);
+            }
+            map[ym].items.push(item);
+        });
+        order.sort(function (a, b) {
+            if (a === '0000-00') return 1;
+            if (b === '0000-00') return -1;
+            if (monthSort === 'desc') return a < b ? 1 : a > b ? -1 : 0;
+            return a < b ? -1 : a > b ? 1 : 0;
+        });
+        var latestYm = null;
+        for (var i = 0; i < order.length; i++) {
+            if (order[i] !== '0000-00') {
+                latestYm = monthSort === 'desc' ? order[0] : order[order.length - 1];
+                break;
+            }
+        }
+        if (!latestYm && order.length) latestYm = order[order.length - 1];
+        return { map: map, order: order, latestYm: latestYm };
+    }
+
+    function renderTimelineMonthGroups(groups, renderItemHtml) {
+        var html = '';
+        groups.order.forEach(function (ym) {
+            var g = groups.map[ym];
+            if (!g || !g.items.length) return;
+            var expanded = ym === groups.latestYm;
+            var countLbl = g.items.length === 1 ? '1 registro' : g.items.length + ' registros';
+            html += '<div class="timeline-month-group' + (expanded ? ' is-expanded' : '') + '" data-ym="' + esc(ym) + '">';
+            html += '<button type="button" class="timeline-month-toggle" aria-expanded="' + (expanded ? 'true' : 'false') + '">';
+            html += '<i class="fa-solid fa-chevron-right timeline-month-chevron" aria-hidden="true"></i>';
+            html += '<span class="timeline-month-label">' + esc(g.label) + '</span>';
+            html += '<span class="timeline-month-count">' + esc(countLbl) + '</span>';
+            html += '</button>';
+            html += '<div class="timeline-month-body"' + (expanded ? '' : ' hidden') + '>';
+            g.items.forEach(function (item) {
+                html += renderItemHtml(item);
+            });
+            html += '</div></div>';
+        });
+        return html;
+    }
+
+    function initTimelineMonthGroups(container) {
+        if (!container || container._timelineMonthBound) return;
+        container._timelineMonthBound = true;
+        container.addEventListener('click', function (e) {
+            var btn = e.target.closest('.timeline-month-toggle');
+            if (!btn || !container.contains(btn)) return;
+            e.preventDefault();
+            var group = btn.closest('.timeline-month-group');
+            if (!group) return;
+            var body = group.querySelector('.timeline-month-body');
+            var open = group.classList.toggle('is-expanded');
+            btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+            if (body) {
+                if (open) body.removeAttribute('hidden');
+                else body.setAttribute('hidden', '');
+            }
+        });
+    }
+
+    function buildTramitacoesSectionHtml(data, contratoId, helpers) {
+        if (typeof TramitacoesDetalhe === 'undefined') return '';
+        var h = helpers || {};
+        return TramitacoesDetalhe.buildSection(data.tramitacoes || [], contratoId, {
+            esc: h.esc || esc,
+            formatDateTime: h.formatDateTime || formatDateTime,
+            registrosSmsEmail: data.registros_sms_email || [],
+        });
+    }
+
+    function buildOcorrenciaItemHtml(o) {
+        var html = '<div class="timeline-item">';
+        html += '<div class="timeline-date">' + formatDate(o.data_arquivo) + '</div>';
+        html += '<div class="timeline-event"><strong><span class="status-badge ' + getStatusClass(o.status) + '">' +
+            esc(o.status || '') + '</span></strong> ' + esc(o.descricao || '') + '</div>';
+        html += '</div>';
+        return html;
+    }
+
     function buildOcorrenciasTimelineHtml(ocorrencias) {
         if (!ocorrencias || !ocorrencias.length) return '';
         var sorted = sortOcorrenciasForTimeline(ocorrencias);
+        var groups = groupByMonth(sorted, function (o) { return o.data_arquivo; }, 'desc');
         var html = '';
         html += '<div class="detail-section"><h3><i class="fa-solid fa-timeline"></i> Histórico de Ocorrências (' + ocorrencias.length + ')</h3>';
-        html += '<div class="timeline timeline-ocorrencias">';
-        var lastYm = null;
-        sorted.forEach(function (o) {
-            var datePart = calendarDayKey(o.data_arquivo);
-            var parts = datePart.split('-');
-            if (parts.length >= 2) {
-                var y = parseInt(parts[0], 10);
-                var mo = parseInt(parts[1], 10);
-                if (!isNaN(y) && !isNaN(mo) && mo >= 1 && mo <= 12) {
-                    var ym = y + '-' + (mo < 10 ? '0' + mo : String(mo));
-                    if (ym !== lastYm) {
-                        lastYm = ym;
-                        html += '<div class="timeline-month-heading">' + esc(_MESES_PT[mo - 1] + ' de ' + y) + '</div>';
-                    }
-                }
-            }
-            html += '<div class="timeline-item">';
-            html += '<div class="timeline-date">' + formatDate(o.data_arquivo) + '</div>';
-            html += '<div class="timeline-event"><strong><span class="status-badge ' + getStatusClass(o.status) + '">' + esc(o.status || '') + '</span></strong> ' + esc(o.descricao || '') + '</div>';
-            html += '</div>';
-        });
+        html += '<p class="timeline-month-hint">Clique no mês para expandir ou recolher. O mês mais recente inicia aberto.</p>';
+        html += '<div class="timeline timeline-ocorrencias timeline-month-groups">';
+        html += renderTimelineMonthGroups(groups, buildOcorrenciaItemHtml);
         html += '</div></div>';
         return html;
     }
@@ -266,6 +352,48 @@
         return status || 'cadastro interno';
     }
 
+
+    function negativacaoRowDateRaw(row) {
+        if (row.kind === 'hist') return row.ev.data_evento;
+        return row.ativa.data_negativacao;
+    }
+
+    function buildNegativacaoRowItemHtml(row) {
+        var whenRaw;
+        if (row.kind === 'hist') whenRaw = row.ev.data_evento;
+        else whenRaw = row.ativa.data_negativacao;
+        var html = '<div class="timeline-item">';
+        if (row.kind === 'hist') {
+            var ev = row.ev;
+            html += '<div class="timeline-date">' + formatDateTime(whenRaw) + '</div>';
+            var rot = negativacaoTipoLabel(ev.tipo_evento);
+            var extra = '';
+            if (ev.funcionario_nome) extra += ' · Operador: ' + esc(ev.funcionario_nome);
+            if (ev.numero_parcela != null && ev.numero_parcela !== '' &&
+                    String(ev.tipo_evento || '') !== 'removido_pagamento') {
+                extra += ' · Parcela nº ' + esc(ev.numero_parcela);
+            }
+            if (row.emVigor) {
+                extra += ' · <span class="status-badge status-warning" style="font-size:0.78em">Em vigor no cadastro</span>';
+            }
+            html += '<div class="timeline-event"><strong><span class="status-badge ' + negativacaoTipoClass(ev.tipo_evento) + '">' + esc(rot) + '</span></strong> ';
+            html += esc(ev.detalhe || '') + (extra ? '<span style="color:#64748b;font-size:0.92em">' + extra + '</span>' : '');
+            html += '</div>';
+        } else {
+            var n = row.ativa;
+            html += '<div class="timeline-date">' + formatDateTime(whenRaw) + '</div>';
+            var op = n.funcionario_nome ? ('Operador: ' + esc(n.funcionario_nome) + ' · ') : '';
+            var det = 'Negativação ativa registrada apenas no cadastro interno (' + esc(statusAtivaLegivel(n.status)) +
+                '). ' + op + 'Parcela nº ' + esc(n.numero_parcela != null ? n.numero_parcela : '—') + '.';
+            html += '<div class="timeline-event"><strong><span class="status-badge status-danger">Negativação em vigor</span></strong> ';
+            html += '<span style="color:#334155">' + det + '</span>';
+            html += ' <span class="status-badge status-warning" style="font-size:0.78em">Sem evento no histórico</span>';
+            html += '</div>';
+        }
+        html += '</div>';
+        return html;
+    }
+
     /**
      * Uma única linha do tempo: histórico ordenado + linhas sintéticas só quando
      * há negativação ativa sem evento de negativação correspondente no histórico.
@@ -327,71 +455,13 @@
             return html;
         }
 
-        html += '<p style="margin:0 0 12px;font-size:0.88rem;color:#64748b">Ordem cronológica (mais antigo primeiro). ' +
+        html += '<p style="margin:0 0 8px;font-size:0.88rem;color:#64748b">Meses do mais recente ao mais antigo; dentro de cada mês, do mais antigo ao mais recente. ' +
             (ativas.length ? ('<strong>' + ativas.length + '</strong> parcela(s) com negativação ainda ativa no cadastro.') : '') +
             '</p>';
-
-        html += '<div class="timeline timeline-ocorrencias">';
-        var lastYm = null;
-
-        timelineRows.forEach(function (row) {
-            var whenRaw;
-            var datePart;
-            if (row.kind === 'hist') {
-                whenRaw = row.ev.data_evento;
-                datePart = calendarDayKey(row.ev.data_evento);
-            } else {
-                whenRaw = row.ativa.data_negativacao;
-                datePart = calendarDayKey(row.ativa.data_negativacao);
-            }
-
-            var parts = datePart.split('-');
-            if (parts.length >= 2) {
-                var y = parseInt(parts[0], 10);
-                var mo = parseInt(parts[1], 10);
-                if (!isNaN(y) && !isNaN(mo) && mo >= 1 && mo <= 12) {
-                    var ym = y + '-' + (mo < 10 ? '0' + mo : String(mo));
-                    if (ym !== lastYm) {
-                        lastYm = ym;
-                        html += '<div class="timeline-month-heading">' + esc(_MESES_PT[mo - 1] + ' de ' + y) + '</div>';
-                    }
-                }
-            }
-
-            html += '<div class="timeline-item">';
-
-            if (row.kind === 'hist') {
-                var ev = row.ev;
-                html += '<div class="timeline-date">' + formatDateTime(whenRaw) + '</div>';
-                var rot = negativacaoTipoLabel(ev.tipo_evento);
-                var extra = '';
-                if (ev.funcionario_nome) extra += ' · Operador: ' + esc(ev.funcionario_nome);
-                // removido_pagamento: detalhe costuma ja trazer contexto da parcela; demais tipos alinham sufixo.
-                if (ev.numero_parcela != null && ev.numero_parcela !== '' &&
-                        String(ev.tipo_evento || '') !== 'removido_pagamento') {
-                    extra += ' · Parcela nº ' + esc(ev.numero_parcela);
-                }
-                if (row.emVigor) {
-                    extra += ' · <span class="status-badge status-warning" style="font-size:0.78em">Em vigor no cadastro</span>';
-                }
-                html += '<div class="timeline-event"><strong><span class="status-badge ' + negativacaoTipoClass(ev.tipo_evento) + '">' + esc(rot) + '</span></strong> ';
-                html += esc(ev.detalhe || '') + (extra ? '<span style="color:#64748b;font-size:0.92em">' + extra + '</span>' : '');
-                html += '</div>';
-            } else {
-                var n = row.ativa;
-                html += '<div class="timeline-date">' + formatDateTime(whenRaw) + '</div>';
-                var op = n.funcionario_nome ? ('Operador: ' + esc(n.funcionario_nome) + ' · ') : '';
-                var det = 'Negativação ativa registrada apenas no cadastro interno (' + esc(statusAtivaLegivel(n.status)) +
-                    '). ' + op + 'Parcela nº ' + esc(n.numero_parcela != null ? n.numero_parcela : '—') + '.';
-                html += '<div class="timeline-event"><strong><span class="status-badge status-danger">Negativação em vigor</span></strong> ';
-                html += '<span style="color:#334155">' + det + '</span>';
-                html += ' <span class="status-badge status-warning" style="font-size:0.78em">Sem evento no histórico</span>';
-                html += '</div>';
-            }
-
-            html += '</div>';
-        });
-
+        html += '<p class="timeline-month-hint">Clique no mês para expandir ou recolher. O mês mais recente inicia aberto.</p>';
+        html += '<div class="timeline timeline-ocorrencias timeline-month-groups">';
+        var negGroups = groupByMonth(timelineRows, negativacaoRowDateRaw, 'desc');
+        html += renderTimelineMonthGroups(negGroups, buildNegativacaoRowItemHtml);
         html += '</div></div>';
         return html;
     }
@@ -579,6 +649,7 @@
 
         if (data.devedor) html += renderPessoaSection('Devedor', data.devedor, data.devedor_enderecos, data.devedor_telefones, data.devedor_emails, c.id);
         if (data.avalista) html += renderPessoaSection('Avalista', data.avalista, data.avalista_enderecos, data.avalista_telefones, data.avalista_emails, c.id);
+        html += buildTramitacoesSectionHtml(data, c.id, { esc: esc, formatDateTime: formatDateTime });
         html += renderBemSection(data.bens);
 
         if (data.parcelas && data.parcelas.length > 0) {
@@ -591,17 +662,10 @@
 
         html += buildNegativacaoSectionHtml(data);
 
-        html += (typeof TramitacoesDetalhe !== 'undefined')
-            ? TramitacoesDetalhe.buildSection(data.tramitacoes || [], c.id, {
-                    esc: esc,
-                    formatDateTime: formatDateTime,
-                    registrosSmsEmail: data.registros_sms_email || [],
-                })
-            : '';
-
         modalContent.innerHTML = html;
 
         initParcelasFilter(modalContent);
+        initTimelineMonthGroups(modalContent);
 
         if (typeof TramitacoesDetalhe !== 'undefined') {
             TramitacoesDetalhe.attachModal(modalContent, c.id, {
@@ -674,6 +738,8 @@
         buildNegativacaoSectionHtml: buildNegativacaoSectionHtml,
         buildParcelasSectionHtml: buildParcelasSectionHtml,
         initParcelasFilter: initParcelasFilter,
+        initTimelineMonthGroups: initTimelineMonthGroups,
+        buildTramitacoesSectionHtml: buildTramitacoesSectionHtml,
     };
 
     document.addEventListener('DOMContentLoaded', bindModalUiOnce);
