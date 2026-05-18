@@ -215,7 +215,11 @@
                 return;
             }
 
-            mostrarConfirmacao(tipo, nivel, contratos);
+            if (tipo === 'ligacao') {
+                mostrarConfirmacaoLigacao(nivel, contratos);
+            } else {
+                mostrarConfirmacao(tipo, nivel, contratos);
+            }
         }
     };
 
@@ -225,6 +229,7 @@
     var SMS_EMAIL_PREVIEW_URL = '/api/cobranca/sms-email/preview';
     var SMS_EMAIL_EXCEL_URL = '/api/cobranca/sms-email/excel';
     var BLOCO_LIGACAO_EXCEL_URL = '/api/cobranca/bloco/excel';
+    var BLOCO_LIGACAO_PREVIEW_URL = '/api/cobranca/ligacao-bloco/preview';
 
     /** Lista do modal de confirmação de ligação (export Excel). */
     var pendingBlocoExport = null;
@@ -1015,7 +1020,113 @@
         }
     }
 
-    // ---- Modal de confirmação ------------------------------------------------------
+    function renderListaExclusaoLigacao(titulo, itens, icone, cor) {
+        if (!itens || !itens.length) return '';
+        var lim = 12;
+        var html = '<div class="auto-lig-excl-block" style="margin:10px 0;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px">';
+        html = html.replace('div', 'div');
+        html = '<div class="auto-lig-excl-block" style="margin:10px 0;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px">';
+        html += '<div style="font-weight:600;font-size:0.88rem;margin-bottom:6px;color:' + cor + '">';
+        html += '<i class="' + icone + '"></i> ' + esc(titulo) + ' (' + itens.length + ')</div>';
+        html += '<ul style="margin:0;padding-left:18px;font-size:0.82rem;color:#475569;max-height:120px;overflow-y:auto">';
+        itens.slice(0, lim).forEach(function (x) {
+            var linha = esc((x.grupo || '') + '/' + (x.cota || '')) + ' — ' + esc(x.nome_devedor || '');
+            if (x.motivo_label) linha += ' <em>(' + esc(x.motivo_label) + ')</em>';
+            if (x.proxima_agenda) linha += ' — ' + esc(x.proxima_agenda);
+            html += '<li style="margin:4px 0">' + linha + '</li>';
+        });
+        if (itens.length > lim) {
+            html += '<li style="margin:4px 0;color:#64748b">… e mais ' + (itens.length - lim) + '</li>';
+        }
+        html += '</ul></div>';
+        return html;
+    }
+
+    function mostrarConfirmacaoLigacao(nivel, contratos) {
+        var d = dom();
+        var meta = TIPO_META.ligacao;
+        var nivelLabel = NIVEL_LABEL[nivel] || nivel;
+        var ids = (contratos || []).map(function (c) { return c.id; }).filter(Boolean);
+
+        setIcon(d.confirmIcon, meta.icone, meta.cor, meta.bgIcone);
+        d.confirmTitle.textContent = meta.verboCurto + ' - bloco ' + nivelLabel;
+        d.confirmGoLabel.textContent = 'Iniciar ligações sequenciais';
+        d.confirmGo.style.background = meta.cor;
+        d.confirmGo.style.borderColor = meta.cor;
+        d.confirmGo.disabled = true;
+        atualizarBotaoExcelConfirmacao('ligacao', nivel, contratos);
+
+        d.confirmBody.innerHTML =
+            '<p class="auto-helper-text"><i class="fa-solid fa-spinner fa-spin"></i> Analisando contratos do bloco…</p>';
+        bindFechamentoConfirm();
+        abrir(d.confirmOverlay);
+
+        fetch(BLOCO_LIGACAO_PREVIEW_URL, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contrato_ids: ids, nivel: nivel }),
+        })
+            .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+            .then(function (res) {
+                var pv = res.j || {};
+                if (!res.ok || pv.error) {
+                    d.confirmBody.innerHTML =
+                        '<p class="auto-helper-text" style="color:#b91c1c">' +
+                        esc(pv.error || 'Falha ao analisar o bloco.') + '</p>';
+                    d.confirmGo.disabled = true;
+                    return;
+                }
+                var eleg = pv.ligacoes_previstas || 0;
+                d.confirmGo.disabled = eleg === 0;
+
+                var html =
+                    '<div class="auto-info-row"><span class="auto-info-label">Bloco</span>' +
+                    '<span class="auto-info-value auto-pill auto-pill-' + esc(nivel) + '">' +
+                    esc(nivelLabel) + '</span></div>' +
+                    '<div class="auto-info-row auto-info-total"><span class="auto-info-label">Ligações previstas</span>' +
+                    '<span class="auto-info-value"><strong>' + eleg.toLocaleString('pt-BR') +
+                    '</strong> <span style="font-weight:400;color:#64748b">(' +
+                    (pv.elegiveis_contratos || 0).toLocaleString('pt-BR') + ' contratos)</span></span></div>' +
+                    '<div class="auto-info-row auto-info-sub"><span class="auto-info-label">Total no bloco</span>' +
+                    '<span class="auto-info-value auto-sub-value">' +
+                    (pv.total_solicitados || 0).toLocaleString('pt-BR') + '</span></div>';
+
+                html += renderListaExclusaoLigacao(
+                    'Não serão discados — agendamento pendente',
+                    pv.excluidos_agendamento,
+                    'fa-solid fa-calendar-check',
+                    '#b45309'
+                );
+                html += renderListaExclusaoLigacao(
+                    'Não serão discados — já concluídos hoje (tramitação registrada)',
+                    pv.excluidos_ja_tramitados_hoje,
+                    'fa-solid fa-circle-check',
+                    '#047857'
+                );
+                html += renderListaExclusaoLigacao(
+                    'Sem telefone cadastrado',
+                    pv.excluidos_sem_telefone,
+                    'fa-solid fa-phone-slash',
+                    '#6b7280'
+                );
+                html += '<p class="auto-helper-text">Contratos com <strong>sucesso e tramitação hoje</strong> não voltam ao bloco. ' +
+                    'Os <strong>pulados</strong> continuam elegíveis. Ligações em segundo plano com bolha verde.</p>';
+
+                d.confirmBody.innerHTML = html;
+
+                d.confirmGo.onclick = function () {
+                    fechar(d.confirmOverlay);
+                    iniciarLigacaoSequencial(nivel, contratos);
+                };
+            })
+            .catch(function (err) {
+                d.confirmBody.innerHTML =
+                    '<p class="auto-helper-text" style="color:#b91c1c">' + esc(err.message || String(err)) + '</p>';
+                d.confirmGo.disabled = true;
+            });
+    }
+
     function mostrarConfirmacao(tipo, nivel, contratos, infoNeg) {
         var d = dom();
         var meta = TIPO_META[tipo];
