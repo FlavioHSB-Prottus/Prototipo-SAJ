@@ -162,7 +162,7 @@ Ingestao bruta de `.txt` via `gm_txt_io.iter_txt_paths`. `select_folder()` (tkin
 
 ## 7. `Python/pessoa_satellite.py`
 
-Upserts em `endereco`, `telefone`, `email` por `id_pessoa`. `telefone_e_valido_para_tracker` (>= 8 digitos significativos). `upsert_devedor_contatos` / `upsert_avalista_contatos` mapeiam campos GM (registro_1 / registro5).
+Upserts em `endereco`, `telefone`, `email` por `id_pessoa`. `upsert_endereco` grava `fonte='GMAC'`. `telefone_e_valido_para_tracker` (>= 8 digitos significativos). `upsert_devedor_contatos` / `upsert_avalista_contatos` mapeiam campos GM (registro_1 / registro5). Insercao manual de endereco: `POST /api/pessoa/<id>/endereco` (`fonte=terceiro`, body com `papel`, `tipo`, campos de morada).
 
 **Ligacao:** importado por `tracker_gm_range_date_contratos.py`.
 

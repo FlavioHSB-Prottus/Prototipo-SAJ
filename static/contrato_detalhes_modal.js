@@ -544,10 +544,39 @@
         html += dataItem('Profissão', pessoa.profissao);
         html += dataItem('Cônjuge', pessoa.conjuge_nome);
         html += '</div>';
-        if (enderecos && enderecos.length > 0) {
+        var _papelEnd = titulo === 'Avalista' ? 'avalista' : 'devedor';
+        if (pessoa && pessoa.id) {
+            var _pEncEnd = encodeURIComponent(pessoa.nome_completo || '');
+            var _pIdEnd = String(pessoa.id);
+            html += '<div style="margin-top:12px">';
+            html += '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">';
+            html += '<h4 style="font-size:0.85rem;color:var(--text-muted);margin:0">Endereços</h4>';
+            html += '<button type="button" class="action-btn btn-add-endereco-pessoa" data-pessoa-id="' + _pIdEnd + '" data-pessoa-nome="' + _pEncEnd + '" data-pessoa-papel="' + esc(_papelEnd) + '"><i class="fa-solid fa-plus"></i> Endereço</button>';
+            html += '</div>';
+            if (enderecos && enderecos.length > 0) {
+                enderecos.forEach(function (e) {
+                    html += '<div class="detail-grid" style="margin-bottom:12px">';
+                    html += dataItem('Tipo', e.tipo);
+                    html += dataItem('Logradouro', e.logradouro);
+                    html += dataItem('Bairro', e.bairro);
+                    html += dataItem('Complemento', e.complemento);
+                    html += dataItem('CEP', e.cep);
+                    html += dataItem('Cidade', e.cidade);
+                    html += dataItem('Estado', e.estado);
+                    var _fonteEnd = (typeof window.formatContatoFonteLabel === 'function') ? window.formatContatoFonteLabel(e.fonte) : '';
+                    html += dataItem('Fonte', _fonteEnd || '-');
+                    html += '</div>';
+                });
+            } else {
+                html += '<p style="color:var(--text-muted);font-size:0.85rem;margin:0">Nenhum endereco cadastrado.</p>';
+            }
+            html += '</div>';
+        } else if (enderecos && enderecos.length > 0) {
             enderecos.forEach(function (e) {
                 html += '<div class="detail-grid" style="margin-top:12px">';
                 html += dataItem('Endereço (' + (e.tipo || '') + ')', [e.logradouro, e.complemento, e.bairro, e.cidade, e.estado, e.cep].filter(Boolean).join(', '));
+                var _fonteEnd2 = (typeof window.formatContatoFonteLabel === 'function') ? window.formatContatoFonteLabel(e.fonte) : '';
+                if (_fonteEnd2) html += dataItem('Fonte', _fonteEnd2);
                 html += '</div>';
             });
         }
@@ -734,6 +763,7 @@
     global.ContratoDetalhesModal = {
         open: open,
         close: closeModal,
+        renderPessoaSection: renderPessoaSection,
         buildOcorrenciasTimelineHtml: buildOcorrenciasTimelineHtml,
         buildNegativacaoSectionHtml: buildNegativacaoSectionHtml,
         buildParcelasSectionHtml: buildParcelasSectionHtml,

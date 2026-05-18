@@ -436,92 +436,10 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function renderPessoaSection(titulo, pessoa, enderecos, telefones, emails, idContrato) {
-        var icon = titulo === 'Avalista' ? 'fa-user-shield' : 'fa-user-tie';
-        var html = '<div class="detail-section"><h3><i class="fa-solid ' + icon + '"></i> ' + esc(titulo) + '</h3>';
-        html += '<div class="detail-grid">';
-        html += dataItem('Nome', pessoa.nome_completo);
-        html += dataItem('CPF / CNPJ', pessoa.cpf_cnpj);
-        html += dataItem('Data de Nascimento', formatDate(pessoa.data_nascimento));
-        html += dataItem('Profissao', pessoa.profissao);
-        html += '</div>';
-
-        if (enderecos && enderecos.length > 0) {
-            enderecos.forEach(function (e) {
-                html += '<div class="detail-grid" style="margin-top:12px">';
-                html += dataItem('Endereco (' + (e.tipo || '') + ')', [e.logradouro, e.complemento, e.bairro, e.cidade, e.estado, e.cep].filter(Boolean).join(', '));
-                html += '</div>';
-            });
+        if (window.ContratoDetalhesModal && typeof window.ContratoDetalhesModal.renderPessoaSection === 'function') {
+            return window.ContratoDetalhesModal.renderPessoaSection(titulo, pessoa, enderecos, telefones, emails, idContrato);
         }
-
-        if (pessoa && pessoa.id) {
-            var _pEnc = encodeURIComponent(pessoa.nome_completo || '');
-            var _pId = String(pessoa.id);
-            var _pnSms = String((pessoa && pessoa.nome_completo) || '').trim();
-            if (_pnSms) {
-                _pnSms = _pnSms.split(/\s+/)[0];
-            } else {
-                _pnSms = 'Cliente';
-            }
-            html += '<div class="contact-grid" style="margin-top:12px">';
-            html += '<div><div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px"><h4 style="font-size:0.85rem;color:var(--text-muted);margin:0">Telefones</h4>';
-            html += '<div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="action-btn btn-add-telefone-pessoa" data-pessoa-id="' + _pId + '" data-pessoa-nome="' + _pEnc + '" data-recurso="telefone"><i class="fa-solid fa-plus"></i> Telefone</button></div></div>';
-            if (telefones && telefones.length) {
-                html += '<ul class="contact-list">';
-                telefones.forEach(function (t) {
-                    html += '<li><i class="fa-solid fa-phone"></i> ' + esc(t.numero || '-');
-                    if (t.ramal) html += ' (ramal ' + esc(t.ramal) + ')';
-                    var _waExtra = '';
-                    if (idContrato != null && String(idContrato) !== '') {
-                        _waExtra = ' data-wa-auto-contrato="1" data-primeiro-nome="' + esc(_pnSms) + '"';
-                    }
-                    html += '<button type="button" class="btn-ligar" title="Ligar" data-numero="' + esc(t.numero || '') + '"><i class="fa-solid fa-phone-volume"></i></button>' +
-                        '<button type="button" class="btn-whatsapp" title="Enviar WhatsApp" data-numero="' + esc(t.numero || '') + '"' + _waExtra + '><i class="fa-brands fa-whatsapp"></i></button>';
-                    var _smsC = ' data-pessoa-id="' + esc(_pId) + '"';
-                    if (t.id != null && t.id !== '') { _smsC += ' data-telefone-id="' + esc(String(t.id)) + '"'; }
-                    if (idContrato != null && String(idContrato) !== '') {
-                        _smsC += ' data-contrato-id="' + esc(String(idContrato)) + '"';
-                        _smsC += ' data-sms-auto-contrato="1"';
-                        _smsC += ' data-primeiro-nome="' + esc(_pnSms) + '"';
-                    }
-                    html += '<button type="button" class="btn-mensagem" title="Enviar SMS" data-numero="' + esc(t.numero || '') + '"' + _smsC + '"><i class="fa-solid fa-comment-dots"></i></button>';
-                    html += '<span class="contact-meta">';
-                    var _fonteTel = (typeof window.formatContatoFonteLabel === 'function') ? window.formatContatoFonteLabel(t.fonte) : '';
-                    if (_fonteTel) html += '<span class="contact-fonte" title="Origem do cadastro">' + esc(_fonteTel) + '</span>';
-                    html += '<span class="contact-tipo">' + esc(t.tipo) + '</span></span></li>';
-                });
-                html += '</ul>';
-            } else {
-                html += '<p style="color:var(--text-muted);font-size:0.85rem;margin:0">Nenhum telefone cadastrado.</p>';
-            }
-            html += '</div><div><div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px"><h4 style="font-size:0.85rem;color:var(--text-muted);margin:0">E-mails</h4>';
-            html += '<div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="action-btn btn-add-email-pessoa" data-pessoa-id="' + _pId + '" data-pessoa-nome="' + _pEnc + '" data-recurso="email"><i class="fa-solid fa-plus"></i> Email</button></div></div>';
-            if (emails && emails.length) {
-                html += '<ul class="contact-list">';
-                emails.forEach(function (em) {
-                    html += '<li><i class="fa-solid fa-envelope"></i> ' + esc(em.email || '-');
-                    var _emC = ' data-email="' + esc(em.email || '') + '" data-pessoa-id="' + esc(_pId) + '"';
-                    if (em.id != null && em.id !== '') { _emC += ' data-email-id="' + esc(String(em.id)) + '"'; }
-                    if (idContrato != null && String(idContrato) !== '') {
-                        _emC += ' data-contrato-id="' + esc(String(idContrato)) + '"';
-                        _emC += ' data-email-auto-contrato="1"';
-                        _emC += ' data-primeiro-nome="' + esc(_pnSms) + '"';
-                    }
-                    html += '<button type="button" class="btn-enviar-email-html" title="Enviar e-mail"' + _emC +
-                        '><i class="fa-solid fa-envelope"></i></button>';
-                    html += '<span class="contact-meta">';
-                    var _fonteEm = (typeof window.formatContatoFonteLabel === 'function') ? window.formatContatoFonteLabel(em.fonte) : '';
-                    if (_fonteEm) html += '<span class="contact-fonte" title="Origem do cadastro">' + esc(_fonteEm) + '</span>';
-                    html += '<span class="contact-tipo">' + esc(em.tipo) + '</span></span></li>';
-                });
-                html += '</ul>';
-            } else {
-                html += '<p style="color:var(--text-muted);font-size:0.85rem;margin:0">Nenhum e-mail cadastrado.</p>';
-            }
-            html += '</div></div>';
-        }
-
-        html += '</div>';
-        return html;
+        return '';
     }
 
     // ---- Modal open/close ----
