@@ -1,6 +1,6 @@
 /**
- * Modal global: adicionar telefone ou e-mail a uma pessoa.
- * Botoes: .btn-add-telefone-pessoa e .btn-add-email-pessoa (data-pessoa-id, data-pessoa-nome, data-recurso).
+ * Modal global: adicionar telefone, e-mail ou endereco a uma pessoa.
+ * Botoes: .btn-add-telefone-pessoa, .btn-add-email-pessoa, .btn-add-endereco-pessoa.
  * Apos sucesso: chama window.__refreshContatoSrc se existir, dispara evento pessoaContatoInserido.
  */
 (function (global) {
@@ -10,8 +10,11 @@
         'fixo', 'celular', 'comercial', 'comercial_devedor', 'recados', 'outro',
     ];
     var TIPOS_EMAIL = ['principal', 'secundario', 'comercial', 'outro'];
+    var TIPOS_END_DEVEDOR = ['principal', 'secundario'];
+    var TIPOS_END_AVALISTA = ['avalista_principal', 'avalista_secundario'];
+    var TIPOS_END_PESSOA = TIPOS_END_DEVEDOR.concat(TIPOS_END_AVALISTA);
 
-    var state = { pessoaId: null, pessoaNome: '', recurso: null };
+    var state = { pessoaId: null, pessoaNome: '', recurso: null, papel: 'pessoa' };
     var bound = false;
 
     function $(id) {
@@ -55,6 +58,26 @@
         }
     }
 
+    function tiposEnderecoPorPapel(papel) {
+        var p = String(papel || 'pessoa').toLowerCase();
+        if (p === 'devedor') return TIPOS_END_DEVEDOR;
+        if (p === 'avalista') return TIPOS_END_AVALISTA;
+        return TIPOS_END_PESSOA;
+    }
+
+    function fillEnderecoTipoSelect(papel) {
+        var s = $('caTipoEnd');
+        if (!s) return;
+        var tipos = tiposEnderecoPorPapel(papel);
+        s.innerHTML = '';
+        tipos.forEach(function (t) {
+            var o = document.createElement('option');
+            o.value = t;
+            o.textContent = t;
+            s.appendChild(o);
+        });
+    }
+
     function ensureSelectOptions() {
         var sTel = $('caTipoTel');
         if (sTel && sTel.options.length === 0) {
@@ -81,16 +104,22 @@
         state.pessoaId = opts.pessoaId;
         state.pessoaNome = opts.pessoaNome || '';
         state.recurso = opts.recurso || 'telefone';
+        state.papel = opts.papel || 'pessoa';
         ensureSelectOptions();
         var tit = $('contatoAddTitle');
         var bTel = $('contatoAddTelBlock');
         var bE = $('contatoAddEmailBlock');
+        var bEnd = $('contatoAddEnderecoBlock');
         var rec = state.recurso;
+        var titBase = 'Novo telefone';
+        if (rec === 'email') titBase = 'Novo e-mail';
+        if (rec === 'endereco') titBase = 'Novo endereco';
         if (tit) {
-            tit.textContent = (rec === 'email' ? 'Novo e-mail' : 'Novo telefone') + (state.pessoaNome ? ' - ' + state.pessoaNome : '');
+            tit.textContent = titBase + (state.pessoaNome ? ' - ' + state.pessoaNome : '');
         }
         if (bTel) bTel.style.display = rec === 'telefone' ? '' : 'none';
         if (bE) bE.style.display = rec === 'email' ? '' : 'none';
+        if (bEnd) bEnd.style.display = rec === 'endereco' ? '' : 'none';
         showMsg('');
         var f = $('contatoAddForm');
         if (f) f.reset();
@@ -100,6 +129,9 @@
         }
         if (rec === 'email' && $('caTipoEmail')) {
             $('caTipoEmail').selectedIndex = 0;
+        }
+        if (rec === 'endereco') {
+            fillEnderecoTipoSelect(state.papel);
         }
         openModal();
     }
@@ -117,6 +149,7 @@
     function onDelegatedClick(e) {
         var btnTel = e.target.closest('.btn-add-telefone-pessoa');
         var btnE = e.target.closest('.btn-add-email-pessoa');
+        var btnEnd = e.target.closest('.btn-add-endereco-pessoa');
         if (btnTel) {
             e.preventDefault();
             openContatoAdd({
@@ -133,6 +166,16 @@
                 pessoaNome: readNomeAttr(btnE),
                 recurso: 'email',
             });
+            return;
+        }
+        if (btnEnd) {
+            e.preventDefault();
+            openContatoAdd({
+                pessoaId: btnEnd.getAttribute('data-pessoa-id'),
+                pessoaNome: readNomeAttr(btnEnd),
+                recurso: 'endereco',
+                papel: btnEnd.getAttribute('data-pessoa-papel') || 'pessoa',
+            });
         }
     }
 
@@ -145,17 +188,32 @@
             return;
         }
         var rec = state.recurso;
-        var url = '/api/pessoa/' + encodeURIComponent(id) + '/' + (rec === 'email' ? 'email' : 'telefone');
+        var url;
         var payload;
-        if (rec === 'telefone') {
-            var num = ($('caNumero') && $('caNumero').value) ? String($('caNumero').value).trim() : '';
-            var ram = ($('caRamal') && $('caRamal').value) ? String($('caRamal').value).trim() : '';
-            var ttipo = $('caTipoTel') ? String($('caTipoTel').value) : 'fixo';
-            payload = { tipo: ttipo, numero: num, ramal: ram || null };
+        if (rec === 'endereco') {
+            url = '/api/pessoa/' + encodeURIComponent(id) + '/endereco';
+            payload = {
+                papel: state.papel,
+                tipo: $('caTipoEnd') ? String($('caTipoEnd').value) : 'principal',
+                logradouro: ($('caLogradouro') && $('caLogradouro').value) ? String($('caLogradouro').value).trim() : '',
+                bairro: ($('caBairro') && $('caBairro').value) ? String($('caBairro').value).trim() : '',
+                complemento: ($('caComplemento') && $('caComplemento').value) ? String($('caComplemento').value).trim() : '',
+                cep: ($('caCep') && $('caCep').value) ? String($('caCep').value).trim() : '',
+                cidade: ($('caCidade') && $('caCidade').value) ? String($('caCidade').value).trim() : '',
+                estado: ($('caEstado') && $('caEstado').value) ? String($('caEstado').value).trim() : '',
+            };
         } else {
-            var em = ($('caEmail') && $('caEmail').value) ? String($('caEmail').value).trim() : '';
-            var etipo = $('caTipoEmail') ? String($('caTipoEmail').value) : 'principal';
-            payload = { tipo: etipo, email: em };
+            url = '/api/pessoa/' + encodeURIComponent(id) + '/' + (rec === 'email' ? 'email' : 'telefone');
+            if (rec === 'telefone') {
+                var num = ($('caNumero') && $('caNumero').value) ? String($('caNumero').value).trim() : '';
+                var ram = ($('caRamal') && $('caRamal').value) ? String($('caRamal').value).trim() : '';
+                var ttipo = $('caTipoTel') ? String($('caTipoTel').value) : 'fixo';
+                payload = { tipo: ttipo, numero: num, ramal: ram || null };
+            } else {
+                var em = ($('caEmail') && $('caEmail').value) ? String($('caEmail').value).trim() : '';
+                var etipo = $('caTipoEmail') ? String($('caTipoEmail').value) : 'principal';
+                payload = { tipo: etipo, email: em };
+            }
         }
         fetch(url, {
             method: 'POST',
@@ -169,13 +227,7 @@
             })
             .then(function (res) {
                 if (res.d.error) {
-                    var msg = res.d.error;
-                    if (res.d.telefone_existente && res.d.telefone_existente.numero) {
-                        msg += ' (Atual: ' + String(res.d.telefone_existente.numero) + ')';
-                    } else if (res.d.email_existente && res.d.email_existente.email) {
-                        msg += ' (Atual: ' + String(res.d.email_existente.email) + ')';
-                    }
-                    showMsg(msg, true);
+                    showMsg(res.d.error, true);
                     return;
                 }
                 if (!res.ok) {
@@ -193,7 +245,8 @@
                         detail: { pessoaId: id, recurso: rec },
                     }));
                 } catch (err2) { /* ignore */ }
-                global.alert('Contato adicionado com sucesso.');
+                var okMsg = rec === 'endereco' ? 'Endereco salvo com sucesso.' : 'Contato adicionado com sucesso.';
+                global.alert(okMsg);
             })
             .catch(function (err) {
                 showMsg('Erro: ' + err.message, true);

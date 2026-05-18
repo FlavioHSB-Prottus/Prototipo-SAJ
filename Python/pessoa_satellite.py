@@ -61,8 +61,8 @@ def upsert_endereco(
         return
     cursor.execute(
         """
-        INSERT INTO endereco (id_pessoa, tipo, logradouro, bairro, complemento, cep, cidade, estado)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO endereco (id_pessoa, tipo, logradouro, bairro, complemento, cep, cidade, estado, fonte)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'GMAC')
         ON DUPLICATE KEY UPDATE
             logradouro = VALUES(logradouro),
             bairro = VALUES(bairro),
@@ -70,6 +70,7 @@ def upsert_endereco(
             cep = VALUES(cep),
             cidade = VALUES(cidade),
             estado = VALUES(estado),
+            fonte = VALUES(fonte),
             updated_at = CURRENT_TIMESTAMP
         """,
         (

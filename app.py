@@ -3731,6 +3731,9 @@ _TELEFONE_TIPOS = (
     'fixo', 'celular', 'comercial', 'comercial_devedor', 'recados', 'outro',
 )
 _EMAIL_TIPOS = ('principal', 'secundario', 'comercial', 'outro')
+_ENDERECO_TIPOS_DEVEDOR = ('principal', 'secundario')
+_ENDERECO_TIPOS_AVALISTA = ('avalista_principal', 'avalista_secundario')
+_ENDERECO_TIPOS_PESSOA = _ENDERECO_TIPOS_DEVEDOR + _ENDERECO_TIPOS_AVALISTA
 
 
 def _mysql_table_columns_lower(cursor, table):
@@ -3748,9 +3751,33 @@ def _mysql_table_columns_lower(cursor, table):
     return frozenset(names)
 
 
+def _ensure_endereco_fonte_column(cursor):
+    """Garante coluna `fonte` em `endereco` (bases antigas sem a coluna)."""
+    cols = _mysql_table_columns_lower(cursor, 'endereco')
+    if 'fonte' in cols:
+        return
+    try:
+        cursor.execute(
+            "ALTER TABLE `endereco` ADD COLUMN `fonte` "
+            "ENUM('GMAC','enriquecimento','terceiro') NOT NULL DEFAULT 'GMAC'"
+        )
+    except Exception as exc:
+        app.logger.debug('_ensure_endereco_fonte_column: %s', exc)
+
+
+def _endereco_tipos_por_papel(papel):
+    """Tipos de endereco permitidos conforme contexto do modal (devedor, avalista ou pessoa)."""
+    p = (papel or 'pessoa').strip().lower()
+    if p == 'devedor':
+        return _ENDERECO_TIPOS_DEVEDOR
+    if p == 'avalista':
+        return _ENDERECO_TIPOS_AVALISTA
+    return _ENDERECO_TIPOS_PESSOA
+
+
 def _migrate_contato_fonte_manual_para_terceiro(cursor):
     """Bases que chegaram a ter ENUM com `manual`: converte dados e volta ao schema de 3 valores."""
-    for tbl in ('telefone', 'email'):
+    for tbl in ('telefone', 'email', 'endereco'):
         try:
             cursor.execute(
                 f"UPDATE `{tbl}` SET `fonte` = 'terceiro' WHERE `fonte` = 'manual'"
@@ -3893,6 +3920,108 @@ def api_pessoa_add_email(pessoa_id):
             except Exception:
                 pass
         return jsonify({'error': f'Erro ao inserir e-mail: {exc}'}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+@app.route('/api/pessoa/<int:pessoa_id>/endereco', methods=['POST'])
+def api_pessoa_add_endereco(pessoa_id):
+    """Adiciona ou actualiza endereco manual (UK id_pessoa+tipo; fonte terceiro)."""
+    if not session.get('funcionario_id'):
+        return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
+    data = request.get_json(silent=True) or {}
+    papel = (data.get('papel') or 'pessoa').strip()
+    tipo = (data.get('tipo') or '').strip()
+    logradouro = (data.get('logradouro') or '').strip() or None
+    bairro = (data.get('bairro') or '').strip() or None
+    complemento = (data.get('complemento') or '').strip() or None
+    cep = (data.get('cep') or '').strip() or None
+    cidade = (data.get('cidade') or '').strip() or None
+    estado_raw = (data.get('estado') or '').strip()
+    estado = estado_raw.upper()[:2] if estado_raw else None
+    tipos_ok = _endereco_tipos_por_papel(papel)
+    if not tipo or tipo not in tipos_ok:
+        return jsonify({
+            'error': f'Tipo invalido para {papel}. Valores: {", ".join(tipos_ok)}.',
+        }), 400
+    if not any((logradouro, bairro, complemento, cep, cidade, estado)):
+        return jsonify({'error': 'Informe ao menos um campo do endereco.'}), 400
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT 1 FROM pessoa WHERE id = %s", (pessoa_id,))
+        if not cursor.fetchone():
+            return jsonify({'error': 'Pessoa nao encontrada.'}), 404
+        _ensure_endereco_fonte_column(cursor)
+        _migrate_contato_fonte_manual_para_terceiro(cursor)
+        cols = _mysql_table_columns_lower(cursor, 'endereco')
+        if 'fonte' in cols:
+            cursor.execute(
+                """
+                INSERT INTO endereco (
+                    id_pessoa, tipo, logradouro, bairro, complemento, cep, cidade, estado, fonte
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'terceiro')
+                ON DUPLICATE KEY UPDATE
+                    logradouro = VALUES(logradouro),
+                    bairro = VALUES(bairro),
+                    complemento = VALUES(complemento),
+                    cep = VALUES(cep),
+                    cidade = VALUES(cidade),
+                    estado = VALUES(estado),
+                    fonte = 'terceiro',
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (pessoa_id, tipo, logradouro, bairro, complemento, cep, cidade, estado),
+            )
+        else:
+            cursor.execute(
+                """
+                INSERT INTO endereco (
+                    id_pessoa, tipo, logradouro, bairro, complemento, cep, cidade, estado
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    logradouro = VALUES(logradouro),
+                    bairro = VALUES(bairro),
+                    complemento = VALUES(complemento),
+                    cep = VALUES(cep),
+                    cidade = VALUES(cidade),
+                    estado = VALUES(estado),
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (pessoa_id, tipo, logradouro, bairro, complemento, cep, cidade, estado),
+            )
+        conn.commit()
+        cursor.execute(
+            "SELECT * FROM endereco WHERE id_pessoa = %s AND tipo = %s",
+            (pessoa_id, tipo),
+        )
+        row = _clean_row(cursor.fetchone())
+        return jsonify({'ok': True, 'endereco': row})
+    except IntegrityError as exc:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        code = exc.args[0] if getattr(exc, 'args', None) else None
+        msg = str(exc)
+        if code == 1452:
+            return jsonify({'error': 'Pessoa nao encontrada.'}), 404
+        return jsonify({'error': f'Falha de integridade ao inserir endereco: {msg}'}), 400
+    except Exception as exc:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        return jsonify({'error': f'Erro ao inserir endereco: {exc}'}), 500
     finally:
         try:
             cursor.close()

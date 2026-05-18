@@ -43,7 +43,8 @@ Sistema web para gestao de cobranca de consorcios, com foco em:
 - Busca por contrato: grupo/cota com filtro de status.
 - Modal de contrato deve incluir dados do contrato, devedor, avalista, parcelas, ocorrencias e tramitacoes.
 - Nos telefones, manter botoes de acao visual (ligar/mensagem) conforme implementado.
-- Detalhe de contrato (Busca, Cobranca e modulos que usam o mesmo modal): quando ha `idContrato`, WhatsApp/SMS/e-mail usam mensagem automatica partilhada via `data-wa-auto-contrato`, `data-sms-auto-contrato`, `data-email-auto-contrato` e `data-primeiro-nome` nos botoes (ver `static/busca.js` `renderPessoaSection`); sem contrato no contexto, o fluxo manual continua.
+- Detalhe de contrato (Busca, Cobranca e modulos que usam o mesmo modal): quando ha `idContrato`, WhatsApp/SMS/e-mail usam mensagem automatica partilhada via `data-wa-auto-contrato`, `data-sms-auto-contrato`, `data-email-auto-contrato` e `data-primeiro-nome` nos botoes (ver `static/contrato_detalhes_modal.js` `renderPessoaSection`); sem contrato no contexto, o fluxo manual continua.
+- **Enderecos:** modal de detalhe (pessoa ou contrato) exibe `endereco.fonte` e botao «+ Endereco» (`.btn-add-endereco-pessoa`, modal global `contato_add_global.js`). Insercao manual: `POST /api/pessoa/<id>/endereco` com `fonte=terceiro` (UK `id_pessoa`+`tipo`). Tipos: devedor `principal`/`secundario`; avalista `avalista_principal`/`avalista_secundario`; detalhe so pessoa permite os quatro. **Fonte:** `GMAC` = import TXT GM (`pessoa_satellite.upsert_endereco`); `terceiro` = cadastro manual; `enriquecimento` = outras importacoes (reservado para fluxos futuros).
 
 ### 4.3 Relatorios
 - Filtro por tipo + range de datas.
@@ -99,7 +100,7 @@ Lote na pagina de importacao (preview, POST envio, export Excel): gestor/admin, 
 - `contrato.status` / `parcela.status`: valores ENUM **`cobranca`**, **`pago`**, **`indenizado`** (antes `aberto`/`fechado`; migrar com `Banco/migrate_status_aberto_fechado_para_cobranca_pago.sql`).
 - `ocorrencia.status`: inclui **`pago total`** e **`pago parcial`** (substituem o antigo `pago` para o fecho do contrato no GM no tracker: `pago total` quando não restam parcelas em `cobranca`; `pago parcial` quando ainda existem). Migracao só em `ocorrencia`: [`Banco/migrate_ocorrencia_pago_para_total_parcial.sql`](Banco/migrate_ocorrencia_pago_para_total_parcial.sql). Demais valores: `cobranca`, `indenizado`, `parcela paga`, `parcela vencida`, `parcela indenizada`. `performance.ocorrencia_status` mantém o ENUM existente (copia `o.status` só para ocorrencias de entrada em safra, em geral `cobranca`).
 - `contrato`, `pessoa`, `parcela`, `ocorrencia`
-- `telefone`, `email`, `endereco`
+- `telefone`, `email`, `endereco` (`fonte` ENUM: `GMAC`, `enriquecimento`, `terceiro`)
 - `tramitacao`, `agenda`
 - `funcionario`, `funcionario_cobranca`
 - `arquivos_gm` e tabelas de importacao GM
