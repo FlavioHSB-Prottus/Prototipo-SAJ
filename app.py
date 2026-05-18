@@ -11683,6 +11683,90 @@ def _registro_txt_serasa_insert(cursor, conn, *, tipo, nome_arquivo, conteudo_by
     conn.commit()
 
 
+SERASA_GM_SEQ_INICIAL = 4912
+_RE_SERASA_GM_NOME = re.compile(r'^SERASA_GM_(\d{8})(\d{4})', re.IGNORECASE)
+
+
+def _serasa_gm_parse_nome_arquivo(nome):
+    """Extrai data DDMMYYYY e sequencia 4 digitos de ``SERASA_GM_<data><seq>``."""
+    if not nome:
+        return None, None
+    base = str(nome).strip()
+    if base.upper().endswith('.TXT'):
+        base = base[:-4]
+    m = _RE_SERASA_GM_NOME.match(base)
+    if not m:
+        return None, None
+    return m.group(1), int(m.group(2))
+
+
+def _serasa_gm_montar_nome_arquivo(data_ddmmyyyy, sequencia):
+    return f'SERASA_GM_{data_ddmmyyyy}{int(sequencia):04d}.TXT'
+
+
+def _serasa_gm_ultimo_registro_global(cursor):
+    """Registo mais recente entre negativacao e positivacao (por ``created_at``)."""
+    _ensure_registro_txt_negativacao_table(cursor)
+    _ensure_registro_txt_positivacao_table(cursor)
+    candidatos = []
+    for table in ('registro_txt_negativacao', 'registro_txt_positivacao'):
+        cursor.execute(
+            f"SELECT nome_arquivo, created_at FROM `{table}` "
+            "ORDER BY created_at DESC, id DESC LIMIT 1"
+        )
+        row = cursor.fetchone()
+        if row:
+            candidatos.append(row)
+    if not candidatos:
+        return None
+    return max(
+        candidatos,
+        key=lambda r: r.get('created_at') if isinstance(r, dict) else r[1],
+    )
+
+
+def _serasa_gm_proxima_sequencia_global(cursor):
+    """Proxima sequencia global (+1) e nome com data de hoje (DDMMYYYY)."""
+    data_hoje = datetime.datetime.now().strftime('%d%m%Y')
+    ultimo = _serasa_gm_ultimo_registro_global(cursor)
+    ultimo_nome = None
+    if ultimo:
+        ultimo_nome = ultimo.get('nome_arquivo') if isinstance(ultimo, dict) else ultimo[0]
+    _data_ant, seq_ant = _serasa_gm_parse_nome_arquivo(ultimo_nome)
+    if seq_ant is not None:
+        sequencia = seq_ant + 1
+        if sequencia > 9999:
+            raise ValueError('Sequencia SERASA excede 9999; ajuste manualmente.')
+    else:
+        sequencia = SERASA_GM_SEQ_INICIAL
+    nome = _serasa_gm_montar_nome_arquivo(data_hoje, sequencia)
+    return {
+        'sequencia': sequencia,
+        'data_arquivo': data_hoje,
+        'nome_arquivo': nome,
+        'ultimo_nome_arquivo': ultimo_nome,
+    }
+
+
+def _serasa_gm_parse_sequencia_payload(raw):
+    """Valida sequencia 0-9999 a partir do JSON do cliente."""
+    if raw is None or (isinstance(raw, str) and not str(raw).strip()):
+        return None, 'Informe a sequencia do arquivo SERASA (4 digitos).'
+    try:
+        if isinstance(raw, str):
+            s = raw.strip()
+            if not s.isdigit() or len(s) > 4:
+                return None, 'Sequencia invalida (use ate 4 digitos numericos).'
+            seq = int(s)
+        else:
+            seq = int(raw)
+    except (TypeError, ValueError):
+        return None, 'Sequencia invalida.'
+    if seq < 0 or seq > 9999:
+        return None, 'Sequencia deve estar entre 0 e 9999.'
+    return seq, None
+
+
 def _insert_negativacao_historico(
     cursor,
     id_contrato,
@@ -13475,6 +13559,36 @@ def api_negativacao_positivar_lote_serasa_placeholder():
     })
 
 
+@app.route('/api/negativacao/serasa-arquivo-txt/sequencia', methods=['GET'])
+def api_negativacao_serasa_arquivo_txt_sequencia():
+    """Proxima sequencia global SERASA_GM (ultimo registo neg/pos + 1) para o modal de geracao."""
+    if not session.get('funcionario_id'):
+        return jsonify({'error': 'Nao autenticado. Faca login novamente.'}), 401
+    tipo = (request.args.get('tipo_operacao') or '').strip().lower()
+    if tipo not in ('positivar', 'negativar'):
+        return jsonify({'error': 'tipo_operacao deve ser "positivar" ou "negativar".'}), 400
+
+    conn = _get_db()
+    cursor = conn.cursor()
+    try:
+        info = _serasa_gm_proxima_sequencia_global(cursor)
+        return jsonify({'success': True, 'tipo_operacao': tipo, **info})
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as exc:
+        app.logger.exception('api_negativacao_serasa_arquivo_txt_sequencia')
+        return jsonify({'error': str(exc)}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 @app.route('/api/negativacao/serasa-arquivo-txt', methods=['POST'])
 def api_negativacao_serasa_arquivo_txt():
     """Gera ficheiro TXT SERASA-CONVEM para download.
@@ -13507,10 +13621,16 @@ def api_negativacao_serasa_arquivo_txt():
     if len(ids) > 20000:
         return jsonify({'error': 'Quantidade de parcelas acima do limite para um unico arquivo.'}), 400
 
+    seq, err_seq = _serasa_gm_parse_sequencia_payload(payload.get('sequencia'))
+    if err_seq:
+        return jsonify({'error': err_seq}), 400
+
+    data_hoje = datetime.datetime.now().strftime('%d%m%Y')
+    fname = secure_filename(_serasa_gm_montar_nome_arquivo(data_hoje, seq)) or 'serasa_gm.txt'
+
     conn = _get_db()
     cursor = conn.cursor()
     body = None
-    fname = None
     modo = None
     try:
         _ensure_negativacao_table(cursor)
@@ -13536,8 +13656,7 @@ def api_negativacao_serasa_arquivo_txt():
             }), 400
         modo = 'inclusao' if tipo == 'negativar' else 'exclusao'
 
-        body, fname_sug = mod.montar_arquivo_txt(modo, linhas)
-        fname = secure_filename(fname_sug) or 'serasa_conv.txt'
+        body, _fname_ign = mod.montar_arquivo_txt(modo, linhas)
         _registro_txt_serasa_insert(
             cursor,
             conn,
@@ -13570,10 +13689,12 @@ def api_negativacao_serasa_arquivo_txt():
             pass
 
     app.logger.info(
-        'negativacao serasa-arquivo-txt: tipo_operacao=%s qtd_ids=%s modo=%s',
+        'negativacao serasa-arquivo-txt: tipo_operacao=%s qtd_ids=%s modo=%s seq=%s fname=%s',
         tipo,
         len(ids),
         modo,
+        seq,
+        fname,
     )
     return send_file(
         io.BytesIO(body),

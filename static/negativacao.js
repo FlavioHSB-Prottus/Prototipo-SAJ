@@ -923,15 +923,142 @@ document.addEventListener('DOMContentLoaded', function () {
         return m ? m[1].trim().replace(/^"+|"+$/g, '') : null;
     }
 
-    /** Descarrega TXT SERASA-CONVEM (POST; negativar: linhas 1I). Regista copia em registro_txt_* no servidor. */
-    function downloadSerasaConvTxt(tipoOperacao, ids, faixa) {
+    var negSerasaSeqPending = null;
+    var negSerasaSeqDataArquivo = '';
+
+    function montarNomePreviewSerasa(dataArquivo, sequencia) {
+        var seq = parseInt(sequencia, 10);
+        if (isNaN(seq) || seq < 0) seq = 0;
+        if (seq > 9999) seq = 9999;
+        var s4 = String(seq);
+        while (s4.length < 4) s4 = '0' + s4;
+        return 'SERASA_GM_' + (dataArquivo || '') + s4 + '.TXT';
+    }
+
+    function fecharModalSequenciaSerasa() {
+        var ov = document.getElementById('negSerasaSeqOverlay');
+        if (ov) ov.classList.add('d-none');
+        negSerasaSeqPending = null;
+    }
+
+    function atualizarPreviewNomeSerasa() {
+        var inp = document.getElementById('negSerasaSeqInput');
+        var prev = document.getElementById('negSerasaSeqNomePreview');
+        if (!inp || !prev) return;
+        prev.value = montarNomePreviewSerasa(negSerasaSeqDataArquivo, inp.value);
+    }
+
+    function bindModalSequenciaSerasa() {
+        var ov = document.getElementById('negSerasaSeqOverlay');
+        var inp = document.getElementById('negSerasaSeqInput');
+        var btnOk = document.getElementById('negSerasaSeqConfirmar');
+        var btnCancel = document.getElementById('negSerasaSeqCancelar');
+        var btnX = document.getElementById('negSerasaSeqFecharX');
+        if (!ov || ov.dataset.negSerasaSeqBound === '1') return;
+        ov.dataset.negSerasaSeqBound = '1';
+        if (inp) {
+            inp.addEventListener('input', atualizarPreviewNomeSerasa);
+            inp.addEventListener('change', atualizarPreviewNomeSerasa);
+        }
+        if (btnCancel) btnCancel.addEventListener('click', fecharModalSequenciaSerasa);
+        if (btnX) btnX.addEventListener('click', fecharModalSequenciaSerasa);
+        ov.addEventListener('click', function (e) {
+            if (e.target === ov) fecharModalSequenciaSerasa();
+        });
+        if (btnOk) {
+            btnOk.addEventListener('click', function () {
+                if (!negSerasaSeqPending) return;
+                var seqRaw = inp ? inp.value : '';
+                var seq = parseInt(seqRaw, 10);
+                if (isNaN(seq) || seq < 0 || seq > 9999) {
+                    alert('Informe uma sequencia valida entre 0 e 9999.');
+                    return;
+                }
+                var pend = negSerasaSeqPending;
+                fecharModalSequenciaSerasa();
+                btnOk.disabled = true;
+                downloadSerasaConvTxt(pend.tipoOperacao, pend.ids, pend.faixa, seq)
+                    .catch(function (err) { alert(err.message || String(err)); })
+                    .finally(function () { btnOk.disabled = false; });
+            });
+        }
+    }
+
+    /**
+     * Abre modal com sequencia sugerida (GET) e, ao confirmar, gera o TXT.
+     * @param {string} tipoOperacao negativar | positivar
+     * @param {number[]} ids
+     * @param {string|null} faixa
+     */
+    function abrirModalSequenciaTxtSerasa(tipoOperacao, ids, faixa) {
+        bindModalSequenciaSerasa();
+        var ov = document.getElementById('negSerasaSeqOverlay');
+        var title = document.getElementById('negSerasaSeqTitle');
+        var sub = document.getElementById('negSerasaSeqSub');
+        var ult = document.getElementById('negSerasaSeqUltimo');
+        var qtdEl = document.getElementById('negSerasaSeqQtd');
+        var inp = document.getElementById('negSerasaSeqInput');
+        var btnOk = document.getElementById('negSerasaSeqConfirmar');
+        if (!ov || !inp) {
+            alert('Modal de sequencia SERASA indisponivel.');
+            return;
+        }
+        if (btnOk) btnOk.disabled = true;
+        var labelTipo = tipoOperacao === 'positivar' ? 'positivacao' : 'negativacao';
+        if (title) {
+            title.innerHTML = '<i class="fa-solid fa-file-lines"></i> Gerar TXT de ' + labelTipo;
+        }
+        if (sub) {
+            sub.textContent =
+                'Nome: SERASA_GM_ + data de hoje (DDMMAAAA) + sequencia de 4 digitos. ' +
+                'A sequencia e global (ultimo arquivo negativacao ou positivacao + 1).';
+        }
+        if (qtdEl) {
+            qtdEl.textContent = ids.length + ' parcela(s) no arquivo.';
+        }
+        fetch('/api/negativacao/serasa-arquivo-txt/sequencia?tipo_operacao=' +
+            encodeURIComponent(tipoOperacao), { credentials: 'same-origin' })
+            .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+            .then(function (o) {
+                if (!o.ok || o.j.error) {
+                    throw new Error(o.j.error || 'Falha ao obter sequencia.');
+                }
+                var j = o.j;
+                negSerasaSeqDataArquivo = j.data_arquivo || '';
+                inp.value = j.sequencia != null ? String(j.sequencia) : '4912';
+                atualizarPreviewNomeSerasa();
+                if (ult) {
+                    if (j.ultimo_nome_arquivo) {
+                        ult.textContent = 'Ultimo arquivo registado: ' + j.ultimo_nome_arquivo;
+                        ult.classList.remove('d-none');
+                    } else {
+                        ult.textContent = '';
+                        ult.classList.add('d-none');
+                    }
+                }
+                negSerasaSeqPending = { tipoOperacao: tipoOperacao, ids: ids, faixa: faixa || null };
+                ov.classList.remove('d-none');
+                inp.focus();
+                inp.select();
+            })
+            .catch(function (err) {
+                alert(err.message || String(err));
+            })
+            .finally(function () {
+                if (btnOk) btnOk.disabled = false;
+            });
+    }
+
+    /** Descarrega TXT SERASA-CONVEM (POST). Regista copia em registro_txt_* no servidor. */
+    function downloadSerasaConvTxt(tipoOperacao, ids, faixa, sequencia) {
         return fetch('/api/negativacao/serasa-arquivo-txt', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 tipo_operacao: tipoOperacao,
                 ids_parcela: ids,
-                faixa: faixa || null
+                faixa: faixa || null,
+                sequencia: sequencia
             })
         }).then(function (res) {
             if (!res.ok) {
@@ -968,13 +1095,7 @@ document.addEventListener('DOMContentLoaded', function () {
             );
             return;
         }
-        var qtd = ids.length;
-        if (!window.confirm(
-            'Gerar TXT de positivação (exclusão SERASA-CONVEM; modelo GM só cabeçalho e rodapé) ' +
-            'para ' + qtd + ' parcela(s) elegível(is)? O ficheiro será descarregado; não envia à API.'
-        )) return;
-        downloadSerasaConvTxt('positivar', ids, null)
-            .catch(function (err) { alert(err.message || String(err)); });
+        abrirModalSequenciaTxtSerasa('positivar', ids, null);
     }
 
     function bindNegSplitPanels() {
@@ -1038,18 +1159,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     '(somente negativado tracker ou falha de envio).'));
             return;
         }
-        var nomeBloco = faixa === 'negativados' ? 'Negativados' : 'Positivados';
-        var qtd = ids.length;
-        var msgTipo = tipoOperacao === 'positivar'
-            ? ('gerar TXT de positivacao (_POSITIVACAO.TXT; modelo GM sem linhas de detalhe) para ' +
-                qtd + ' parcela(s) elegivel(is) no bloco ' + nomeBloco)
-            : ('gerar TXT de negativacao (inclusao SERASA-CONVEM, linhas 1I / motivo 00, layout legado PHP) com ' +
-                qtd + ' linha(s) de detalhe no bloco ' + nomeBloco);
-        if (!window.confirm(
-            'Confirmar ' + msgTipo + '? O ficheiro sera descarregado; nao envia automaticamente para a API Serasa.'
-        )) return;
-        downloadSerasaConvTxt(tipoOperacao, ids, faixa)
-            .catch(function (err) { alert(err.message || String(err)); });
+        abrirModalSequenciaTxtSerasa(tipoOperacao, ids, faixa);
     }
 
     /**

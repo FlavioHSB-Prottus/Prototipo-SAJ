@@ -203,6 +203,64 @@
         color: #15803d;
     }
     .neg-cobranca-kpis .fb-dot.dot-positivados { background-color: #22c55e; }
+    .neg-serasa-seq-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.55);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        padding: 20px;
+    }
+    .neg-serasa-seq-overlay.d-none { display: none !important; }
+    .neg-serasa-seq-modal {
+        background: #fff;
+        border-radius: 12px;
+        width: 100%;
+        max-width: 480px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+        overflow: hidden;
+    }
+    .neg-serasa-seq-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 18px 22px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    .neg-serasa-seq-header h3 { margin: 0 0 4px; font-size: 1.05rem; color: #1e293b; }
+    .neg-serasa-seq-sub { margin: 0; font-size: 0.82rem; color: #64748b; line-height: 1.4; }
+    .neg-serasa-seq-close {
+        background: transparent;
+        border: none;
+        font-size: 1.4rem;
+        cursor: pointer;
+        color: #64748b;
+        line-height: 1;
+    }
+    .neg-serasa-seq-body { padding: 18px 22px; display: flex; flex-direction: column; gap: 14px; }
+    .neg-serasa-seq-body label { font-size: 0.85rem; font-weight: 600; color: #334155; display: block; margin-bottom: 6px; }
+    .neg-serasa-seq-body input[type="number"],
+    .neg-serasa-seq-body input[type="text"] {
+        width: 100%;
+        padding: 8px 10px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        font-size: 0.95rem;
+        box-sizing: border-box;
+    }
+    .neg-serasa-seq-hint { font-size: 0.8rem; color: #64748b; margin: 0; }
+    .neg-serasa-seq-footer {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 10px;
+        padding: 14px 22px;
+        border-top: 1px solid #e2e8f0;
+        background: #f8fafc;
+    }
 </style>
 {% endblock %}
 
@@ -369,6 +427,34 @@
         </div>
     </div>
 
+</div>
+
+<div class="neg-serasa-seq-overlay d-none" id="negSerasaSeqOverlay" role="dialog" aria-modal="true" aria-labelledby="negSerasaSeqTitle">
+    <div class="neg-serasa-seq-modal">
+        <header class="neg-serasa-seq-header">
+            <div>
+                <h3 id="negSerasaSeqTitle"><i class="fa-solid fa-file-lines"></i> Gerar arquivo SERASA</h3>
+                <p class="neg-serasa-seq-sub" id="negSerasaSeqSub">Confirme a sequencia do nome do arquivo (SERASA_GM + data + 4 digitos).</p>
+            </div>
+            <button type="button" class="neg-serasa-seq-close" id="negSerasaSeqFecharX" aria-label="Fechar">&times;</button>
+        </header>
+        <div class="neg-serasa-seq-body">
+            <p class="neg-serasa-seq-hint d-none" id="negSerasaSeqUltimo"></p>
+            <div>
+                <label for="negSerasaSeqInput">Sequencia (4 digitos)</label>
+                <input type="number" id="negSerasaSeqInput" min="0" max="9999" step="1" inputmode="numeric" autocomplete="off">
+            </div>
+            <div>
+                <label for="negSerasaSeqNomePreview">Nome do arquivo</label>
+                <input type="text" id="negSerasaSeqNomePreview" readonly>
+            </div>
+            <p class="neg-serasa-seq-hint" id="negSerasaSeqQtd"></p>
+        </div>
+        <footer class="neg-serasa-seq-footer">
+            <button type="button" class="btn-secondary" id="negSerasaSeqCancelar">Cancelar</button>
+            <button type="button" class="btn-search" id="negSerasaSeqConfirmar"><i class="fa-solid fa-download"></i> Gerar e descarregar</button>
+        </footer>
+    </div>
 </div>
 
 <div id="detalhesModal" class="modal-overlay">

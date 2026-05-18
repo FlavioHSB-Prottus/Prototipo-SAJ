@@ -263,7 +263,9 @@ def montar_arquivo_txt(
     zeros40: str | None = None,
     codigo_credor_padrao: str | None = None,
 ) -> tuple[bytes, str]:
-    """Build file bytes (latin-1, CRLF) and suggested filename.
+    """Build file bytes (latin-1, CRLF). Second return value is legacy hint only.
+
+    O nome final do ficheiro (``SERASA_GM_<DDMMYYYY><seq4>.TXT``) e definido em ``app.py``.
 
     modo: inclusao (negativacao, linhas **1I**, motivo 00) ou exclusao (positivacao, linhas **1E**,
     motivo 02), ambos com cabecalho + detalhes 600 chars + rodape,     alinhado ao legado PHP em
@@ -363,7 +365,4 @@ def montar_arquivo_txt(
         out_lines.append(montar_linha_trailer(seq))
 
     body = '\r\n'.join(out_lines) + '\r\n'
-    # Nome do ficheiro para o operador (layout interno segue inclusao/exclusao SERASA-CONVEM).
-    tag = 'NEGATIVACAO' if modo == 'inclusao' else 'POSITIVACAO'
-    nome = f"SERASA_GM_{datetime.now().strftime('%d%m%Y%H%M')}_{tag}.TXT"
-    return body.encode('latin-1', errors='replace'), nome
+    return body.encode('latin-1', errors='replace'), ''
