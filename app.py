@@ -11793,7 +11793,7 @@ def _validar_ids_contratos(ids):
     return out, None
 
 
-_COBRANCA_BLOCO_EXCEL_COLUMNS = (
+_COBRANCA_BLOCO_EXCEL_COLUMNS_BEFORE_PHONES = (
     ('Ordem', 'ordem'),
     ('Grupo', 'grupo'),
     ('Cota', 'cota'),
@@ -11805,22 +11805,33 @@ _COBRANCA_BLOCO_EXCEL_COLUMNS = (
     ('Parcelas abertas', 'parcelas_abertas'),
     ('Nº parcela alvo', 'numero_parcela_alvo'),
     ('Operador cobrança', 'nome_funcionario'),
-    ('Telefone(s)', 'telefones'),
+)
+
+_COBRANCA_BLOCO_EXCEL_COLUMNS_AFTER_PHONES = (
     ('E-mail(s)', 'emails'),
     ('R$ crédito', 'valor_credito'),
     ('Status negativação', 'status_negativacao'),
 )
 
 
-def _contatos_lista_por_pessoa(cursor, pessoa_ids):
-    """Telefones e e-mails cadastrados (todos), separados por '; '."""
+def _cobranca_bloco_excel_column_defs(max_telefones):
+    """Colunas fixas + Telefone 1..N (N = máximo de números num contrato da exportação)."""
+    cols = list(_COBRANCA_BLOCO_EXCEL_COLUMNS_BEFORE_PHONES)
+    for i in range(1, max(0, int(max_telefones or 0)) + 1):
+        cols.append((f'Telefone {i}', f'telefone_{i}'))
+    cols.extend(_COBRANCA_BLOCO_EXCEL_COLUMNS_AFTER_PHONES)
+    return cols
+
+
+def _contatos_listas_por_pessoa(cursor, pessoa_ids):
+    """Telefones (lista por pessoa) e e-mails (texto com '; ')."""
     if not pessoa_ids:
         return {}, {}
     ids = list(dict.fromkeys(pessoa_ids))
     tel_map = _telefones_por_pessoas(cursor, ids)
     email_map = _emails_por_pessoas(cursor, ids)
     sep = '; '
-    tel_txt = {}
+    tel_lists = {}
     em_txt = {}
     for pid in ids:
         nums = []
@@ -11833,9 +11844,9 @@ def _contatos_lista_por_pessoa(cursor, pessoa_ids):
             e = (em.get('email') or '').strip()
             if e:
                 mails.append(e)
-        tel_txt[pid] = sep.join(nums)
+        tel_lists[pid] = nums
         em_txt[pid] = sep.join(mails)
-    return tel_txt, em_txt
+    return tel_lists, em_txt
 
 
 def _cobranca_bloco_excel_linhas(cursor, contrato_ids):
@@ -11908,7 +11919,7 @@ def _cobranca_bloco_excel_linhas(cursor, contrato_ids):
         app.logger.exception('cobranca_bloco_excel: falha ao consultar negativacao')
         neg_por_contrato = {}
 
-    tel_txt, em_txt = _contatos_lista_por_pessoa(cursor, pessoa_ids)
+    tel_lists, em_txt = _contatos_listas_por_pessoa(cursor, pessoa_ids)
 
     out = []
     for ordem, r in enumerate(rows, start=1):
@@ -11964,7 +11975,7 @@ def _cobranca_bloco_excel_linhas(cursor, contrato_ids):
             'parcelas_abertas': int(r.get('parcelas_abertas') or 0),
             'numero_parcela_alvo': r.get('numero_parcela_alvo') or '',
             'nome_funcionario': r.get('nome_funcionario') or '',
-            'telefones': tel_txt.get(pid_i, '') if pid_i is not None else '',
+            'telefones': list(tel_lists.get(pid_i, [])) if pid_i is not None else [],
             'emails': em_txt.get(pid_i, '') if pid_i is not None else '',
             'valor_credito': cred_f,
             'status_negativacao': st_neg,
@@ -11977,7 +11988,13 @@ def _write_cobranca_bloco_excel(wb, linhas):
 
     ws = wb.active
     ws.title = 'Lista ligacao'
-    ncols = len(_COBRANCA_BLOCO_EXCEL_COLUMNS)
+    max_tels = 0
+    for row in linhas:
+        tels = row.get('telefones') or []
+        if len(tels) > max_tels:
+            max_tels = len(tels)
+    columns = _cobranca_bloco_excel_column_defs(max_tels)
+    ncols = len(columns)
 
     header_font = Font(bold=True, color='FFFFFF', size=11)
     header_fill = PatternFill(start_color='047857', end_color='047857', fill_type='solid')
@@ -11991,7 +12008,7 @@ def _write_cobranca_bloco_excel(wb, linhas):
     alt_fill = PatternFill(start_color='F8FAFC', end_color='F8FAFC', fill_type='solid')
     brl_fmt = '#,##0.00'
 
-    for col_idx, (label, _key) in enumerate(_COBRANCA_BLOCO_EXCEL_COLUMNS, start=1):
+    for col_idx, (label, _key) in enumerate(columns, start=1):
         cell = ws.cell(row=1, column=col_idx, value=label)
         cell.font = header_font
         cell.fill = header_fill
@@ -11999,8 +12016,16 @@ def _write_cobranca_bloco_excel(wb, linhas):
         cell.border = thin_border
 
     for row_idx, row in enumerate(linhas, start=2):
-        for col_idx, (_label, key) in enumerate(_COBRANCA_BLOCO_EXCEL_COLUMNS, start=1):
-            val = row.get(key, '')
+        tels = row.get('telefones') or []
+        for col_idx, (_label, key) in enumerate(columns, start=1):
+            if key.startswith('telefone_'):
+                try:
+                    tel_i = int(key.split('_', 1)[1]) - 1
+                except (TypeError, ValueError, IndexError):
+                    tel_i = -1
+                val = tels[tel_i] if 0 <= tel_i < len(tels) else ''
+            else:
+                val = row.get(key, '')
             cell = ws.cell(row=row_idx, column=col_idx, value=val if val is not None else '')
             cell.border = thin_border
             if (row_idx - 2) % 2 == 1:
@@ -12008,7 +12033,10 @@ def _write_cobranca_bloco_excel(wb, linhas):
             if key == 'valor_credito' and isinstance(val, (int, float)) and not isinstance(val, bool):
                 cell.number_format = brl_fmt
 
-    widths = [8, 10, 8, 14, 32, 16, 11, 16, 12, 12, 22, 28, 32, 14, 18]
+    widths_before = [8, 10, 8, 14, 32, 16, 11, 16, 12, 12, 22]
+    widths_tel = [16] * max_tels
+    widths_after = [32, 14, 18]
+    widths = widths_before + widths_tel + widths_after
     for col_idx, w in enumerate(widths[:ncols], start=1):
         ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = w
 
