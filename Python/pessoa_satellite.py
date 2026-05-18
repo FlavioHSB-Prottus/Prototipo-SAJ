@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import re
 
-# Telefones vindos do GM (tracker): só persistir se houver ao menos estes dígitos,
-# ignorando zeros à esquerda no critério (ex.: "000", "031000", DDD+fragmento curto).
+# Telefones vindos do GM (tracker): gravar em `telefone.numero`/`ramal` só dígitos 0-9;
+# validar com ao menos MIN_DIGITOS significativos (zeros à esquerda não contam).
 MIN_DIGITOS_TELEFONE_VALIDO = 8
 
 
@@ -26,10 +26,14 @@ def _null_if_empty(s: str):
     return s if s else None
 
 
+def _digitos_apenas(val) -> str:
+    """Mantém só 0-9 para persistência em `telefone.numero` / `ramal`."""
+    return re.sub(r'\D', '', _s(val))
+
+
 def _digitos_significativos_telefone(numero_completo) -> str:
     """Somente dígitos, sem zeros à esquerda (base para contagem de tamanho)."""
-    d = re.sub(r'\D', '', _s(numero_completo))
-    return d.lstrip('0')
+    return _digitos_apenas(numero_completo).lstrip('0')
 
 
 def telefone_e_valido_para_tracker(numero_completo, *, min_digitos: int = MIN_DIGITOS_TELEFONE_VALIDO) -> bool:
@@ -82,9 +86,9 @@ def upsert_endereco(
 
 
 def upsert_telefone(cursor, pessoa_id: int, tipo: str, numero_completo, ramal=None) -> None:
-    raw = _s(numero_completo)
-    ram = _s(ramal)
-    num = raw
+    """Grava telefone com `numero` e `ramal` normalizados (apenas dígitos 0-9)."""
+    num = _digitos_apenas(numero_completo)
+    ram = _digitos_apenas(ramal) if ramal is not None and _s(ramal) else ''
     invalid = bool(num) and not telefone_e_valido_para_tracker(num)
     if invalid:
         num = ''
@@ -104,7 +108,7 @@ def upsert_telefone(cursor, pessoa_id: int, tipo: str, numero_completo, ramal=No
             ramal = VALUES(ramal),
             updated_at = CURRENT_TIMESTAMP
         """,
-        (pessoa_id, tipo, num or "", _null_if_empty(ramal)),
+        (pessoa_id, tipo, num or "", ram or None),
     )
 
 
