@@ -154,7 +154,6 @@ CREATE TABLE IF NOT EXISTS `endereco` (
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `fonte` enum('GMAC','enriquecimento','terceiro') NOT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_endereco_pessoa_tipo` (`id_pessoa`,`tipo`),
   UNIQUE KEY `endereco_id_pessoa_IDX` (`id_pessoa`,`cep`) USING BTREE,
   KEY `idx_endereco_pessoa` (`id_pessoa`),
   CONSTRAINT `fk_endereco_pessoa` FOREIGN KEY (`id_pessoa`) REFERENCES `pessoa` (`id`) ON DELETE CASCADE
