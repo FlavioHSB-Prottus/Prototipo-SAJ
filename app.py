@@ -11972,7 +11972,7 @@ def _cobranca_bloco_excel_linhas(cursor, contrato_ids):
     return out
 
 
-def _write_cobranca_bloco_excel(wb, linhas, titulo):
+def _write_cobranca_bloco_excel(wb, linhas):
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
     ws = wb.active
@@ -11991,32 +11991,26 @@ def _write_cobranca_bloco_excel(wb, linhas, titulo):
     alt_fill = PatternFill(start_color='F8FAFC', end_color='F8FAFC', fill_type='solid')
     brl_fmt = '#,##0.00'
 
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
-    title_cell = ws.cell(row=1, column=1, value=titulo)
-    title_cell.font = Font(bold=True, size=12)
-    title_cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
-    ws.row_dimensions[1].height = 28
-
     for col_idx, (label, _key) in enumerate(_COBRANCA_BLOCO_EXCEL_COLUMNS, start=1):
-        cell = ws.cell(row=3, column=col_idx, value=label)
+        cell = ws.cell(row=1, column=col_idx, value=label)
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = header_align
         cell.border = thin_border
 
-    for row_idx, row in enumerate(linhas, start=4):
+    for row_idx, row in enumerate(linhas, start=2):
         for col_idx, (_label, key) in enumerate(_COBRANCA_BLOCO_EXCEL_COLUMNS, start=1):
             val = row.get(key, '')
             cell = ws.cell(row=row_idx, column=col_idx, value=val if val is not None else '')
             cell.border = thin_border
-            if (row_idx - 4) % 2 == 1:
+            if (row_idx - 2) % 2 == 1:
                 cell.fill = alt_fill
             if key == 'valor_credito' and isinstance(val, (int, float)) and not isinstance(val, bool):
                 cell.number_format = brl_fmt
 
     widths = [8, 10, 8, 14, 32, 16, 11, 16, 12, 12, 22, 28, 32, 14, 18]
     for col_idx, w in enumerate(widths[:ncols], start=1):
-        ws.column_dimensions[ws.cell(row=3, column=col_idx).column_letter].width = w
+        ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = w
 
 
 @app.route('/api/automacao/preview', methods=['POST'])
@@ -12097,14 +12091,6 @@ def api_cobranca_sms_email_excel():
     )
 
 
-_COBRANCA_BLOCO_NIVEL_LABEL = {
-    'critico': 'Critico',
-    'atencao': 'Atencao',
-    'recente': 'Recente',
-    'todos': 'Carteira',
-}
-
-
 @app.route('/api/cobranca/bloco/excel', methods=['POST'])
 def api_cobranca_bloco_excel():
     """Excel da lista de contratos de um bloco (ex.: antes das ligações sequenciais)."""
@@ -12116,7 +12102,6 @@ def api_cobranca_bloco_excel():
         return jsonify({'error': err}), 400
 
     nivel = (payload.get('nivel') or 'bloco').strip().lower()
-    nivel_label = _COBRANCA_BLOCO_NIVEL_LABEL.get(nivel, nivel.replace('_', ' ').title())
 
     try:
         from openpyxl import Workbook
@@ -12133,12 +12118,7 @@ def api_cobranca_bloco_excel():
             return jsonify({'error': 'Nenhum contrato em cobranca encontrado para os IDs informados.'}), 404
 
         wb = Workbook()
-        titulo = (
-            f'Lista de ligacao — bloco {nivel_label} — '
-            f'{datetime.datetime.now().strftime("%d/%m/%Y %H:%M")} — '
-            f'{len(linhas)} contrato(s)'
-        )
-        _write_cobranca_bloco_excel(wb, linhas, titulo)
+        _write_cobranca_bloco_excel(wb, linhas)
         buf = io.BytesIO()
         wb.save(buf)
         buf.seek(0)

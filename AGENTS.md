@@ -28,6 +28,7 @@ Sistema web para gestao de cobranca de consorcios, com foco em:
 - Nao silenciar erros; retornar mensagens claras sem expor dado sensivel.
 - Manter compatibilidade entre `app.py` e scripts em `Python/` para nomes `DB_*`.
 - Atualizar README/docs quando mudar setup, comportamento ou convencao.
+- **Deploy:** manual (sem CI/CD no repo); ver [`docs/DEPLOY.md`](docs/DEPLOY.md) e secao correspondente no [`README.md`](README.md). Servidor de testes tipicamente VM atras de VPN; Gunicorn com **1 worker** por estado de importacao GM em memoria.
 
 ## 4) Regras de negocio consolidadas
 

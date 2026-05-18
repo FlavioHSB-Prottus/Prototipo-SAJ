@@ -4,6 +4,8 @@ Este documento descreve **todos os ficheiros `.py`** do repositorio, o **fluxo d
 
 **Ambiente:** `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` (e opcional `DB_PORT` / `MYSQL_*`). Opcional **`SESSION_IDLE_MAX_SEC`** (defeito 3600): tempo maximo sem renovar `session['_idle_last']` antes de expirar a sessao. Ver `.env.example` e `AGENTS.md`.
 
+**Deploy (local, VM/VPN, servidor):** procedimento manual, Gunicorn, base de dados e restricoes de workers — [`docs/DEPLOY.md`](DEPLOY.md).
+
 **Metodologia e governanca:** regras obrigatorias em `.cursor/rules/metodologia-joao-barbosa.mdc` (raiz do repo); produto e negocio consolidados em `AGENTS.md`.
 
 ---
@@ -266,4 +268,19 @@ Comportamento de `static/*.js`, ordem de scripts em `layout.html` e mapa templat
 
 ---
 
-*Estado do repositorio: monolito `app.py` + modulos em `Python/` e `Banco/` conforme tabela da secao 2. Frontend: ver `DOCUMENTACAO_JS_PROJETO_SAJ.md`.*
+## 18. Deploy e execucao em servidor
+
+Resumo; detalhe completo em **`docs/DEPLOY.md`**.
+
+| Modo | Comando / nota |
+|------|----------------|
+| Desenvolvimento | `python app.py` → `app.run(host='0.0.0.0', debug=True, port=5000)` no final de `app.py` |
+| Servidor (recomendado) | `gunicorn -w 1 -b 127.0.0.1:5000 app:app` (+ nginx TLS); **1 worker** por causa de `_import_jobs` em memoria |
+| Base de dados | `python Banco/criar_banco.py`, `seed_funcionarios.py`; migracoes `Banco/*.sql` em bases antigas |
+| Configuracao | `.env` na raiz; `load_dotenv` antes de `DB_CONFIG` |
+
+Nao ha CI/CD nem Dockerfile no repositorio; atualizacao = `git pull`, `pip install -r requirements.txt`, restart do servico, migracoes SQL se aplicavel.
+
+---
+
+*Estado do repositorio: monolito `app.py` + modulos em `Python/` e `Banco/` conforme tabela da secao 2. Frontend: ver `DOCUMENTACAO_JS_PROJETO_SAJ.md`. Deploy: ver `docs/DEPLOY.md`.*
